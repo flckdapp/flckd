@@ -1,0 +1,444 @@
+{
+  "schema": 1,
+  "_comment": [
+    "Region pack definitions for the FLCKD tile service.",
+    "Generated from https://download.geofabrik.de/index-v1-nogeom.json on 2026-08-30.",
+    "Boundaries come from Geofabrik .poly files - we do NOT hand-write bounding boxes.",
+    "source_pbf_bytes_observed is INFORMATIONAL ONLY (sizing/planning). It is not used by the build.",
+    "Pack granularity is a whole Valhalla tile (level 0 = 4 deg, 1 = 1 deg, 2 = 0.25 deg),",
+    "so adjacent packs overlap slightly at their borders. That is intentional: it keeps",
+    "routing continuous across a state line for a user who only downloaded one side."
+  ],
+  "source": {
+    "index": "https://download.geofabrik.de/index-v1-nogeom.json",
+    "parent_pbf": "https://download.geofabrik.de/north-america/us-latest.osm.pbf",
+    "parent_pbf_bytes_observed": 12112357839,
+    "parent_pbf_observed_at": "Sat, 29 Aug 2026 22:54:16 GMT"
+  },
+  "packs": [
+    {
+      "id": "alabama",
+      "name": "Alabama",
+      "iso3166_2": "US-AL",
+      "poly_url": "https://download.geofabrik.de/north-america/us/alabama.poly",
+      "source_pbf_bytes_observed": 148718816,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:53:51 GMT"
+    },
+    {
+      "id": "alaska",
+      "name": "Alaska",
+      "iso3166_2": "US-AK",
+      "poly_url": "https://download.geofabrik.de/north-america/us/alaska.poly",
+      "source_pbf_bytes_observed": 143866467,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:52:35 GMT"
+    },
+    {
+      "id": "arizona",
+      "name": "Arizona",
+      "iso3166_2": "US-AZ",
+      "poly_url": "https://download.geofabrik.de/north-america/us/arizona.poly",
+      "source_pbf_bytes_observed": 301187419,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:47:43 GMT"
+    },
+    {
+      "id": "arkansas",
+      "name": "Arkansas",
+      "iso3166_2": "US-AR",
+      "poly_url": "https://download.geofabrik.de/north-america/us/arkansas.poly",
+      "source_pbf_bytes_observed": 99354617,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:49:29 GMT"
+    },
+    {
+      "id": "california",
+      "name": "California",
+      "iso3166_2": "US-CA",
+      "poly_url": "https://download.geofabrik.de/north-america/us/california.poly",
+      "source_pbf_bytes_observed": 1326064855,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:51:04 GMT"
+    },
+    {
+      "id": "colorado",
+      "name": "Colorado",
+      "iso3166_2": "US-CO",
+      "poly_url": "https://download.geofabrik.de/north-america/us/colorado.poly",
+      "source_pbf_bytes_observed": 380270128,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:50:46 GMT"
+    },
+    {
+      "id": "connecticut",
+      "name": "Connecticut",
+      "iso3166_2": "US-CT",
+      "poly_url": "https://download.geofabrik.de/north-america/us/connecticut.poly",
+      "source_pbf_bytes_observed": 216408722,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:52:17 GMT"
+    },
+    {
+      "id": "delaware",
+      "name": "Delaware",
+      "iso3166_2": "US-DE",
+      "poly_url": "https://download.geofabrik.de/north-america/us/delaware.poly",
+      "source_pbf_bytes_observed": 22057048,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:48:02 GMT"
+    },
+    {
+      "id": "district-of-columbia",
+      "name": "District of Columbia",
+      "iso3166_2": "US-DC",
+      "poly_url": "https://download.geofabrik.de/north-america/us/district-of-columbia.poly",
+      "source_pbf_bytes_observed": 20943431,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:50:57 GMT"
+    },
+    {
+      "id": "florida",
+      "name": "Florida",
+      "iso3166_2": "US-FL",
+      "poly_url": "https://download.geofabrik.de/north-america/us/florida.poly",
+      "source_pbf_bytes_observed": 655474840,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:47:23 GMT"
+    },
+    {
+      "id": "georgia",
+      "name": "Georgia",
+      "iso3166_2": "US-GA",
+      "poly_url": "https://download.geofabrik.de/north-america/us/georgia.poly",
+      "source_pbf_bytes_observed": 355625653,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:52:48 GMT"
+    },
+    {
+      "id": "hawaii",
+      "name": "Hawaii",
+      "iso3166_2": "US-HI",
+      "poly_url": "https://download.geofabrik.de/north-america/us/hawaii.poly",
+      "source_pbf_bytes_observed": 26777685,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:53:43 GMT"
+    },
+    {
+      "id": "idaho",
+      "name": "Idaho",
+      "iso3166_2": "US-ID",
+      "poly_url": "https://download.geofabrik.de/north-america/us/idaho.poly",
+      "source_pbf_bytes_observed": 128353128,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:53:45 GMT"
+    },
+    {
+      "id": "illinois",
+      "name": "Illinois",
+      "iso3166_2": "US-IL",
+      "poly_url": "https://download.geofabrik.de/north-america/us/illinois.poly",
+      "source_pbf_bytes_observed": 358032664,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:48:37 GMT"
+    },
+    {
+      "id": "indiana",
+      "name": "Indiana",
+      "iso3166_2": "US-IN",
+      "poly_url": "https://download.geofabrik.de/north-america/us/indiana.poly",
+      "source_pbf_bytes_observed": 198237688,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:53:40 GMT"
+    },
+    {
+      "id": "iowa",
+      "name": "Iowa",
+      "iso3166_2": "US-IA",
+      "poly_url": "https://download.geofabrik.de/north-america/us/iowa.poly",
+      "source_pbf_bytes_observed": 133043908,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:52:54 GMT"
+    },
+    {
+      "id": "kansas",
+      "name": "Kansas",
+      "iso3166_2": "US-KS",
+      "poly_url": "https://download.geofabrik.de/north-america/us/kansas.poly",
+      "source_pbf_bytes_observed": 115344814,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:48:42 GMT"
+    },
+    {
+      "id": "kentucky",
+      "name": "Kentucky",
+      "iso3166_2": "US-KY",
+      "poly_url": "https://download.geofabrik.de/north-america/us/kentucky.poly",
+      "source_pbf_bytes_observed": 153309669,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:52:01 GMT"
+    },
+    {
+      "id": "louisiana",
+      "name": "Louisiana",
+      "iso3166_2": "US-LA",
+      "poly_url": "https://download.geofabrik.de/north-america/us/louisiana.poly",
+      "source_pbf_bytes_observed": 145891909,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:50:33 GMT"
+    },
+    {
+      "id": "maine",
+      "name": "Maine",
+      "iso3166_2": "US-ME",
+      "poly_url": "https://download.geofabrik.de/north-america/us/maine.poly",
+      "source_pbf_bytes_observed": 90668468,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:46:49 GMT"
+    },
+    {
+      "id": "maryland",
+      "name": "Maryland",
+      "iso3166_2": "US-MD",
+      "poly_url": "https://download.geofabrik.de/north-america/us/maryland.poly",
+      "source_pbf_bytes_observed": 213851614,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:47:13 GMT"
+    },
+    {
+      "id": "massachusetts",
+      "name": "Massachusetts",
+      "iso3166_2": "US-MA",
+      "poly_url": "https://download.geofabrik.de/north-america/us/massachusetts.poly",
+      "source_pbf_bytes_observed": 309750034,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:50:07 GMT"
+    },
+    {
+      "id": "michigan",
+      "name": "Michigan",
+      "iso3166_2": "US-MI",
+      "poly_url": "https://download.geofabrik.de/north-america/us/michigan.poly",
+      "source_pbf_bytes_observed": 311731613,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:49:28 GMT"
+    },
+    {
+      "id": "minnesota",
+      "name": "Minnesota",
+      "iso3166_2": "US-MN",
+      "poly_url": "https://download.geofabrik.de/north-america/us/minnesota.poly",
+      "source_pbf_bytes_observed": 284422144,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:51:29 GMT"
+    },
+    {
+      "id": "mississippi",
+      "name": "Mississippi",
+      "iso3166_2": "US-MS",
+      "poly_url": "https://download.geofabrik.de/north-america/us/mississippi.poly",
+      "source_pbf_bytes_observed": 93906128,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:53:03 GMT"
+    },
+    {
+      "id": "missouri",
+      "name": "Missouri",
+      "iso3166_2": "US-MO",
+      "poly_url": "https://download.geofabrik.de/north-america/us/missouri.poly",
+      "source_pbf_bytes_observed": 194249500,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:53:23 GMT"
+    },
+    {
+      "id": "montana",
+      "name": "Montana",
+      "iso3166_2": "US-MT",
+      "poly_url": "https://download.geofabrik.de/north-america/us/montana.poly",
+      "source_pbf_bytes_observed": 99925943,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:48:52 GMT"
+    },
+    {
+      "id": "nebraska",
+      "name": "Nebraska",
+      "iso3166_2": "US-NE",
+      "poly_url": "https://download.geofabrik.de/north-america/us/nebraska.poly",
+      "source_pbf_bytes_observed": 100144287,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:47:56 GMT"
+    },
+    {
+      "id": "nevada",
+      "name": "Nevada",
+      "iso3166_2": "US-NV",
+      "poly_url": "https://download.geofabrik.de/north-america/us/nevada.poly",
+      "source_pbf_bytes_observed": 122917859,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:53:09 GMT"
+    },
+    {
+      "id": "new-hampshire",
+      "name": "New Hampshire",
+      "iso3166_2": "US-NH",
+      "poly_url": "https://download.geofabrik.de/north-america/us/new-hampshire.poly",
+      "source_pbf_bytes_observed": 71162907,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:48:52 GMT"
+    },
+    {
+      "id": "new-jersey",
+      "name": "New Jersey",
+      "iso3166_2": "US-NJ",
+      "poly_url": "https://download.geofabrik.de/north-america/us/new-jersey.poly",
+      "source_pbf_bytes_observed": 163058568,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:50:55 GMT"
+    },
+    {
+      "id": "new-mexico",
+      "name": "New Mexico",
+      "iso3166_2": "US-NM",
+      "poly_url": "https://download.geofabrik.de/north-america/us/new-mexico.poly",
+      "source_pbf_bytes_observed": 135952069,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:47:38 GMT"
+    },
+    {
+      "id": "new-york",
+      "name": "New York",
+      "iso3166_2": "US-NY",
+      "poly_url": "https://download.geofabrik.de/north-america/us/new-york.poly",
+      "source_pbf_bytes_observed": 495742600,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:48:31 GMT"
+    },
+    {
+      "id": "north-carolina",
+      "name": "North Carolina",
+      "iso3166_2": "US-NC",
+      "poly_url": "https://download.geofabrik.de/north-america/us/north-carolina.poly",
+      "source_pbf_bytes_observed": 427575476,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:51:36 GMT"
+    },
+    {
+      "id": "north-dakota",
+      "name": "North Dakota",
+      "iso3166_2": "US-ND",
+      "poly_url": "https://download.geofabrik.de/north-america/us/north-dakota.poly",
+      "source_pbf_bytes_observed": 127775940,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:53:56 GMT"
+    },
+    {
+      "id": "ohio",
+      "name": "Ohio",
+      "iso3166_2": "US-OH",
+      "poly_url": "https://download.geofabrik.de/north-america/us/ohio.poly",
+      "source_pbf_bytes_observed": 322535082,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:52:51 GMT"
+    },
+    {
+      "id": "oklahoma",
+      "name": "Oklahoma",
+      "iso3166_2": "US-OK",
+      "poly_url": "https://download.geofabrik.de/north-america/us/oklahoma.poly",
+      "source_pbf_bytes_observed": 168180518,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:49:55 GMT"
+    },
+    {
+      "id": "oregon",
+      "name": "Oregon",
+      "iso3166_2": "US-OR",
+      "poly_url": "https://download.geofabrik.de/north-america/us/oregon.poly",
+      "source_pbf_bytes_observed": 253122662,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:47:22 GMT"
+    },
+    {
+      "id": "pennsylvania",
+      "name": "Pennsylvania",
+      "iso3166_2": "US-PA",
+      "poly_url": "https://download.geofabrik.de/north-america/us/pennsylvania.poly",
+      "source_pbf_bytes_observed": 345789618,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:52:18 GMT"
+    },
+    {
+      "id": "puerto-rico",
+      "name": "Puerto Rico",
+      "iso3166_2": "US-PR",
+      "poly_url": "https://download.geofabrik.de/north-america/us/puerto-rico.poly",
+      "source_pbf_bytes_observed": 73869454,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:48:26 GMT"
+    },
+    {
+      "id": "rhode-island",
+      "name": "Rhode Island",
+      "iso3166_2": "US-RI",
+      "poly_url": "https://download.geofabrik.de/north-america/us/rhode-island.poly",
+      "source_pbf_bytes_observed": 52070725,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:53:46 GMT"
+    },
+    {
+      "id": "south-carolina",
+      "name": "South Carolina",
+      "iso3166_2": "US-SC",
+      "poly_url": "https://download.geofabrik.de/north-america/us/south-carolina.poly",
+      "source_pbf_bytes_observed": 162995768,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:46:20 GMT"
+    },
+    {
+      "id": "south-dakota",
+      "name": "South Dakota",
+      "iso3166_2": "US-SD",
+      "poly_url": "https://download.geofabrik.de/north-america/us/south-dakota.poly",
+      "source_pbf_bytes_observed": 48624538,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:52:09 GMT"
+    },
+    {
+      "id": "tennessee",
+      "name": "Tennessee",
+      "iso3166_2": "US-TN",
+      "poly_url": "https://download.geofabrik.de/north-america/us/tennessee.poly",
+      "source_pbf_bytes_observed": 188699372,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:51:44 GMT"
+    },
+    {
+      "id": "texas",
+      "name": "Texas",
+      "iso3166_2": "US-TX",
+      "poly_url": "https://download.geofabrik.de/north-america/us/texas.poly",
+      "source_pbf_bytes_observed": 716897787,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:54:22 GMT"
+    },
+    {
+      "id": "us-virgin-islands",
+      "name": "U.S. Virgin Islands",
+      "iso3166_2": "US-VI",
+      "poly_url": "https://download.geofabrik.de/north-america/us/us-virgin-islands.poly",
+      "source_pbf_bytes_observed": 3120458,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:47:52 GMT"
+    },
+    {
+      "id": "utah",
+      "name": "Utah",
+      "iso3166_2": "US-UT",
+      "poly_url": "https://download.geofabrik.de/north-america/us/utah.poly",
+      "source_pbf_bytes_observed": 167870693,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:48:18 GMT"
+    },
+    {
+      "id": "vermont",
+      "name": "Vermont",
+      "iso3166_2": "US-VT",
+      "poly_url": "https://download.geofabrik.de/north-america/us/vermont.poly",
+      "source_pbf_bytes_observed": 45839979,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:49:34 GMT"
+    },
+    {
+      "id": "virginia",
+      "name": "Virginia",
+      "iso3166_2": "US-VA",
+      "poly_url": "https://download.geofabrik.de/north-america/us/virginia.poly",
+      "source_pbf_bytes_observed": 426949273,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:53:32 GMT"
+    },
+    {
+      "id": "washington",
+      "name": "Washington",
+      "iso3166_2": "US-WA",
+      "poly_url": "https://download.geofabrik.de/north-america/us/washington.poly",
+      "source_pbf_bytes_observed": 362284641,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:53:40 GMT"
+    },
+    {
+      "id": "west-virginia",
+      "name": "West Virginia",
+      "iso3166_2": "US-WV",
+      "poly_url": "https://download.geofabrik.de/north-america/us/west-virginia.poly",
+      "source_pbf_bytes_observed": 98563920,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:49:16 GMT"
+    },
+    {
+      "id": "wisconsin",
+      "name": "Wisconsin",
+      "iso3166_2": "US-WI",
+      "poly_url": "https://download.geofabrik.de/north-america/us/wisconsin.poly",
+      "source_pbf_bytes_observed": 292240918,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:47:47 GMT"
+    },
+    {
+      "id": "wyoming",
+      "name": "Wyoming",
+      "iso3166_2": "US-WY",
+      "poly_url": "https://download.geofabrik.de/north-america/us/wyoming.poly",
+      "source_pbf_bytes_observed": 92996890,
+      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:49:05 GMT"
+    }
+  ]
+}

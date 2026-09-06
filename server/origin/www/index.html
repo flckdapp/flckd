@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>You're Flocked &mdash; Tile Server</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #2dd4bf;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --err: #f85149;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 48px 16px;
+  }
+  .wrap { width: 100%; max-width: 720px; }
+  header { text-align: center; margin-bottom: 40px; }
+  .logo { width: 96px; height: 96px;
+          filter: drop-shadow(0 4px 16px rgba(0, 0, 0, 0.5)); }
+  h1 { font-family: ui-serif, "New York", Georgia, "Times New Roman", serif;
+       font-size: 34px; font-weight: 700; margin-top: 12px; letter-spacing: -0.5px; }
+  h1 .accent { color: var(--accent); }
+  .subtitle { color: var(--muted); margin-top: 6px; font-size: 15px; }
+  .status-line {
+    display: flex; justify-content: center; gap: 8px; align-items: center;
+    margin-top: 16px; font-size: 14px; color: var(--muted);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .dot.err { background: var(--err); }
+  .cards {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px; margin-bottom: 32px;
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px; text-align: center;
+  }
+  .card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .card .value { font-size: 20px; font-weight: 600; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  h2 { font-size: 16px; color: var(--muted); font-weight: 600; margin-bottom: 12px;
+       text-transform: uppercase; letter-spacing: 0.5px; }
+  table {
+    width: 100%; border-collapse: collapse; background: var(--card);
+    border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  }
+  th, td { padding: 12px 16px; text-align: left; font-size: 14px; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase;
+       letter-spacing: 0.5px; border-bottom: 1px solid var(--border); }
+  tr + tr td { border-top: 1px solid var(--border); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  th.num { text-align: right; }
+  .badge {
+    display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px;
+    font-weight: 600; background: rgba(63, 185, 80, 0.15); color: var(--ok);
+  }
+  .iso { color: var(--muted); font-size: 12px; margin-left: 8px; }
+  .empty, .error {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 32px; text-align: center; color: var(--muted); font-size: 14px;
+  }
+  .error { color: var(--err); }
+  footer { margin-top: 40px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.8; }
+  footer code { background: var(--card); border: 1px solid var(--border); border-radius: 4px;
+                padding: 1px 6px; font-size: 11px; }
+  a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img class="logo" src="/logo.png?v=2" alt="FLCKD logo" width="96" height="96">
+    <h1>You're <span class="accent">Flocked</span></h1>
+    <div class="subtitle">Tile Server &mdash; offline routing data for the FLCKD app</div>
+    <div class="status-line">
+      <span class="dot" id="dot"></span>
+      <span id="status-text">Checking&hellip;</span>
+    </div>
+  </header>
+
+  <div class="cards" id="cards" hidden>
+    <div class="card"><div class="label">Data Release</div><div class="value" id="build-id">&ndash;</div></div>
+    <div class="card"><div class="label">Map Data</div><div class="value" id="osm-date">&ndash;</div></div>
+    <div class="card"><div class="label">Total Size</div><div class="value" id="total-size">&ndash;</div></div>
+  </div>
+
+  <h2>Available States</h2>
+  <div id="packs-container">
+    <div class="empty" id="loading">Loading&hellip;</div>
+  </div>
+
+  <footer>
+    <div>Manifest: <code><a href="/v1/manifest.json">/v1/manifest.json</a></code>
+         &nbsp;&middot;&nbsp; Health: <code><a href="/health">/health</a></code></div>
+    <div id="engine-line"></div>
+    <div>This server keeps no request logs. Ever.</div>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  function fmtBytes(n) {
+    if (typeof n !== "number" || !isFinite(n) || n < 0) return "\u2013";
+    if (n >= 1073741824) return (n / 1073741824).toFixed(1) + " GB";
+    if (n >= 1048576) return (n / 1048576).toFixed(1) + " MB";
+    if (n >= 1024) return (n / 1024).toFixed(1) + " KB";
+    return n + " B";
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return "\u2013";
+    // Date-only strings ("2026-08-30") parse as UTC midnight and would
+    // display a day early in western timezones. Parse them as LOCAL time.
+    var s = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso + "T00:00:00" : iso;
+    var d = new Date(s);
+    if (isNaN(d.getTime())) return String(iso);
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  }
+
+  function relTime(iso) {
+    if (!iso) return "";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    var days = Math.floor((Date.now() - d.getTime()) / 86400000);
+    if (days <= 0) return "today";
+    if (days === 1) return "yesterday";
+    return days + " days ago";
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  var dot = document.getElementById("dot");
+  var statusText = document.getElementById("status-text");
+  var container = document.getElementById("packs-container");
+
+  fetch("/v1/manifest.json", { cache: "no-cache" })
+    .then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then(function (m) {
+      dot.className = "dot ok";
+      var rel = relTime(m.generated_at);
+      statusText.textContent = "Serving release " + (m.build_id || "?") +
+        (rel ? " \u00b7 updated " + rel : "");
+
+      document.getElementById("build-id").textContent = m.build_id || "\u2013";
+      document.getElementById("osm-date").textContent = fmtDate(m.osm_data_date);
+      document.getElementById("total-size").textContent = fmtBytes(m.total_bytes);
+      document.getElementById("cards").hidden = false;
+
+      if (m.valhalla_version) {
+        document.getElementById("engine-line").textContent =
+          "Routing graph built with Valhalla " + m.valhalla_version;
+      }
+
+      var packs = Array.isArray(m.packs) ? m.packs.slice() : [];
+      if (packs.length === 0) {
+        container.innerHTML = '<div class="empty">No states published yet.</div>';
+        return;
+      }
+      packs.sort(function (a, b) {
+        return String(a.name || a.id).localeCompare(String(b.name || b.id));
+      });
+
+      var rows = packs.map(function (p) {
+        return "<tr>" +
+          "<td>" + esc(p.name || p.id) +
+            (p.iso3166_2 ? '<span class="iso">' + esc(p.iso3166_2) + "</span>" : "") + "</td>" +
+          '<td class="num">' + fmtBytes(p.bytes) + "</td>" +
+          '<td class="num">' + fmtDate(m.osm_data_date || m.generated_at) + "</td>" +
+          '<td class="num"><span class="badge">Available</span></td>' +
+          "</tr>";
+      }).join("");
+
+      container.innerHTML =
+        "<table><thead><tr>" +
+        "<th>State</th><th class=\"num\">Size</th><th class=\"num\">Map Data</th><th class=\"num\">Status</th>" +
+        "</tr></thead><tbody>" + rows + "</tbody></table>";
+    })
+    .catch(function (e) {
+      dot.className = "dot err";
+      statusText.textContent = "No release published";
+      container.innerHTML = '<div class="error">Could not load the manifest (' +
+        esc(e.message) + "). The server may not have a published release yet.</div>";
+    });
+})();
+</script>
+</body>
+</html>

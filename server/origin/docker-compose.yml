@@ -1,0 +1,68 @@
+# FLCKD tile origin: nginx serving the published packs read-only.
+#
+# Data directory layout, set with FLCKD_DATA (default /srv/flckd):
+#   $FLCKD_DATA/conf/nginx.conf   copied from server/origin/conf/
+#   $FLCKD_DATA/www/              copied from server/origin/www/
+#   $FLCKD_DATA/tiles/            written by the builder, served from here
+#
+# The container runs as uid 568, so chown the data directory to 568:568 or
+# change `user:` below to suit. Then:
+#
+#   FLCKD_DATA=/srv/flckd docker compose -f docker-compose.yml up -d
+#
+# See server/README.md, "nginx origin on your own box".
+
+name: flckd-tiles
+
+services:
+  tiles:
+    # Pinned by digest, not by tag. This is the multi-arch index digest, so it
+    # resolves on both amd64 and arm64.
+    # Tag shown for humans: nginx:1.30.4-alpine
+    image: nginx:1.30.4-alpine@sha256:97d490c12ba55b4946b01546d1c3ed324e8d41ab1c9fcb2a616aa470620e5b46
+    container_name: flckd-tiles
+
+    # An arbitrary unprivileged uid. Nothing depends on the number; it only
+    # has to own the mounted data directory. Change it and chown to match.
+    user: "568:568"
+
+    # Survives a reboot but respects a manual `docker compose stop`.
+    restart: unless-stopped
+
+    # nginx binds 8080, so neither root nor NET_BIND_SERVICE is needed.
+    # Point the Cloudflare Tunnel at this port.
+    ports:
+      - "8080:8080"
+
+    volumes:
+      - ${FLCKD_DATA:-/srv/flckd}/conf/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ${FLCKD_DATA:-/srv/flckd}/www:/srv/www:ro
+      - ${FLCKD_DATA:-/srv/flckd}/tiles:/srv/tiles:ro
+
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+
+    # These must be tmpfs, not named volumes. Named volumes are created
+    # root-owned, so uid 568 cannot create nginx's scratch dirs and the
+    # container dies with:
+    #   [emerg] mkdir() "/var/cache/nginx/client_temp" failed (13: Permission denied)
+    tmpfs:
+      - /var/cache/nginx:mode=1777,size=64m
+      - /var/run:mode=1777,size=1m
+      - /tmp:mode=1777,size=16m
+
+    healthcheck:
+      # nginx:alpine ships busybox wget. /health does no disk I/O.
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

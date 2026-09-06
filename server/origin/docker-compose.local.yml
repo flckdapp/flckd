@@ -1,0 +1,60 @@
+# Local testing only. The real deployment is docker-compose.yml.
+#
+# Serve a docroot you built locally:
+#   FLCKD_DOCROOT=../_local/tiles docker compose -f docker-compose.local.yml up
+#
+# Then:  curl -s http://localhost:8080/v1/manifest.json | jq '.packs[].id'
+#
+# Relative paths, and it runs as the invoking user, so nothing needs chown.
+
+name: flckd-tiles-local
+
+services:
+  tiles:
+    # Pinned by digest, not by tag. This is the multi-arch index digest, so it
+    # resolves on both amd64 and arm64.
+    # Tag shown for humans: nginx:1.30.4-alpine
+    image: nginx:1.30.4-alpine@sha256:97d490c12ba55b4946b01546d1c3ed324e8d41ab1c9fcb2a616aa470620e5b46
+    container_name: flckd-tiles-local
+
+    # The invoking user's uid/gid, so the read-only mount works as-is.
+    user: "${UID:-1000}:${GID:-1000}"
+
+    restart: unless-stopped
+
+    # nginx binds 8080, so neither root nor NET_BIND_SERVICE is needed.
+    ports:
+      - "8080:8080"
+
+    volumes:
+      - ./conf/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./www:/srv/www:ro
+      - ${FLCKD_DOCROOT:-./testdata}:/srv/tiles:ro
+
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+
+    # These must be tmpfs, not named volumes. Named volumes are created
+    # root-owned, so a non-root uid cannot create nginx's scratch dirs and the
+    # container dies with:
+    #   [emerg] mkdir() "/var/cache/nginx/client_temp" failed (13: Permission denied)
+    tmpfs:
+      - /var/cache/nginx:mode=1777,size=64m
+      - /var/run:mode=1777,size=1m
+      - /tmp:mode=1777,size=16m
+
+    healthcheck:
+      # nginx:alpine ships busybox wget. /health does no disk I/O.
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

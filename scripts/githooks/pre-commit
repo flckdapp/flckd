@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# Refuses commits that could reveal a real place.
+#
+# .gitignore only changes what `git add` picks up by default. It does not stop
+# `git add -f`, an edit to .gitignore itself, or a copy of the same numbers
+# pasted somewhere else. This hook checks what is actually staged, so all
+# three fail here instead of landing in history.
+#
+# Install once per clone:   scripts/install-hooks.sh
+# Scan the whole tree:      scripts/githooks/pre-commit --all
+#
+# Rules
+#   1. Nothing under ios/YoureFlockedUITests/ except .gitkeep.
+#   2. No .gpx files anywhere.
+#   3. .gitignore must keep the UITests rule.
+#   4. No coordinate-precision numbers: an integer part of 1-179 with four or
+#      more decimals, either two on one line or one on a line that mentions
+#      lat/lon. Metres-to-feet style constants are caught only if the line
+#      also mentions lat/lon; deltas below 1, version strings, hashes and
+#      timestamps never match.
+#
+# Allowed: the state bounding boxes the app and server ship, and Apple's
+# well-known simulator demo coordinates used in SwiftUI previews. To allow a
+# specific line, put "geo-ok" on it and say why.
+
+set -euo pipefail
+
+ALLOW_PATHS=(
+  'ios/YoureFlocked/Services/USStateBounds.swift'
+  'server/builder/regions/us-states.json'
+)
+# Apple's canonical demo coordinates (San Francisco, Cupertino).
+ALLOW_VALUES='37\.7749|-122\.4194|37\.33182|-122\.03118|37\.3349|-122\.0090'
+
+NUM='-?(1[0-7][0-9]|[1-9][0-9]|[1-9])\.[0-9]{4,}'
+GEO_WORDS='lat|lon|latitude|longitude|coord'
+
+fail=0
+say() { printf 'pre-commit: %s\n' "$*" >&2; }
+
+if [[ "${1:-}" == "--all" ]]; then
+  mode=all
+  list_files() { git ls-files -z; }
+  read_file()  { cat -- "$1"; }
+else
+  mode=staged
+  list_files() { git diff --cached --name-only -z --diff-filter=ACMR; }
+  read_file()  { git show ":$1"; }
+fi
+
+is_allowed_path() {
+  local f=$1 p
+  for p in "${ALLOW_PATHS[@]}"; do [[ "$f" == "$p" ]] && return 0; done
+  return 1
+}
+
+is_text() {
+  # git's own binary detection: numstat prints "-\t-" for binaries.
+  if [[ $mode == all ]]; then
+    git diff --no-index --numstat /dev/null -- "$1" 2>/dev/null | grep -qv '^-'
+  else
+    git diff --cached --numstat -- "$1" | grep -qv '^-'
+  fi
+}
+
+while IFS= read -r -d '' f; do
+  # 1. UI tests stay local.
+  if [[ "$f" == ios/YoureFlockedUITests/* && "$f" != ios/YoureFlockedUITests/.gitkeep ]]; then
+    say "refusing $f: files under ios/YoureFlockedUITests/ hold real coordinates and must stay local"
+    fail=1
+    continue
+  fi
+
+  # 2. No GPX anywhere.
+  if [[ "$f" == *.gpx ]]; then
+    say "refusing $f: GPX routes are test fixtures and must stay local"
+    fail=1
+    continue
+  fi
+
+  # 3. .gitignore must keep the rule that makes 1. the default.
+  if [[ "$f" == .gitignore ]]; then
+    if ! read_file "$f" | grep -qxF 'ios/YoureFlockedUITests/*'; then
+      say "refusing .gitignore: it no longer ignores ios/YoureFlockedUITests/*"
+      fail=1
+    fi
+    continue
+  fi
+
+  is_allowed_path "$f" && continue
+  is_text "$f" || continue
+
+  # 4. Coordinate-precision literals.
+  hits=$(read_file "$f" \
+    | grep -nE -e "$NUM" \
+    | grep -v -e 'geo-ok' \
+    | grep -vE -e "$ALLOW_VALUES" \
+    | awk -v num="$NUM" -v words="$GEO_WORDS" '
+        {
+          line = $0
+          n = gsub(num, "", line)          # count coordinate-like numbers
+          if (n >= 2) { print; next }
+          if (n == 1 && tolower($0) ~ words) { print }
+        }' || true)
+  if [[ -n "$hits" ]]; then
+    say "refusing $f: coordinate-precision numbers"
+    printf '%s\n' "$hits" | sed -E 's/^([0-9]+):(.*)$/    line \1: \2/' | cut -c1-140 >&2
+    say "  if this is not a real place, add 'geo-ok' to the line with a note, or list the file in ALLOW_PATHS"
+    fail=1
+  fi
+done < <(list_files)
+
+if (( fail )); then
+  say "commit blocked. See AGENTS.md, Location privacy."
+  exit 1
+fi
