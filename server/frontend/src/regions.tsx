@@ -13,7 +13,7 @@ import {
   Text,
   TextField,
 } from "@radix-ui/themes";
-import { Search, TriangleAlert } from "lucide-react";
+import { Info, Search, TriangleAlert } from "lucide-react";
 
 import type { State } from "../../shared/contracts";
 
@@ -101,14 +101,15 @@ export function RegionPicker({
           Clear
         </Button>
       </Flex>
-        <Callout.Root color="amber" size="1">
+        <Callout.Root color={entire ? "amber" : "gray"} size="1">
           <Callout.Icon>
-            <TriangleAlert size={14} />
+            {entire ? <TriangleAlert size={14} /> : <Info size={14} />}
           </Callout.Icon>
           <Callout.Text size="1">
-            Every selection rebuilds the full US graph: roughly 250 GB scratch
-            disk and several hours. Selection controls published packs only;
-            deselected states are removed from the next catalog.
+            {entire
+              ? "The whole country: roughly 250 GB of scratch disk and several hours."
+              : "The map is cut down to what you pick before the graph is built, so a few states cost a fraction of the whole country."}{" "}
+            Deselected states are removed from the next catalog.
           </Callout.Text>
         </Callout.Root>
       <ScrollArea type="auto" scrollbars="vertical" style={{ height: 240 }}>

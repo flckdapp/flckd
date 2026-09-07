@@ -33,7 +33,6 @@ STAGING="${STAGING:-${DATA_DIR}/staging}"
 GRAPH_DIR="${DATA_DIR}/graph"
 CONFIG="${GRAPH_DIR}/valhalla.json"
 TILE_DIR="${GRAPH_DIR}/valhalla_tiles"
-POLY_CACHE="${DATA_DIR}/poly"
 
 need valhalla_build_extract
 need python3
@@ -45,7 +44,7 @@ need python3
 python3 -c "import shapely" 2>/dev/null \
   || die "python3-shapely missing - valhalla_build_extract -g needs it"
 
-mkdir -p "$STAGING" "$POLY_CACHE"
+mkdir -p "$STAGING"
 
 # Region ids from argv, else every pack in the set.
 if [ "$#" -gt 0 ]; then
@@ -63,26 +62,7 @@ for id in "${ids[@]}"; do
   progress "$cut_done" "${#ids[@]}" "cutting ${id} (${cut_done} of ${#ids[@]} regions done)"
   # Counted here, not at the end of the body: several paths `continue` on failure.
   cut_done=$((cut_done + 1))
-  # Pull this region record out of the set.
-  read -r poly_url name < <(python3 -c '
-import json,sys
-sid=sys.argv[2]
-for p in json.load(open(sys.argv[1]))["packs"]:
-    if p["id"]==sid:
-        print(p["poly_url"], p["name"].replace(" ","_")); break
-else:
-    sys.exit(1)' "$REGION_SET" "$id") || die "region '$id' not found in $REGION_SET"
-
-  poly="${POLY_CACHE}/${id}.poly"
-  gj="${POLY_CACHE}/${id}.geojson"
-
-  [ -s "$poly" ] || curl --fail --location --silent --show-error \
-      --retry 3 --retry-delay 5 -o "$poly" "$poly_url"
-
-  # Geofabrik .poly -> GeoJSON FeatureCollection of Polygons. The shape
-  # matters; see poly2geojson.py.
-  [ -s "$gj" ] || python3 /opt/flckd/bin/poly2geojson.py \
-      "$poly" "$gj" --id "$id" --name "$name" >/dev/null
+  gj="$(region_geojson "$id")"
 
   workdir="$(mktemp -d "${DATA_DIR}/cut-XXXXXX")"
   mkdir -p "${workdir}/regions"

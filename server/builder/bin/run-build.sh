@@ -2,7 +2,8 @@
 # One release, end to end.
 #
 #   update-pbf.sh   keep us-latest.osm.pbf current (Geofabrik daily diffs)
-#   build-graph.sh  build one national Valhalla graph (the expensive step)
+#   clip-pbf.sh     shrink it to the selected regions, unless all are selected
+#   build-graph.sh  build one Valhalla graph (the expensive step)
 #   cut-packs.sh    cut per-state tars out of that graph (cheap)
 #   publish.py      content-address them into the docroot
 #   site            copy the dashboard so the docroot is a complete site
@@ -10,10 +11,11 @@
 #   purge           invalidate exactly one Cloudflare URL, if configured
 #
 # Valhalla has no incremental tile update (valhalla#3386, open since 2021):
-# splicing rebuilt tiles into an old set produces broken routes, so a release
-# is always a full rebuild. The national graph is built whatever regions are
-# requested; the region list only decides which packs are cut and published,
-# and the published set replaces the whole catalog. See server/README.md.
+# splicing rebuilt tiles into an old set produces broken routes, so a graph is
+# always built whole. The region list decides both how much of the map is
+# built and which packs are published, and the published set replaces the
+# whole catalog. A graph already built from the same source is reused rather
+# than rebuilt. See server/README.md.
 #
 # Camera data is not in these tiles. It stays on the live Overpass feed, so
 # the urgent data is not coupled to this slow channel.
@@ -32,6 +34,8 @@
 #   PBF_NAME        source map file    (default us-latest.osm.pbf)
 #   PBF_URL         where to fetch it  (default Geofabrik us-latest)
 #   SKIP_PBF_UPDATE set to 1 to reuse the PBF on disk
+#   CLIP_SOURCE     set to 0 to always build from the whole source map
+#   REBUILD_GRAPH   set to 1 to rebuild a graph that matches its source
 #   S3_BUCKET       set to upload after publishing; see push-r2.sh for the
 #                   endpoint and credential variables (R2_BUCKET still works)
 #   STATUS_FILE     private progress file for the control plane (optional)
@@ -101,8 +105,10 @@ trap 'status "failed" "$(abort_detail "$LINENO")"' ERR
 
 log "=== FLCKD tile release ${BUILD_ID} ==="
 log "threads=${THREADS} docroot=${DOCROOT} keep=${KEEP_RELEASES}"
+TOTAL_REGIONS="$(python3 -c '
+import json,sys; print(len(json.load(open(sys.argv[1]))["packs"]))' "$REGION_SET")"
 if [ "$#" -gt 0 ]; then
-  log "regions: $* (the national graph is still built in full; only these packs are published)"
+  log "regions: $* ($# of ${TOTAL_REGIONS})"
 fi
 
 # ---------------------------------------------------------------------------
@@ -129,8 +135,20 @@ esac
 log "source PBF: $(human "$(stat -c %s "$PBF")"), dated ${OSM_DATE}"
 
 # ---------------------------------------------------------------------------
-status "build-graph" "national graph, the long stage"
-THREADS="$THREADS" "$BIN/build-graph.sh"
+# Scratch and time both scale with the source, so a partial catalog builds
+# from a clipped source. Clipping the whole set would cost a full pass over
+# the file to arrive back at the file, so that case is left alone.
+GRAPH_PBF_NAME="${PBF_NAME:-us-latest.osm.pbf}"
+if [ "${CLIP_SOURCE:-1}" = "1" ] && [ "$#" -gt 0 ] && [ "$#" -lt "$TOTAL_REGIONS" ]; then
+  status "build-graph" "clipping the source map to $# of ${TOTAL_REGIONS} regions"
+  clipped="$("$BIN/clip-pbf.sh" "$PBF" "$@")"
+  GRAPH_PBF_NAME="$(basename "$clipped")"
+else
+  log "building from the whole source map: $GRAPH_PBF_NAME"
+fi
+
+status "build-graph" "routing graph, the long stage"
+PBF_NAME="$GRAPH_PBF_NAME" THREADS="$THREADS" "$BIN/build-graph.sh"
 
 # ---------------------------------------------------------------------------
 status "cut-packs" "per-region tars"

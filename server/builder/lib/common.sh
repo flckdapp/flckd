@@ -91,6 +91,34 @@ fraction() {
   }'
 }
 
+# Geofabrik boundary for one region as GeoJSON, cached under $DATA_DIR/poly.
+# Clipping the source and cutting the packs must agree on the shape of a
+# region, so both go through here rather than fetching their own copy.
+#   region_geojson <region-id>    prints the cached .geojson path
+region_geojson() {
+  local id="$1"
+  local set_file="${REGION_SET:-/opt/flckd/regions/us-states.json}"
+  local cache="${DATA_DIR:-/data}/poly"
+  local poly="${cache}/${id}.poly" gj="${cache}/${id}.geojson"
+  if [ ! -s "$gj" ]; then
+    local url name
+    read -r url name < <(python3 -c '
+import json,sys
+sid=sys.argv[2]
+for p in json.load(open(sys.argv[1]))["packs"]:
+    if p["id"]==sid:
+        print(p["poly_url"], p["name"].replace(" ","_")); break
+else:
+    sys.exit(1)' "$set_file" "$id") || die "region '$id' not found in $set_file"
+    mkdir -p "$cache"
+    [ -s "$poly" ] || curl --fail --location --silent --show-error \
+        --retry 3 --retry-delay 5 -o "$poly" "$url"
+    python3 "$(dirname "${BASH_SOURCE[0]}")/../bin/poly2geojson.py" \
+        "$poly" "$gj" --id "$id" --name "$name" >/dev/null
+  fi
+  printf '%s' "$gj"
+}
+
 remote_size() {
   curl --fail --silent --location --head "$1" 2>/dev/null \
     | tr -d '\r' \
