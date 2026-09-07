@@ -10,11 +10,16 @@
 #   - valhalla_build_extract takes no positional path args; it reads
 #     mjolnir.tile_dir and mjolnir.tile_extract from the config.
 #
+# A finished graph records the source it came from. A later run against that
+# same source reuses it instead of spending hours rebuilding, which is what
+# makes "publish more regions from what I already built" cheap.
+#
 # Usage:  build-graph.sh
-#   DATA_DIR     working dir                 (default /data)
-#   PBF_NAME     input PBF                   (default us-latest.osm.pbf)
-#   THREADS      mjolnir concurrency         (default nproc)
-#   MAX_CACHE_MB per-thread tile cache       (default 700)
+#   DATA_DIR      working dir                 (default /data)
+#   PBF_NAME      input PBF                   (default us-latest.osm.pbf)
+#   THREADS       mjolnir concurrency         (default nproc)
+#   MAX_CACHE_MB  per-thread tile cache       (default 700)
+#   REBUILD_GRAPH 1 to rebuild even if the graph matches the source
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
@@ -42,6 +47,29 @@ need valhalla_build_tiles
 
 PBF_BYTES="$(stat -c %s "$PBF")"
 
+# Identity of the source this graph came from. Written only after the build
+# succeeds, so an interrupted run leaves no marker and is rebuilt.
+GRAPH_SOURCE_ID="${GRAPH_DIR}/source.id"
+source_id() { printf '%s|%s|%s' "$PBF" "$PBF_BYTES" "$(stat -c %Y "$PBF")"; }
+
+graph_is_current() {
+  if [ "${REBUILD_GRAPH:-0}" = "1" ]; then return 1; fi
+  if [ ! -s "$GRAPH_SOURCE_ID" ] || [ ! -f "$CONFIG" ]; then return 1; fi
+  if [ -z "$(ls -A "$TILE_DIR" 2>/dev/null)" ]; then return 1; fi
+  [ "$(cat "$GRAPH_SOURCE_ID")" = "$(source_id)" ]
+}
+
+# Checked before the scratch check: a finished graph has already consumed the
+# space that check demands, so testing free space first would refuse to reuse.
+if graph_is_current; then
+  log "graph already built from ${PBF_NAME} and unchanged since; reusing it"
+  log "cutting packs needs only the tiles, so this build skips straight to them"
+  log "set REBUILD_GRAPH=1 to force a rebuild"
+  progress "$GRAPH_STEPS" "$GRAPH_STEPS" "reusing the existing graph"
+  log "tile dir retained at $TILE_DIR - cut-packs.sh needs it"
+  exit 0
+fi
+
 # Peak scratch is the binding constraint, not the final artifact.
 # valhalla_build_tiles writes ways.bin / way_nodes.bin / nodes.bin inside
 # mjolnir.tile_dir; there is no temp-dir option. A planet build reported
@@ -56,6 +84,9 @@ log "concurrency=${THREADS} -> estimated peak RSS ~${est_ram_gb} GiB"
 log "if the build is OOM-killed, lower THREADS. It is the memory dial."
 
 mkdir -p "$TILE_DIR"
+# valhalla_build_timezones downloads its shapefile into the current directory
+# and reports only "curl failed" when that is not writable.
+cd "$DATA_DIR"
 
 step 1 "config"
 valhalla_build_config \
@@ -138,5 +169,6 @@ valhalla_build_extract -c "$CONFIG" -O -v
 
 progress "$GRAPH_STEPS" "$GRAPH_STEPS" "graph complete"
 [ -s "$FULL_TAR" ] || die "valhalla_build_extract produced no tar"
+source_id > "$GRAPH_SOURCE_ID"
 log "full graph tar: $FULL_TAR ($(human "$(stat -c %s "$FULL_TAR")"))"
 log "tile dir retained at $TILE_DIR - cut-packs.sh needs it"
