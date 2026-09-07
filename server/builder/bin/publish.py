@@ -300,32 +300,36 @@ def prune(docroot, keep):
         shutil.rmtree(rel_root / r)
         log("pruned release %s" % r)
 
+    # A retained release whose manifest cannot be read still references
+    # blobs; deleting "orphans" without knowing which ones would break it.
+    # In that case leave every blob alone.
     referenced = set()
+    unreadable = []
     for r in sorted(p.name for p in rel_root.iterdir() if p.is_dir()):
         mf = rel_root / r / "manifest.json"
-        if not mf.is_file():
-            continue
         try:
             data = json.loads(mf.read_text(encoding="utf-8"))
-        except ValueError:
-            log("WARNING: unreadable manifest %s, treating its packs as "
-                "referenced is impossible; skipping" % mf)
+        except (OSError, ValueError):
+            unreadable.append(r)
             continue
         for p in data.get("packs", []):
             if p.get("sha256"):
                 referenced.add(p["sha256"])
 
     packs_root = docroot / "v1" / "packs"
-    if packs_root.is_dir():
-        for d in packs_root.iterdir():
-            if not d.is_dir():
-                continue
-            if d.name.endswith(".incoming"):
-                shutil.rmtree(d)
-                continue
-            if d.name not in referenced:
-                shutil.rmtree(d)
-                log("pruned orphaned pack blob %s" % d.name[:12])
+    if not packs_root.is_dir():
+        return doomed
+    for d in packs_root.iterdir():
+        if d.is_dir() and d.name.endswith(".incoming"):
+            shutil.rmtree(d)
+    if unreadable:
+        log("WARNING: release manifest(s) unreadable: %s; not pruning any pack "
+            "blobs this run" % ", ".join(unreadable))
+        return doomed
+    for d in packs_root.iterdir():
+        if d.is_dir() and d.name not in referenced:
+            shutil.rmtree(d)
+            log("pruned orphaned pack blob %s" % d.name[:12])
     return doomed
 
 
