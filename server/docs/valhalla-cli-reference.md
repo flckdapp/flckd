@@ -10,7 +10,7 @@ full `--help` text and the complete default config JSON, is kept locally in
 
 Why 3.6.3: the iOS package `valhalla-mobile` 0.6.3 embeds Valhalla 3.6.3, and
 tiles are memory-mapped binary structures, so the builder must match the
-reader exactly. `server/builder/Dockerfile` starts `FROM` this image.
+reader exactly. `server/Dockerfile` starts `FROM` this image.
 
 ---
 
@@ -185,7 +185,7 @@ a server instance would use
 
 `osmium` matters because `valhalla_build_tiles` has no clipping flag, so
 clipping the PBF is the only way to limit graph extent before a build.
-`server/builder/Dockerfile` adds osmium, pyosmium, and rclone on top of the
+`server/Dockerfile` adds osmium, pyosmium, and rclone on top of the
 base image. Use `python3 -c 'import json, …'` rather than `jq` in build
 scripts.
 

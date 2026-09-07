@@ -1,0 +1,13 @@
+_local/
+.env
+.env.*
+**/__pycache__/
+**/.venv/
+**/*.pyc
+docs/
+README.md
+node_modules/
+dist/
+.data/
+backend/*.test.ts
+backend/fixtures/
