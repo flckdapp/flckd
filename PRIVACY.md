@@ -1,6 +1,6 @@
 # Privacy Policy — FLCKD (You're Flocked)
 
-**Last updated:** 2026-09-05
+**Last updated:** 2026-09-06
 
 FLCKD warns you when you're near surveillance cameras. This document
 describes what the code actually does, including the parts that aren't
@@ -144,6 +144,35 @@ point the app somewhere else, it never silently falls back to
 **You can also skip it.** Region packs are ordinary files. Sideload one,
 download it over a VPN, or fetch it once on a network you don't mind being
 seen on. Once the pack is on the phone, routing needs nothing further.
+
+**How the packs are made.** The builder in [`server/`](server/README.md)
+downloads OpenStreetMap extracts, daily changes and region boundaries from
+Geofabrik, plus timezone boundaries from GitHub. It publishes road data
+locally and, when enabled, uploads that site to the operator's configured
+S3-compatible service, including R2. These services see the builder's IP
+address and requested files; bucket uploads also carry authentication.
+No mobile-user coordinates or routes are sent by the builder.
+
+The self-hosted image runs a Bun/Hono control application with native
+SQLite storage and a React/Radix UI built by Vite. Bun serves separate
+builder and public tile endpoints. Tile requests are not forwarded to
+the builder API. Neither endpoint writes request access
+logs. The default Cloudflare-hosted service remains separate from the
+builder machine.
+
+Operators can enter publishing credentials in the control UI or override
+them through environment variables. Saved credentials, preferences, job
+history and bounded build logs stay in the private SQLite volume. Saved
+credentials are **not encrypted at rest**; protect that volume and its
+backups. Secrets are not returned by the settings API, included in the
+public site, or stored in browser persistent storage. Pipeline logs redact
+configured credential values. The builder is localhost-only by default and
+has no login, session cookies or user accounts; it must not be exposed to
+untrusted networks. `BUILDER_ENABLED=false` runs the public endpoint without
+opening the private database or starting the builder.
+The UI uses no analytics, external fonts or third-party browser requests.
+Local development downloads dependencies and Docker images from their
+registries; it does not send mobile-app traffic to those registries.
 
 ---
 

@@ -1,0 +1,172 @@
+/* Brand token overrides on top of Radix Themes — see DESIGN.md. Small by
+   design: everything else comes from Radix Themes defaults. */
+
+:root {
+  --bg: #0d1117;
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --accent: #2dd4bf;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+}
+
+/* Remap Radix panel tokens to the brand card color (dark appearance). */
+.radix-themes[data-appearance="dark"] {
+  --color-background: #0d1117;
+  --color-panel-solid: #161b22;
+  --color-panel-translucent: #161b22;
+}
+
+/* Serif brand wordmark, matching the public dashboard. */
+.brand-title {
+  font-family: ui-serif, "New York", Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+.brand-title .accent {
+  color: var(--accent);
+}
+
+a.brand-link,
+a.brand-link:visited {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+/* Pipeline log output. */
+.log-view {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.log-scroll {
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-4);
+  background: #0d1117;
+}
+
+/* Two-column shell: activity rail + main column; below Radix's sm
+   breakpoint (768px) the rail stacks full-width above the main column. */
+.app-shell {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+  width: 100%;
+}
+
+.app-sidebar {
+  width: 280px;
+  flex-shrink: 0;
+}
+
+.app-sidebar.collapsed {
+  width: 48px;
+}
+
+.app-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+@media (max-width: 767px) {
+  .app-shell {
+    flex-direction: column;
+  }
+
+  .app-sidebar,
+  .app-sidebar.collapsed {
+    width: 100%;
+  }
+}
+
+/* Sidebar job history: full rows expanded, icon-only when collapsed. */
+.job-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-3);
+  cursor: pointer;
+}
+
+.job-row:hover {
+  background: var(--gray-a3);
+}
+
+.job-row.selected {
+  background: var(--accent-a3);
+  border-color: var(--accent-a5);
+}
+
+.job-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  color: var(--gray-11);
+  border-radius: var(--radius-2);
+  cursor: pointer;
+}
+
+.job-icon:hover {
+  background: var(--gray-a3);
+}
+
+.job-icon.selected {
+  background: var(--accent-a3);
+  color: var(--accent-11);
+}
+
+.sidebar-icon-hint {
+  display: inline-flex;
+  justify-content: center;
+  width: 24px;
+}
+
+/* A stage with nothing countable. Radix renders a value-less Progress as a
+   filled track, which reads as "complete"; a travelling segment cannot. */
+.progress-working {
+  position: relative;
+  overflow: hidden;
+  height: 4px;
+  border-radius: var(--radius-1);
+  background: var(--gray-a4);
+}
+
+.progress-working::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30%;
+  border-radius: var(--radius-1);
+  background: var(--accent);
+  animation: progress-working-slide 1.6s ease-in-out infinite;
+}
+
+@keyframes progress-working-slide {
+  from { left: -30%; }
+  to { left: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-working::after {
+    left: 0;
+    animation: none;
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "flckd-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun scripts/dev.ts",
+    "start": "docker compose up --build --wait",
+    "stop": "docker compose down",
+    "build": "vite build",
+    "check": "tsc --noEmit",
+    "test": "bun test backend",
+    "image": "docker build -t flckd-server:local ."
+  },
+  "dependencies": {
+    "@radix-ui/themes": "^3.2.1",
+    "hono": "^4.12.0",
+    "ky": "^1.14.0",
+    "lucide-react": "^0.577.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zod": "^4.3.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.11",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.1.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
+  }
+}
