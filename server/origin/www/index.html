@@ -93,7 +93,7 @@
   </header>
 
   <div class="cards" id="cards" hidden>
-    <div class="card"><div class="label">Data Release</div><div class="value" id="build-id">&ndash;</div></div>
+    <div class="card"><div class="label">Released</div><div class="value" id="build-id">&ndash;</div></div>
     <div class="card"><div class="label">Map Data</div><div class="value" id="osm-date">&ndash;</div></div>
     <div class="card"><div class="label">Total Size</div><div class="value" id="total-size">&ndash;</div></div>
   </div>
@@ -164,7 +164,7 @@
       statusText.textContent = "Serving release " + (m.build_id || "?") +
         (rel ? " \u00b7 updated " + rel : "");
 
-      document.getElementById("build-id").textContent = m.build_id || "\u2013";
+      document.getElementById("build-id").textContent = fmtDate(m.generated_at);
       document.getElementById("osm-date").textContent = fmtDate(m.osm_data_date);
       document.getElementById("total-size").textContent = fmtBytes(m.total_bytes);
       document.getElementById("cards").hidden = false;
