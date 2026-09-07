@@ -167,9 +167,18 @@ The container must remain running for schedules. After downtime, missed
 occurrences coalesce into one build. An interrupted build is recorded, not
 silently rerun. Only one job runs at a time.
 
-Region selection does not make the national graph cheaper: the default
-pipeline still builds the whole US graph before extracting selected packs.
-Budget roughly 250 GB scratch space and several hours for that graph.
+Selection also decides how much map is built. The source is clipped to the
+selected states, with a margin so routes don't stop at a border, before the
+graph is built. Scratch space and time scale with that clipped source: the
+whole country is roughly 250 GB and several hours, a single state a few GB
+and minutes. Selecting every state skips the clip and builds nationally.
+Set `CLIP_SOURCE=0` to always build from the whole map.
+
+A finished graph records the source it was built from. Building again from
+an unchanged source reuses it and goes straight to cutting packs, so adding
+states to the catalog costs minutes rather than a second full build. Set
+`REBUILD_GRAPH=1` to force a rebuild.
+
 Two threads need roughly 5 GB RAM. These are estimates, not guarantees.
 
 The UI shows stages rather than invented completion estimates. Logs and
@@ -252,6 +261,9 @@ Passed through to a build when set, for diagnostic or constrained runs:
 | `PBF_URL` | Geofabrik US extract | Source map to download |
 | `PBF_NAME` | `us-latest.osm.pbf` | File name of that source map |
 | `SKIP_PBF_UPDATE` | unset | `1` reuses the map already on disk, skipping the download and diffs |
+| `CLIP_SOURCE` | `1` | `0` builds from the whole source map even for a partial catalog |
+| `CLIP_BUFFER_DEG` | `0.5` | Margin kept around the selected regions when clipping, in degrees |
+| `REBUILD_GRAPH` | unset | `1` rebuilds the graph even when it matches its source |
 | `KEEP_RELEASES` | `3` | Published releases retained locally |
 | `PART_BYTES` | `134217728` | Bytes per published pack part |
 | `MAX_CACHE_MB` | `700` | Per-thread graph tile cache |
