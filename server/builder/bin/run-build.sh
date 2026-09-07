@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
-# One monthly release, end to end.
+# One release, end to end.
 #
 #   update-pbf.sh   keep us-latest.osm.pbf current (Geofabrik daily diffs)
 #   build-graph.sh  build one national Valhalla graph (the expensive step)
-#   cut-packs.sh    cut 53 per-state tars out of that graph (cheap)
-#   publish.py      content-address them into the nginx docroot
-#   purge           invalidate exactly one Cloudflare URL
+#   cut-packs.sh    cut per-state tars out of that graph (cheap)
+#   publish.py      content-address them into the docroot
+#   site            copy the dashboard so the docroot is a complete site
+#   push-r2.sh      upload to an S3-compatible bucket, if configured
+#   purge           invalidate exactly one Cloudflare URL, if configured
 #
-# Cadence is monthly. Valhalla has no incremental tile update (valhalla#3386,
-# open since 2021): splicing rebuilt tiles into an old set produces broken
-# routes, so a release is always a full rebuild. See server/README.md.
+# Valhalla has no incremental tile update (valhalla#3386, open since 2021):
+# splicing rebuilt tiles into an old set produces broken routes, so a release
+# is always a full rebuild. The national graph is built whatever regions are
+# requested; the region list only decides which packs are cut and published,
+# and the published set replaces the whole catalog. See server/README.md.
 #
 # Camera data is not in these tiles. It stays on the live Overpass feed, so
 # the urgent data is not coupled to this slow channel.
@@ -19,7 +23,8 @@
 #
 # Environment:
 #   DATA_DIR        work dir                        (default /data)
-#   DOCROOT         nginx root                      (default /srv/tiles)
+#   DOCROOT         site root nginx serves          (default /srv/tiles)
+#   WWW_DIR         dashboard source files          (default: bundled /opt/flckd/site)
 #   THREADS         mjolnir concurrency             (default nproc)
 #   KEEP_RELEASES   releases to retain              (default 3)
 #   PART_BYTES      bytes per published part        (default 134217728)
@@ -27,6 +32,9 @@
 #   PBF_NAME        source map file    (default us-latest.osm.pbf)
 #   PBF_URL         where to fetch it  (default Geofabrik us-latest)
 #   SKIP_PBF_UPDATE set to 1 to reuse the PBF on disk
+#   S3_BUCKET       set to upload after publishing; see push-r2.sh for the
+#                   endpoint and credential variables (R2_BUCKET still works)
+#   STATUS_FILE     private progress file for the control plane (optional)
 #   CF_ZONE_ID      Cloudflare zone id              (optional; enables purge)
 #   CF_API_TOKEN    token with "Cache Purge"        (optional)
 #   PUBLIC_BASE_URL e.g. https://tiles.flckd.app    (required iff purging)
@@ -42,12 +50,28 @@ PART_BYTES="${PART_BYTES:-134217728}"
 BUILD_ID="${BUILD_ID:-$(date -u +%Y-%m-%d)}"
 REGION_SET="${REGION_SET:-/opt/flckd/regions/us-states.json}"
 STAGING="${STAGING:-${DATA_DIR}/staging}"
+WWW_DIR="${WWW_DIR:-}"
+if [ -z "$WWW_DIR" ]; then
+  for candidate in /opt/flckd/site /srv/www; do
+    if [ -f "$candidate/index.html" ]; then WWW_DIR="$candidate"; break; fi
+  done
+fi
 
 BIN="$(dirname "${BASH_SOURCE[0]}")"
 started="$(date -u +%s)"
+# Exported so the child scripts report progress against the same stage and do
+# not reset publication flags this script already knows the answer to.
+export STATUS_LOCAL_PUBLISHED=false
+export STATUS_REMOTE_PUBLISHED=false
+export CURRENT_STAGE=starting
+# Where a child script leaves its reason for dying; see die() in common.sh.
+export FATAL_FILE="${DATA_DIR}/.build-fatal"
+rm -f "$FATAL_FILE" 2>/dev/null || true
 
 status() {
-  # Operator visibility while a multi-hour build runs. Served with no-store.
+  # Operator visibility while a multi-hour build runs. The public copy is
+  # served with no-store; the private copy feeds the control plane.
+  CURRENT_STAGE="$1"
   mkdir -p "$DOCROOT/v1"
   local tmp="$DOCROOT/v1/.build-status.tmp"
   cat > "$tmp" <<EOF
@@ -56,13 +80,30 @@ status() {
  "updated_at":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
 EOF
   mv -f "$tmp" "$DOCROOT/v1/build-status.json"
+  write_status_file "$1" "${2:-}"
 }
 
 fail() { status "failed" "$1"; die "$1"; }
-trap 'status "failed" "aborted at line $LINENO"' ERR
+
+# This detail is shown to the operator as the cause of the failure.
+abort_detail() {
+  local reason=""
+  if [ -f "$FATAL_FILE" ]; then
+    reason="$(tr -d '\n' < "$FATAL_FILE" | cut -c1-300)"
+  fi
+  if [ -n "$reason" ]; then
+    printf '%s failed: %s' "$CURRENT_STAGE" "$reason"
+  else
+    printf '%s failed (run-build.sh line %s)' "$CURRENT_STAGE" "$1"
+  fi
+}
+trap 'status "failed" "$(abort_detail "$LINENO")"' ERR
 
 log "=== FLCKD tile release ${BUILD_ID} ==="
 log "threads=${THREADS} docroot=${DOCROOT} keep=${KEEP_RELEASES}"
+if [ "$#" -gt 0 ]; then
+  log "regions: $* (the national graph is still built in full; only these packs are published)"
+fi
 
 # ---------------------------------------------------------------------------
 status "update-pbf"
@@ -97,15 +138,27 @@ python3 "$BIN/publish.py" \
   --part-bytes "$PART_BYTES" \
   --keep     "$KEEP_RELEASES" \
   --osm-data-date "$OSM_DATE"
+STATUS_LOCAL_PUBLISHED=true
+
+# The docroot is a complete site: nginx and the app read only this tree.
+if [ -n "$WWW_DIR" ] && [ -f "$WWW_DIR/index.html" ] && [ -f "$WWW_DIR/logo.png" ]; then
+  status "publish" "copying dashboard"
+  cp -f "$WWW_DIR/index.html" "$DOCROOT/index.html.tmp" && mv -f "$DOCROOT/index.html.tmp" "$DOCROOT/index.html"
+  cp -f "$WWW_DIR/logo.png"   "$DOCROOT/logo.png.tmp"   && mv -f "$DOCROOT/logo.png.tmp"   "$DOCROOT/logo.png"
+else
+  log "WARNING: no dashboard assets (index.html, logo.png) in WWW_DIR; the site root will 404"
+fi
 
 # ---------------------------------------------------------------------------
-# Push to R2 if configured. The local docroot stays authoritative either way,
-# so a self-hosted nginx origin and an R2 front door can run side by side.
-if [ -n "${R2_BUCKET:-}" ]; then
-  status "push-r2"
-  "$BIN/push-r2.sh" "$DOCROOT"
+# Upload if a bucket is configured. The local docroot stays authoritative
+# either way, so a self-hosted nginx origin and a bucket can run side by side.
+# STATUS_FILE is cleared for the child so this script alone reports progress.
+if [ -n "${S3_BUCKET:-}${R2_BUCKET:-}" ]; then
+  status "upload" "uploading to ${S3_BUCKET:-$R2_BUCKET}"
+  STATUS_FILE= "$BIN/push-r2.sh" "$DOCROOT"
+  STATUS_REMOTE_PUBLISHED=true
 else
-  log "R2_BUCKET unset - serving from the local docroot only"
+  log "S3_BUCKET / R2_BUCKET unset - serving from the local docroot only"
 fi
 
 # ---------------------------------------------------------------------------

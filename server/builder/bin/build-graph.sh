@@ -19,6 +19,12 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
+GRAPH_STEPS=5
+step() {
+  log "stage $1/${GRAPH_STEPS}: $2"
+  progress "$(( $1 - 1 ))" "$GRAPH_STEPS" "step $1 of ${GRAPH_STEPS}: $2"
+}
+
 DATA_DIR="${DATA_DIR:-/data}"
 PBF_NAME="${PBF_NAME:-us-latest.osm.pbf}"
 THREADS="${THREADS:-$(nproc)}"
@@ -51,7 +57,7 @@ log "if the build is OOM-killed, lower THREADS. It is the memory dial."
 
 mkdir -p "$TILE_DIR"
 
-log "stage 1/5: config"
+step 1 "config"
 valhalla_build_config \
   --mjolnir-tile-dir       "$TILE_DIR" \
   --mjolnir-tile-extract   "$FULL_TAR" \
@@ -99,7 +105,7 @@ PY
 TZ_DB="${GRAPH_DIR}/timezones.sqlite"
 TZ_MIN_BYTES=1000000   # real db is tens of MB; anything smaller is a failure
 
-log "stage 2/5: timezones (writes sqlite to stdout - redirected)"
+step 2 "timezones (writes sqlite to stdout - redirected)"
 if [ "${SKIP_TIMEZONES:-0}" = "1" ]; then
   [ -s "$TZ_DB" ] || die "SKIP_TIMEZONES=1 but no pre-staged $TZ_DB"
   log "SKIP_TIMEZONES=1, using pre-staged $TZ_DB"
@@ -117,19 +123,20 @@ else
   log "timezones.sqlite OK ($(human "$tz_bytes"))"
 fi
 
-log "stage 3/5: admins (driving side, country access, border penalties)"
+step 3 "admins (driving side, country access, border penalties)"
 valhalla_build_admins -c "$CONFIG" "$PBF"
 
-log "stage 4/5: tiles - this is the long one"
+step 4 "tiles - this is the long one"
 time valhalla_build_tiles -c "$CONFIG" "$PBF"
 
 # Do not add -e/--extract-tar here. It is not an output-path flag: it switches
 # the input from mjolnir.tile_dir to the tar at mjolnir.tile_extract. With -e
 # absent, the output path is taken from mjolnir.tile_extract in the config.
-log "stage 5/5: pack to an indexed tar for mmap"
+step 5 "pack to an indexed tar for mmap"
 rm -f "$FULL_TAR"
 valhalla_build_extract -c "$CONFIG" -O -v
 
+progress "$GRAPH_STEPS" "$GRAPH_STEPS" "graph complete"
 [ -s "$FULL_TAR" ] || die "valhalla_build_extract produced no tar"
 log "full graph tar: $FULL_TAR ($(human "$(stat -c %s "$FULL_TAR")"))"
 log "tile dir retained at $TILE_DIR - cut-packs.sh needs it"

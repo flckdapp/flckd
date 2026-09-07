@@ -58,7 +58,11 @@ fi
 log "cutting ${#ids[@]} region pack(s)"
 
 failed=()
+cut_done=0
 for id in "${ids[@]}"; do
+  progress "$cut_done" "${#ids[@]}" "cutting ${id} (${cut_done} of ${#ids[@]} regions done)"
+  # Counted here, not at the end of the body: several paths `continue` on failure.
+  cut_done=$((cut_done + 1))
   # Pull this region record out of the set.
   read -r poly_url name < <(python3 -c '
 import json,sys
@@ -126,6 +130,7 @@ PY
   rm -rf "$workdir"
 done
 
+progress "${#ids[@]}" "${#ids[@]}" "cut ${#ids[@]} region pack(s)"
 log "staged $(ls -1 "$STAGING"/*.tar 2>/dev/null | wc -l) tar(s) in $STAGING"
 if [ "${#failed[@]}" -gt 0 ]; then
   die "${#failed[@]} region(s) failed: ${failed[*]}"
