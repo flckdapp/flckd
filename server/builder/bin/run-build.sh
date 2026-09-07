@@ -116,7 +116,16 @@ fi
 PBF="${DATA_DIR}/${PBF_NAME:-us-latest.osm.pbf}"
 [ -f "$PBF" ] || fail "no PBF at $PBF"
 # Recorded in the manifest so the app can show users how old their roads are.
-OSM_DATE="$(date -u -r "$PBF" +%Y-%m-%d 2>/dev/null || date -u +%Y-%m-%d)"
+# Not the file's mtime: pyosmium rewrites the file on every update, so that
+# always reads as today however stale the data is. The replication timestamp
+# in the header is when the data was actually current.
+OSM_DATE="$(osmium fileinfo -g header.option.osmosis_replication_timestamp "$PBF" 2>/dev/null | cut -c1-10)"
+case "$OSM_DATE" in
+  [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+  *)
+    log "WARNING: no replication timestamp in $PBF, dating the release by file mtime"
+    OSM_DATE="$(date -u -r "$PBF" +%Y-%m-%d 2>/dev/null || date -u +%Y-%m-%d)" ;;
+esac
 log "source PBF: $(human "$(stat -c %s "$PBF")"), dated ${OSM_DATE}"
 
 # ---------------------------------------------------------------------------

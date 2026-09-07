@@ -40,10 +40,9 @@ if [ ! -f "$PBF" ] || [ "$RESEED" = 1 ]; then
   reseed
 else
   # How stale is the local file? osmium fileinfo reads the replication headers
-  # that Geofabrik stamps into the PBF. It scans the whole file and prints
-  # nothing until it finishes, so say so first or the log looks stalled.
-  log "reading $PBF ($(human "$(stat -c %s "$PBF")")) to check how old it is; this takes a while and prints nothing"
-  ts="$(osmium fileinfo -e -g header.option.osmosis_replication_timestamp "$PBF" 2>/dev/null || true)"
+  # that Geofabrik stamps into the PBF. No -e: that would scan every object in
+  # the file to answer a question the header already answers.
+  ts="$(osmium fileinfo -g header.option.osmosis_replication_timestamp "$PBF" 2>/dev/null || true)"
   if [ -n "$ts" ]; then
     log "local PBF replication timestamp: $ts"
     now_s=$(date -u +%s)
