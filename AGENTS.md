@@ -60,5 +60,13 @@ than a reader belong in `ai-docs/`, which is gitignored.
 
 ## Commits
 
+- Use [Conventional Commits](https://www.conventionalcommits.org): a
+  `type(scope): summary` subject, such as `fix(builder): report the failing
+  stage`. Types in use are `feat`, `fix`, `docs`, `refactor`, `chore`,
+  `test`, `build` and `ci`.
+- Keep messages short. A subject line is usually the whole commit. Add a
+  body only when the reason isn't obvious from the diff, and keep it to a
+  sentence or two.
+- Group related changes into one commit; don't bundle unrelated ones.
 - Don't add AI attribution trailers or co-author lines to commit messages.
 - Don't commit or push unless asked. The owner does both.
