@@ -110,8 +110,20 @@ PY
   rm -rf "$workdir"
 done
 
-progress "${#ids[@]}" "${#ids[@]}" "cut ${#ids[@]} region pack(s)"
-log "staged $(ls -1 "$STAGING"/*.tar 2>/dev/null | wc -l) tar(s) in $STAGING"
+# find, not ls: an unmatched glob makes ls exit non-zero, and the status of a
+# bare assignment is the substitution's, so set -e would abort here.
+staged="$(find "$STAGING" -maxdepth 1 -name '*.tar' | wc -l | tr -d ' ')"
+progress "${#ids[@]}" "${#ids[@]}" "cut ${staged} of ${#ids[@]} region pack(s)"
+log "staged ${staged} tar(s) in $STAGING"
+
+# A region the source map never contained cannot be cut, and that is the same
+# non-zero exit as a real crash. Losing every other region's work to it is the
+# worse error, so the release goes out with what was cut and names what wasn't.
 if [ "${#failed[@]}" -gt 0 ]; then
-  die "${#failed[@]} region(s) failed: ${failed[*]}"
+  log "WARNING: ${#failed[@]} region(s) could not be cut: ${failed[*]}"
+  log "WARNING: a region absent from the source map cannot be cut from it."
+  log "WARNING: they are left out of this release; see server/README.md."
+  [ -z "${SKIPPED_FILE:-}" ] || printf '%s' "${failed[*]}" > "$SKIPPED_FILE" 2>/dev/null || true
+  [ "${STRICT_REGIONS:-0}" != "1" ] || die "${#failed[@]} region(s) failed: ${failed[*]}"
 fi
+[ "$staged" -gt 0 ] || die "no region packs were cut"

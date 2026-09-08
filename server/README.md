@@ -181,6 +181,15 @@ states to the catalog costs minutes rather than a second full build. Set
 
 Two threads need roughly 5 GB RAM. These are estimates, not guarantees.
 
+A region the source map doesn't contain cannot be cut from it. The default
+Geofabrik US extract covers the 50 states and DC, but **not Puerto Rico or
+the US Virgin Islands** — those are published as separate extracts. Selecting
+them yields a release without them: the build succeeds, the log says which
+regions were left out, and the job's final detail names them. Set
+`STRICT_REGIONS=1` to fail the whole release instead. To publish them, run a
+separate build with `PBF_URL` and `PBF_NAME` pointing at their own extract
+and only those regions selected.
+
 The UI shows stages rather than invented completion estimates. Logs and
 history survive restarts; only the latest 100 jobs and approximately 1 MiB
 of log text per job are retained. Local and remote publication outcomes
@@ -264,6 +273,7 @@ Passed through to a build when set, for diagnostic or constrained runs:
 | `CLIP_SOURCE` | `1` | `0` builds from the whole source map even for a partial catalog |
 | `CLIP_BUFFER_DEG` | `0.5` | Margin kept around the selected regions when clipping, in degrees |
 | `REBUILD_GRAPH` | unset | `1` rebuilds the graph even when it matches its source |
+| `STRICT_REGIONS` | unset | `1` fails the release if any selected region cannot be cut |
 | `KEEP_RELEASES` | `3` | Published releases retained locally |
 | `PART_BYTES` | `134217728` | Bytes per published pack part |
 | `MAX_CACHE_MB` | `700` | Per-thread graph tile cache |

@@ -70,7 +70,10 @@ export STATUS_REMOTE_PUBLISHED=false
 export CURRENT_STAGE=starting
 # Where a child script leaves its reason for dying; see die() in common.sh.
 export FATAL_FILE="${DATA_DIR}/.build-fatal"
-rm -f "$FATAL_FILE" 2>/dev/null || true
+# Regions cut-packs could not cut. The release still ships; the operator is
+# told which ones are missing rather than left to count packs.
+export SKIPPED_FILE="${DATA_DIR}/.build-skipped"
+rm -f "$FATAL_FILE" "$SKIPPED_FILE" 2>/dev/null || true
 
 status() {
   # Operator visibility while a multi-hour build runs. The public copy is
@@ -212,5 +215,9 @@ else
 fi
 
 elapsed=$(( $(date -u +%s) - started ))
-status "done" "$(( elapsed / 60 )) min"
+done_detail="$(( elapsed / 60 )) min"
+if [ -s "$SKIPPED_FILE" ]; then
+  done_detail="${done_detail}; not in the source map: $(cat "$SKIPPED_FILE")"
+fi
+status "done" "$done_detail"
 log "=== release ${BUILD_ID} complete in $(( elapsed / 60 )) min ==="
