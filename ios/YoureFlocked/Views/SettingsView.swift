@@ -31,10 +31,12 @@ struct SettingsView: View {
     @AppStorage("offlineRadius") private var offlineRadius: Double = 20.0
     @AppStorage("useMetric") private var useMetric: Bool = false
     @AppStorage("enableHaptics") private var enableHaptics: Bool = true
+    @AppStorage("keepScreenAwake") private var keepScreenAwake: Bool = true
 
     var body: some View {
         Form {
             unitsSection
+            mapSection
             alertSection
             routingSection
             filterSection
@@ -75,6 +77,19 @@ struct SettingsView: View {
                 Text("Metric (km, m)").tag(true)
                 Text("Standard (mi, ft)").tag(false)
             }
+        }
+    }
+
+    // MARK: - Map
+
+    @ViewBuilder
+    private var mapSection: some View {
+        Section {
+            Toggle("Keep Screen Awake", isOn: $keepScreenAwake)
+        } header: {
+            Text("Map")
+        } footer: {
+            Text("Stops the screen locking while the map is open. Uses more battery, so keep the phone on a charger for long drives.")
         }
     }
 

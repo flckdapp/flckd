@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @Environment(LocationManager.self) private var locationManager
     @State private var selectedTab: Tab = .map
+    @AppStorage("keepScreenAwake") private var keepScreenAwake: Bool = true
 
     enum Tab: String, CaseIterable {
         case map = "Map"
@@ -28,6 +29,7 @@ struct ContentView: View {
                     .tag(tab)
             }
         }
+        .keepScreenAwake(keepScreenAwake && selectedTab == .map)
         .task {
             locationManager.requestAuthorizationIfNeeded()
         }
