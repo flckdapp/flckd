@@ -82,8 +82,10 @@ The tags are `latest`, `3.6.3` (the bundled Valhalla version, which the app
 must match), and `sha-<commit>` for an exact build. Pin to a `sha-` tag if
 you want reproducible restarts.
 
-A build needs roughly 250 GB of scratch space in the `data` volume and
-several hours. Put that volume on a disk that has it.
+A full-country build wants roughly 250 GB free in the `data` volume while it
+runs, and several hours. It keeps far less than that — the intermediates are
+deleted at the end, leaving about 45 GB — but the peak is what has to fit.
+Put that volume on a disk that has it.
 
 ## Local development
 
@@ -176,8 +178,12 @@ silently rerun. Only one job runs at a time.
 Selection also decides how much map is built. The source is clipped to the
 selected states, with a margin so routes don't stop at a border, before the
 graph is built. Scratch space and time scale with that clipped source: the
-whole country is roughly 250 GB and several hours, a single state a few GB
-and minutes. Selecting every state skips the clip and builds nationally.
+whole country needs roughly 250 GB free while it runs and several hours, a
+single state a few GB and minutes. That peak is scratch, not storage: a
+finished national build keeps about 45 GB. The check before the graph stage
+demands 20x the source map, which is deliberately generous; `SCRATCH_FACTOR`
+lowers it if you have measured your own. Selecting every state skips the clip
+and builds nationally.
 Set `CLIP_SOURCE=0` to always build from the whole map.
 
 A finished graph records the source it was built from. Building again from
@@ -284,6 +290,7 @@ Passed through to a build when set, for diagnostic or constrained runs:
 | `KEEP_RELEASES` | `3` | Published releases retained locally |
 | `PART_BYTES` | `134217728` | Bytes per published pack part |
 | `MAX_CACHE_MB` | `700` | Per-thread graph tile cache |
+| `SCRATCH_FACTOR` | `20` | Free space the graph stage demands, as a multiple of the source map |
 | `SKIP_TIMEZONES` | unset | `1` uses a pre-staged timezone database instead of building one |
 | `TMPDIR`, `HOME` | container defaults | Inherited by the build scripts |
 

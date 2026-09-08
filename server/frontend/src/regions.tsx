@@ -107,7 +107,7 @@ export function RegionPicker({
           </Callout.Icon>
           <Callout.Text size="1">
             {entire
-              ? "The whole country: roughly 250 GB of scratch disk and several hours."
+              ? "The whole country: several hours, and roughly 250 GB free while it runs (it keeps about 45 GB)."
               : "The map is cut down to what you pick before the graph is built, so a few states cost a fraction of the whole country."}{" "}
             Deselected states are removed from the next catalog.
           </Callout.Text>

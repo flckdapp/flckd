@@ -70,11 +70,19 @@ if graph_is_current; then
   exit 0
 fi
 
-# Peak scratch is the binding constraint, not the final artifact.
+# Peak scratch is the binding constraint, not the final artifact:
 # valhalla_build_tiles writes ways.bin / way_nodes.bin / nodes.bin inside
-# mjolnir.tile_dir; there is no temp-dir option. A planet build reported
-# 1.2 TB of .bin from a ~74 GB PBF (valhalla#4548), about 16x. Budget 20x.
-require_free "$DATA_DIR" $(( PBF_BYTES * 20 )) "build scratch (.bin intermediates are ~16-20x the PBF)"
+# mjolnir.tile_dir, with no temp-dir option, and deletes them when it is done.
+# So the space a finished build occupies says nothing about what it needed.
+#
+# Measured on a single-state extract: peak 15x the PBF, of which 9x scales
+# with the source and the rest is the fixed timezone and admin databases.
+# A planet build reported ~16x (valhalla#4548). The default keeps headroom
+# over both, because refusing a build costs a message while running out of
+# disk costs the hours already spent.
+SCRATCH_FACTOR="${SCRATCH_FACTOR:-20}"
+require_free "$DATA_DIR" $(( PBF_BYTES * SCRATCH_FACTOR )) \
+  "build scratch (${SCRATCH_FACTOR}x the PBF; lower SCRATCH_FACTOR if you have measured your own)"
 
 # Peak RAM tracks thread count, not region size: mjolnir.max_cache_size is
 # per thread. Measured (valhalla#4689, 4 US states): 8 threads = 14.0 GiB RSS,
