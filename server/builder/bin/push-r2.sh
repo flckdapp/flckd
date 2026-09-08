@@ -99,7 +99,9 @@ export RCLONE_CONFIG_S3_NO_CHECK_BUCKET=true
 # default anyway. rclone omits the header entirely when acl is unset.
 
 DEST="S3:${S3_BUCKET}"
-FLAGS=(--transfers 8 --checkers 16 --fast-list --s3-chunk-size 64M --stats 30s --stats-one-line)
+# -v is what makes --stats visible: rclone logs them at INFO, so without it a
+# multi-hour upload prints nothing at all.
+FLAGS=(--transfers 8 --checkers 16 --fast-list --s3-chunk-size 64M --stats 30s --stats-one-line -v)
 [ "${DRY_RUN:-0}" = "1" ] && FLAGS+=(--dry-run)
 
 IMMUTABLE="public, max-age=31536000, immutable, stale-if-error=2592000"

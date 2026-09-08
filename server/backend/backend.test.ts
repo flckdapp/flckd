@@ -66,6 +66,24 @@ describe("backend boundaries", () => {
     } finally { deps.stopScheduler(); await deps.runner.shutdown(); deps.store.close(); }
   });
 
+  it("redacts split secrets without stranding the end of a line", () => {
+    const secret = "R2SECRET".repeat(5);
+    const enc = (s: string): Uint8Array => new TextEncoder().encode(s);
+
+    // A line holding no secret must arrive whole, not minus a trailing window.
+    const plain = new Redactor([secret]);
+    const line = '2026/09/08 05:48:43 NOTICE: Config file "/.rclone.conf" not found\n';
+    expect(plain.push(enc(line))).toBe(line);
+    expect(plain.flush()).toBe("");
+
+    // A secret split across chunks is still caught.
+    const split = new Redactor([secret]);
+    const first = split.push(enc(`key=${secret.slice(0, 12)}`));
+    const second = split.push(enc(`${secret.slice(12)} done\n`));
+    expect(first + second + split.flush()).toBe("key=[REDACTED] done\n");
+    expect(first + second).not.toContain(secret.slice(0, 12));
+  });
+
   it("drops saved regions that have left the catalog", async () => {
     const fixture = await makeFixture({});
     const first = await createApp(fixture.env);

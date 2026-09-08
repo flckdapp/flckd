@@ -9,15 +9,19 @@ export class Redactor {
 
   push(chunk: Uint8Array): string {
     const text = this.#carry + this.#decoder.decode(chunk, { stream: true });
-    const keep = Math.max(0, Math.max(...this.#secrets.map((secret) => secret.length), 1) - 1);
-    let safeLength = Math.max(0, text.length - keep);
+    // Hold back only a trailing run that could still grow into a secret.
+    // Holding a fixed window instead would strand the end of the last line
+    // until more output arrived, which during a quiet stage is never.
+    let hold = 0;
     for (const secret of this.#secrets) {
-      let position = text.indexOf(secret);
-      while (position >= 0) {
-        if (position < safeLength && position + secret.length > safeLength) safeLength = position;
-        position = text.indexOf(secret, position + 1);
+      for (let length = Math.min(secret.length - 1, text.length); length > hold; length--) {
+        if (text.endsWith(secret.slice(0, length))) {
+          hold = length;
+          break;
+        }
       }
     }
+    const safeLength = text.length - hold;
     this.#carry = text.slice(safeLength);
     return this.clean(text.slice(0, safeLength));
   }
