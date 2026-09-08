@@ -5,8 +5,8 @@
 // the explicit empty-both request. Env-sourced keys are locked.
 
 import { useState } from "react";
-import { Badge, Button, Flex, Text, TextField } from "@radix-ui/themes";
-import { KeyRound, ShieldCheck, TriangleAlert } from "lucide-react";
+import { Badge, Button, Flex, IconButton, Text, TextField } from "@radix-ui/themes";
+import { Eye, EyeOff, KeyRound, ShieldCheck, TriangleAlert } from "lucide-react";
 
 import { errText, putCredentials } from "./api";
 import type { State } from "../../shared/contracts";
@@ -30,6 +30,62 @@ function SourceBadge({ keyState }: { keyState: Credentials["access_key"] }) {
     <Badge color="gray" variant="soft">
       not set
     </Badge>
+  );
+}
+
+function SecretField({
+  label,
+  keyState,
+  value,
+  onChange,
+}: {
+  label: string;
+  keyState: Credentials["access_key"];
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  const locked = keyState.source === "environment";
+
+  return (
+    <Flex direction="column" gap="2">
+      <Flex align="center" gap="2">
+        <Text size="2" weight="medium">
+          {label}
+        </Text>
+        <SourceBadge keyState={keyState} />
+        {locked ? (
+          <Text size="1" color="gray">
+            set by environment
+          </Text>
+        ) : null}
+      </Flex>
+      <TextField.Root
+        aria-label={label}
+        type={revealed ? "text" : "password"}
+        placeholder={locked ? "managed by environment" : "Leave blank to keep"}
+        value={locked ? "" : value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={locked}
+        autoComplete="off"
+      >
+        {locked ? null : (
+          <TextField.Slot side="right">
+            <IconButton
+              type="button"
+              size="1"
+              variant="ghost"
+              color="gray"
+              aria-label={revealed ? `Hide ${label}` : `Show ${label}`}
+              aria-pressed={revealed}
+              onClick={() => setRevealed((on) => !on)}
+            >
+              {revealed ? <EyeOff size={14} /> : <Eye size={14} />}
+            </IconButton>
+          </TextField.Slot>
+        )}
+      </TextField.Root>
+    </Flex>
   );
 }
 
@@ -110,55 +166,22 @@ export function CredentialsFields({
         fields keep saved values.
       </Text>
 
-      <Flex direction="column" gap="2">
-        <Flex align="center" gap="2">
-          <Text size="2" weight="medium">
-            {accessLabel}
-          </Text>
-          <SourceBadge keyState={credentials.access_key} />
-          {accessLocked ? (
-            <Text size="1" color="gray">
-              set by environment
-            </Text>
-          ) : null}
-        </Flex>
-        <TextField.Root
-          aria-label={accessLabel}
-          type="password"
-          placeholder={accessLocked ? "managed by environment" : "Leave blank to keep"}
-          value={accessLocked ? "" : accessKey}
-          onChange={(e) => setAccessKey(e.target.value)}
-          disabled={accessLocked}
-          autoComplete="off"
-        />
-      </Flex>
-
-      <Flex direction="column" gap="2">
-        <Flex align="center" gap="2">
-          <Text size="2" weight="medium">
-            {secretLabel}
-          </Text>
-          <SourceBadge keyState={credentials.secret_key} />
-          {secretLocked ? (
-            <Text size="1" color="gray">
-              set by environment
-            </Text>
-          ) : null}
-        </Flex>
-        <TextField.Root
-          aria-label={secretLabel}
-          type="password"
-          placeholder={secretLocked ? "managed by environment" : "Leave blank to keep"}
-          value={secretLocked ? "" : secretKey}
-          onChange={(e) => setSecretKey(e.target.value)}
-          disabled={secretLocked}
-          autoComplete="off"
-        />
-      </Flex>
+      <SecretField
+        label={accessLabel}
+        keyState={credentials.access_key}
+        value={accessKey}
+        onChange={setAccessKey}
+      />
+      <SecretField
+        label={secretLabel}
+        keyState={credentials.secret_key}
+        value={secretKey}
+        onChange={setSecretKey}
+      />
 
       {error !== null ? (
         <Flex align="center" gap="2">
-          <TriangleAlert size={14} color="var(--err)" />
+          <TriangleAlert size={14} color="var(--red-9)" />
           <Text size="2" color="red">
             {error}
           </Text>
