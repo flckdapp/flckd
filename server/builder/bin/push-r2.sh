@@ -92,11 +92,11 @@ export RCLONE_CONFIG_S3_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID"
 export RCLONE_CONFIG_S3_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY"
 export RCLONE_CONFIG_S3_ENDPOINT="$S3_ENDPOINT"
 export RCLONE_CONFIG_S3_REGION="$S3_REGION"
-# R2 ignores ACLs and does not implement per-object checksum trailers the same
-# way S3 does; this is Cloudflare's own documented rclone setting. It is
-# harmless elsewhere: the bucket must already exist.
+# The bucket must already exist; rclone should not try to create or probe it.
 export RCLONE_CONFIG_S3_NO_CHECK_BUCKET=true
-export RCLONE_S3_ACL=private
+# No ACL is set deliberately. R2 does not implement x-amz-acl on PutObject and
+# rejects the header with 501, and every bucket this uploads to is private by
+# default anyway. rclone omits the header entirely when acl is unset.
 
 DEST="S3:${S3_BUCKET}"
 FLAGS=(--transfers 8 --checkers 16 --fast-list --s3-chunk-size 64M --stats 30s --stats-one-line)
