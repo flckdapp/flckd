@@ -40,7 +40,6 @@ image (`linux/amd64` and `linux/arm64`) to
 directory and run `docker compose up -d`:
 
 ```yaml
-name: flckd-server
 services:
   server:
     image: ghcr.io/flckdapp/flckd/server:latest
@@ -71,6 +70,13 @@ Then open **http://localhost:8642**, as in the quick start above. Any
 settings you want fixed by the operator rather than the UI go in a `.env`
 file beside the compose file; see [Environment
 variables](#environment-variables).
+
+Note there is no top-level `name:` key. Compose would take it as the project
+name and ignore the directory, which makes managers like Dockge and Portainer
+lose track of the stack they just started: they look for the project named
+after their own directory, find nothing, and report it stopped while it runs.
+This repository's own `compose.yml` does set `name:`, because there the
+directory is `server` and the project deserves a better name than that.
 
 The tags are `latest`, `3.6.3` (the bundled Valhalla version, which the app
 must match), and `sha-<commit>` for an exact build. Pin to a `sha-` tag if
