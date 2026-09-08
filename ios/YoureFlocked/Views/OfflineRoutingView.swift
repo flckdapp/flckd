@@ -16,6 +16,7 @@ struct OfflineRoutingView: View {
     @State private var downloadingID: String?
     @State private var downloadProgress: Double = 0
     @State private var downloadError: String?
+    @State private var updateAllProgress: (completed: Int, total: Int)?
 
     var body: some View {
         Form {
@@ -25,6 +26,13 @@ struct OfflineRoutingView: View {
             availableSection
         }
         .navigationTitle("Offline Routing")
+        .toolbar {
+            if !installed.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    EditButton().disabled(downloadingID != nil)
+                }
+            }
+        }
         .task { await refresh() }
     }
 
@@ -67,9 +75,9 @@ struct OfflineRoutingView: View {
                 HStack {
                     Text("Data Release")
                     Spacer()
-                    Text(manifest.buildId).foregroundStyle(.secondary)
+                    Text(manifest.releaseLabel).foregroundStyle(.secondary)
                 }
-                if let osmDate = manifest.osmDataDate {
+                if let osmDate = manifest.osmDataDateLabel {
                     HStack {
                         Text("Map Data Date")
                         Spacer()
@@ -92,29 +100,82 @@ struct OfflineRoutingView: View {
     @ViewBuilder
     private var installedSection: some View {
         if !installed.isEmpty {
-            Section("Downloaded Regions") {
+            Section {
                 ForEach(installed) { region in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(region.name)
-                            Text("\(ByteCountFormatter.string(fromByteCount: region.bytes, countStyle: .file)) · release \(region.buildId)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(Color(red: 0.0, green: 0.7, blue: 0.65))
-                    }
-                    .swipeActions {
-                        Button(role: .destructive) {
-                            delete(region)
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
+                    installedRow(region)
+                }
+                .onDelete(perform: delete)
+                if outdatedPacks.count > 1 || updateAllProgress != nil {
+                    updateAllRow
+                }
+            } header: {
+                Text("Downloaded Regions")
+            } footer: {
+                if !outdatedPacks.isEmpty {
+                    Text("A newer data release is available for \(outdatedPacks.count) of your regions.")
+                } else {
+                    Text("Swipe a region, or tap Edit, to remove it and free the space. You can download it again at any time.")
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func installedRow(_ region: InstalledRegion) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(region.name)
+                Text("\(ByteCountFormatter.string(fromByteCount: region.bytes, countStyle: .file)) · release \(region.releaseLabel)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if downloadingID == region.id {
+                downloadProgressLabel
+            } else if let pack = outdatedPack(for: region), let manifest {
+                Button("Update") {
+                    download(pack, buildId: manifest.buildId)
+                }
+                .buttonStyle(.bordered)
+                .disabled(downloadingID != nil)
+            } else {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color(red: 0.0, green: 0.7, blue: 0.65))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var updateAllRow: some View {
+        Button {
+            updateAll()
+        } label: {
+            if let progress = updateAllProgress {
+                Text("Updating \(min(progress.completed + 1, progress.total)) of \(progress.total)...")
+            } else {
+                Text("Update All Regions")
+            }
+        }
+        .disabled(downloadingID != nil)
+    }
+
+    @ViewBuilder
+    private var downloadProgressLabel: some View {
+        ProgressView(value: downloadProgress)
+            .frame(width: 80)
+        Text("\(Int(downloadProgress * 100))%")
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+            .frame(width: 38, alignment: .trailing)
+    }
+
+    private var outdatedPacks: [TilePack] {
+        installed.compactMap { outdatedPack(for: $0) }
+    }
+
+    private func outdatedPack(for region: InstalledRegion) -> TilePack? {
+        guard let manifest, region.buildId != manifest.buildId else { return nil }
+        return manifest.packs.first { $0.id == region.id }
     }
 
     @ViewBuilder
@@ -155,12 +216,7 @@ struct OfflineRoutingView: View {
             }
             Spacer()
             if isDownloading {
-                ProgressView(value: downloadProgress)
-                    .frame(width: 80)
-                Text("\(Int(downloadProgress * 100))%")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(width: 38, alignment: .trailing)
+                downloadProgressLabel
             } else if isCurrent {
                 Text("Installed")
                     .font(.caption)
@@ -192,33 +248,56 @@ struct OfflineRoutingView: View {
     }
 
     private func download(_ pack: TilePack, buildId: String) {
-        downloadingID = pack.id
-        downloadProgress = 0
         downloadError = nil
         Task {
             do {
-                try await packService.downloadPack(pack, buildId: buildId) { fraction in
-                    Task { @MainActor in
-                        downloadProgress = fraction
-                    }
-                }
-                await MainActor.run {
-                    downloadingID = nil
-                    installed = RegionStore.installedRegions()
-                }
+                try await install(pack, buildId: buildId)
             } catch {
-                await MainActor.run {
-                    downloadingID = nil
-                    downloadError = error.localizedDescription
-                }
+                downloadError = error.localizedDescription
             }
+            downloadingID = nil
         }
     }
 
-    private func delete(_ region: InstalledRegion) {
+    private func updateAll() {
+        guard let manifest else { return }
+        let packs = outdatedPacks
+        guard !packs.isEmpty else { return }
+        downloadError = nil
+        updateAllProgress = (completed: 0, total: packs.count)
+        Task {
+            for (index, pack) in packs.enumerated() {
+                updateAllProgress = (completed: index, total: packs.count)
+                do {
+                    try await install(pack, buildId: manifest.buildId)
+                } catch {
+                    downloadError = error.localizedDescription
+                    break
+                }
+            }
+            downloadingID = nil
+            updateAllProgress = nil
+        }
+    }
+
+    @MainActor
+    private func install(_ pack: TilePack, buildId: String) async throws {
+        downloadingID = pack.id
+        downloadProgress = 0
+        try await packService.downloadPack(pack, buildId: buildId) { fraction in
+            Task { @MainActor in
+                downloadProgress = fraction
+            }
+        }
+        installed = RegionStore.installedRegions()
+    }
+
+    private func delete(at offsets: IndexSet) {
         // Unmap before unlinking, or the space is not reclaimed.
         LocalValhallaEngine.shared.shutdown()
-        try? RegionStore.delete(region.id)
+        for region in offsets.map({ installed[$0] }) {
+            try? RegionStore.delete(region.id)
+        }
         installed = RegionStore.installedRegions()
     }
 }

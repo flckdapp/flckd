@@ -57,6 +57,40 @@ struct InstalledRegion: Codable, Identifiable, Hashable {
     let installedAt: Date
 }
 
+// MARK: - Release Dates
+
+/// Build ids arrive as either `20260908T030502502Z-eb317fa3` or `2026-08-30`,
+/// and OSM dates as `2026-09-06`. All three start with a calendar date, and
+/// nothing after it means anything to a reader, so only the date is shown.
+/// Comparisons elsewhere still use the raw build id.
+enum ReleaseDate {
+
+    static func label(_ raw: String) -> String {
+        guard let day = calendarDay(raw) else { return raw }
+        return day.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    /// Read as a calendar day rather than an instant: a UTC timestamp rendered
+    /// in a western timezone would show the day before.
+    private static func calendarDay(_ raw: String) -> Date? {
+        let digits = raw.prefix { $0.isNumber || $0 == "-" }.filter(\.isNumber)
+        guard digits.count == 8,
+              let year = Int(digits.prefix(4)),
+              let month = Int(digits.dropFirst(4).prefix(2)),
+              let day = Int(digits.suffix(2)) else { return nil }
+        return Calendar.current.date(from: DateComponents(year: year, month: month, day: day))
+    }
+}
+
+extension TileManifest {
+    var releaseLabel: String { ReleaseDate.label(buildId) }
+    var osmDataDateLabel: String? { osmDataDate.map(ReleaseDate.label) }
+}
+
+extension InstalledRegion {
+    var releaseLabel: String { ReleaseDate.label(buildId) }
+}
+
 // MARK: - Region Store
 
 /// Owns the on-disk layout for downloaded routing regions:
