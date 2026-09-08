@@ -33,6 +33,15 @@ export async function createApp(env: NodeJS.ProcessEnv = process.env): Promise<{
   store.markInterruptedOnStartup();
   const events = new EventBus();
   const regions = await loadRegions(config.regionSet);
+  // A region can leave the catalog between releases. Saved settings naming one
+  // would otherwise fail validation on every write, and the offending id has no
+  // checkbox left to clear it with.
+  const saved = store.settings();
+  if (saved !== null) {
+    const known = new Set(regions.map((region) => region.id));
+    const kept = saved.regions.filter((id) => known.has(id));
+    if (kept.length !== saved.regions.length) store.saveSettings({ ...saved, regions: kept });
+  }
   const runner = new JobRunner(store, config, events);
   const stopScheduler = startScheduler({ config, store, events, regions, runner });
   const deps = { config, store, events, regions, runner, stopScheduler };

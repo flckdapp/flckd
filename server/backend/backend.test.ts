@@ -66,6 +66,22 @@ describe("backend boundaries", () => {
     } finally { deps.stopScheduler(); await deps.runner.shutdown(); deps.store.close(); }
   });
 
+  it("drops saved regions that have left the catalog", async () => {
+    const fixture = await makeFixture({});
+    const first = await createApp(fixture.env);
+    try {
+      first.deps.store.saveSettings({ ...defaultSettings, regions: ["oklahoma", "atlantis"] });
+    } finally { first.deps.stopScheduler(); first.deps.store.close(); }
+
+    const { app, deps } = await createApp(fixture.env);
+    const headers = { host: "127.0.0.1", "X-FLCKD-Request": "1", "Content-Type": "application/json" };
+    try {
+      expect(deps.store.settings()?.regions).toEqual(["oklahoma"]);
+      const body = JSON.stringify({ ...defaultSettings, regions: ["oklahoma"] });
+      expect((await app.request("/api/settings", { method: "PUT", headers, body })).status).toBe(200);
+    } finally { deps.stopScheduler(); deps.store.close(); }
+  });
+
   it("opens locally without login but rejects foreign browser mutations", async () => {
     const fixture = await makeFixture({});
     const { app, deps } = await createApp(fixture.env);

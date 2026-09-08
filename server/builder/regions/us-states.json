@@ -4,6 +4,9 @@
     "Region pack definitions for the FLCKD tile service.",
     "Generated from https://download.geofabrik.de/index-v1-nogeom.json on 2026-08-30.",
     "Boundaries come from Geofabrik .poly files - we do NOT hand-write bounding boxes.",
+    "Puerto Rico and the U.S. Virgin Islands are deliberately absent: parent_pbf does not",
+    "cover them, so no pack can be cut from it. Do not re-add them without a build that",
+    "sources them separately, or every release will report them as failures.",
     "source_pbf_bytes_observed is INFORMATIONAL ONLY (sizing/planning). It is not used by the build.",
     "Pack granularity is a whole Valhalla tile (level 0 = 4 deg, 1 = 1 deg, 2 = 0.25 deg),",
     "so adjacent packs overlap slightly at their borders. That is intentional: it keeps",
@@ -329,14 +332,6 @@
       "source_pbf_observed_at": "Sat, 29 Aug 2026 22:52:18 GMT"
     },
     {
-      "id": "puerto-rico",
-      "name": "Puerto Rico",
-      "iso3166_2": "US-PR",
-      "poly_url": "https://download.geofabrik.de/north-america/us/puerto-rico.poly",
-      "source_pbf_bytes_observed": 73869454,
-      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:48:26 GMT"
-    },
-    {
       "id": "rhode-island",
       "name": "Rhode Island",
       "iso3166_2": "US-RI",
@@ -375,14 +370,6 @@
       "poly_url": "https://download.geofabrik.de/north-america/us/texas.poly",
       "source_pbf_bytes_observed": 716897787,
       "source_pbf_observed_at": "Sat, 29 Aug 2026 22:54:22 GMT"
-    },
-    {
-      "id": "us-virgin-islands",
-      "name": "U.S. Virgin Islands",
-      "iso3166_2": "US-VI",
-      "poly_url": "https://download.geofabrik.de/north-america/us/us-virgin-islands.poly",
-      "source_pbf_bytes_observed": 3120458,
-      "source_pbf_observed_at": "Sat, 29 Aug 2026 22:47:52 GMT"
     },
     {
       "id": "utah",

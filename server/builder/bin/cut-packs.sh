@@ -8,7 +8,7 @@
 #
 # One invocation per region. In 3.6.3, -g globs *.geojson in the directory,
 # flattens every Polygon into one list, and writes one tar. Pointing it at a
-# directory of 53 states would produce a single tar of their union, so each
+# directory of every state would produce a single tar of their union, so each
 # pass sees a directory holding only that region's geojson.
 #
 # -e/--extract-tar is not passed. It is not an output-path flag: it also

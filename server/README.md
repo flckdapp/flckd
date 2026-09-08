@@ -181,14 +181,15 @@ states to the catalog costs minutes rather than a second full build. Set
 
 Two threads need roughly 5 GB RAM. These are estimates, not guarantees.
 
-A region the source map doesn't contain cannot be cut from it. The default
-Geofabrik US extract covers the 50 states and DC, but **not Puerto Rico or
-the US Virgin Islands** — those are published as separate extracts. Selecting
-them yields a release without them: the build succeeds, the log says which
-regions were left out, and the job's final detail names them. Set
-`STRICT_REGIONS=1` to fail the whole release instead. To publish them, run a
-separate build with `PBF_URL` and `PBF_NAME` pointing at their own extract
-and only those regions selected.
+The catalog is the 50 states and DC — exactly what the default Geofabrik US
+extract covers. Puerto Rico and the US Virgin Islands are **not** in that
+extract; Geofabrik publishes them separately, so no pack can be cut for them
+and they are not offered.
+
+More generally, a region the source map doesn't contain cannot be cut from
+it. That failure no longer discards the release: the build succeeds with the
+regions it could cut, the log names the ones it couldn't, and so does the
+job's final detail. Set `STRICT_REGIONS=1` to fail the whole release instead.
 
 The UI shows stages rather than invented completion estimates. Logs and
 history survive restarts; only the latest 100 jobs and approximately 1 MiB
