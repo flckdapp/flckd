@@ -135,9 +135,15 @@ final class RerouteProbe {
         separation: ClosedRange<Double>,
         using generator: inout SeededGenerator
     ) -> (start: CLLocationCoordinate2D, end: CLLocationCoordinate2D)? {
+        // Indexing by hand rather than through `Int.random(in:using:)`. The
+        // stdlib ships with the OS, so two phones on different point releases
+        // could in principle derive different indices from the same generator
+        // state, which would silently invalidate the cross-device comparison.
+        // Modulo bias does not matter here; reproducibility does.
+        let count = UInt64(cameras.count)
         for _ in 0..<200 {
-            let a = cameras[Int.random(in: cameras.indices, using: &generator)]
-            let b = cameras[Int.random(in: cameras.indices, using: &generator)]
+            let a = cameras[Int(generator.next() % count)]
+            let b = cameras[Int(generator.next() % count)]
             guard a.id != b.id else { continue }
             let distance = CLLocation(latitude: a.latitude, longitude: a.longitude)
                 .distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
