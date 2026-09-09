@@ -206,7 +206,7 @@ final class RoutingMetricsStore {
             device: Self.hardwareIdentifier(),
             systemVersion: ProcessInfo.processInfo.operatingSystemVersionString,
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?",
-            regionPackBytes: Self.installedRegionBytes(),
+            installedRegionCount: RegionStore.installedRegions().count,
             drivingBudgetMs: Self.drivingBudgetMs,
             sweepContext: sweepContext,
             summary: Export.Summary(
@@ -251,7 +251,7 @@ final class RoutingMetricsStore {
         let device: String
         let systemVersion: String
         let appVersion: String
-        let regionPackBytes: Int64?
+        let installedRegionCount: Int
         let drivingBudgetMs: Double
         let sweepContext: SweepContext?
         let summary: Summary
@@ -268,12 +268,5 @@ final class RoutingMetricsStore {
             guard let base = raw.baseAddress else { return "unknown" }
             return String(cString: base.assumingMemoryBound(to: CChar.self))
         }
-    }
-
-    /// Size of the region pack routing would use. Scale without identity.
-    private static func installedRegionBytes() -> Int64? {
-        guard let url = RegionStore.bestAvailableRegion() else { return nil }
-        let values = try? url.resourceValues(forKeys: [.fileSizeKey])
-        return values?.fileSize.map(Int64.init)
     }
 }

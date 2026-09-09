@@ -142,6 +142,7 @@ actor ValhallaRoutingService {
                 routeKm: route?.distanceKm ?? 0,
                 routeMinutes: (route?.timeSeconds ?? 0) / 60,
                 speedMps: speedMps,
+                regionBytes: metrics.regionBytes,
                 thermalState: ProcessInfo.processInfo.thermalState.exportName,
                 failure: failure
             )
@@ -360,6 +361,10 @@ actor ValhallaRoutingService {
             throw RoutingError.invalidResponse
         }
         let region = RegionStore.bestAvailableRegion(containing: [start, end])
+        if metrics?.regionBytes == nil, let region {
+            metrics?.regionBytes = (try? region.resourceValues(forKeys: [.fileSizeKey]))?
+                .fileSize.map(Int64.init)
+        }
         #if DEBUG
         dumpRequest(json)
         #endif

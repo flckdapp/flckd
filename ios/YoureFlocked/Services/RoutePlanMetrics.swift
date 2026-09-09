@@ -69,6 +69,11 @@ struct RoutePlanSample: Codable, Identifiable, Sendable {
     /// Ground speed when planning started, when Core Location reported a
     /// valid one.
     let speedMps: Double?
+    /// Size of the region pack this plan actually routed against. Graph scale
+    /// is the main non-CPU explanation for latency, and on a device with
+    /// several packs installed the one in use is not the largest one present.
+    /// A byte count names no place.
+    let regionBytes: Int64?
     /// Thermal state when planning started. An A14 in a windscreen mount
     /// throttles hard enough to move these numbers, and that is a real
     /// driving condition rather than a measurement artefact.
@@ -114,6 +119,7 @@ final class RoutePlanAccumulator {
 
     var corridorCameras: Int = 0
     var fencedCameras: Int = 0
+    var regionBytes: Int64?
 
     func addEngineCall(_ timing: EngineTiming, isRefinement: Bool = false) {
         engineCalls += 1
