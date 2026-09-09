@@ -155,6 +155,18 @@ struct RoutingDebugOverlay: View {
             }
 
             HStack(spacing: 6) {
+                ForEach([10.0, 20.0, 45.0], id: \.self) { seconds in
+                    Button("\(Int(seconds))s") { probe.intervalSeconds = seconds }
+                        .overlay {
+                            if probe.intervalSeconds == seconds {
+                                RoundedRectangle(cornerRadius: 7)
+                                    .strokeBorder(.cyan, lineWidth: 1.5)
+                            }
+                        }
+                }
+            }
+
+            HStack(spacing: 6) {
                 Button("Reset") {
                     store.reset()
                     exportError = nil
@@ -201,12 +213,18 @@ private struct SpikeButtonStyle: ButtonStyle {
     }
 }
 
-private struct ShareSheet: UIViewControllerRepresentable {
+    private struct ShareSheet: UIViewControllerRepresentable {
     let url: URL
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        // The app targets iPad as well, where an activity controller without a
+        // popover anchor raises. Harmless on iPhone.
+        controller.popoverPresentationController?.sourceRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+        return controller
     }
 
-    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {
+        controller.popoverPresentationController?.sourceView = controller.view
+    }
 }

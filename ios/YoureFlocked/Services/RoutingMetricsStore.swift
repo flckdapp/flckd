@@ -30,13 +30,30 @@ final class RoutingMetricsStore {
     /// 2000 samples at a 20 s cadence is over eleven hours of driving.
     private let maxSamples = 2000
 
-    private init() {}
+    private var handle: FileHandle?
+
+    private static let lineEncoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }()
+
+    private static let lineDecoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }()
+
+    private init() {
+        recoverSession()
+    }
 
     // MARK: - Recording
 
     func record(_ sample: RoutePlanSample) {
         samples.append(sample)
         if samples.count > maxSamples { samples.removeFirst(samples.count - maxSamples) }
+        persist(sample)
 
         // Mirror into the unified log so a drive can be recovered with
         // `log collect` even if the app is killed before export. Counts and
@@ -60,6 +77,85 @@ final class RoutingMetricsStore {
 
     func reset() {
         samples.removeAll()
+        sweepContext = nil
+        do {
+            try handle?.close()
+            handle = nil
+            let url = try Self.sessionURL()
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+        } catch {
+            Self.log.error("reset failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    // MARK: - Durability
+
+    /// Samples are appended as JSON lines the moment they are recorded.
+    ///
+    /// An hour of continuous GPS, MapKit and Valhalla on a 4 GB device makes
+    /// termination likely rather than hypothetical. An in-memory-only session
+    /// would lose the entire drive at exactly the point the data became
+    /// interesting, so every sample hits disk before the next one is planned.
+    private static func sessionURL() throws -> URL {
+        let directory = URL.applicationSupportDirectory
+            .appending(path: "routing-spike", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appending(path: "session.jsonl")
+    }
+
+    private func persist(_ sample: RoutePlanSample) {
+        do {
+            if handle == nil {
+                let url = try Self.sessionURL()
+                if !FileManager.default.fileExists(atPath: url.path) {
+                    FileManager.default.createFile(atPath: url.path, contents: nil)
+                }
+                let opened = try FileHandle(forWritingTo: url)
+                let end = try opened.seekToEnd()
+                // A run killed mid-write leaves a fragment with no terminator.
+                // Appending straight onto it merges the fragment and the next
+                // sample into one unparseable line, losing a good sample as
+                // well as the fragment. Close the boundary first.
+                if end > 0 {
+                    try opened.seek(toOffset: end - 1)
+                    if try opened.read(upToCount: 1) != Data([0x0A]) {
+                        try opened.write(contentsOf: Data([0x0A]))
+                    }
+                }
+                handle = opened
+            }
+            var line = try Self.lineEncoder.encode(sample)
+            line.append(0x0A)
+            try handle?.write(contentsOf: line)
+        } catch {
+            Self.log.error("persist failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func recoverSession() {
+        do {
+            let url = try Self.sessionURL()
+            guard FileManager.default.fileExists(atPath: url.path) else { return }
+            let data = try Data(contentsOf: url)
+            var recovered: [RoutePlanSample] = []
+            for line in data.split(separator: 0x0A) where !line.isEmpty {
+                // A kill part-way through a write leaves a truncated trailing
+                // line. Skipping it recovers the rest of the drive instead of
+                // throwing the whole session away.
+                guard let sample = try? Self.lineDecoder.decode(RoutePlanSample.self, from: Data(line)) else {
+                    continue
+                }
+                recovered.append(sample)
+            }
+            samples = Array(recovered.suffix(maxSamples))
+            if !recovered.isEmpty {
+                Self.log.info("recovered \(recovered.count, privacy: .public) samples from a previous session")
+            }
+        } catch {
+            Self.log.error("recovery failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     // MARK: - Session statistics
