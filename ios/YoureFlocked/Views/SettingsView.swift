@@ -32,9 +32,11 @@ struct SettingsView: View {
     @AppStorage("useMetric") private var useMetric: Bool = false
     @AppStorage("enableHaptics") private var enableHaptics: Bool = true
     @AppStorage("keepScreenAwake") private var keepScreenAwake: Bool = true
+    @AppStorage(AppAppearance.storageKey) private var appearanceRaw: String = AppAppearance.system.rawValue
 
     var body: some View {
         Form {
+            appearanceSection
             unitsSection
             mapSection
             alertSection
@@ -69,6 +71,25 @@ struct SettingsView: View {
             return String(format: "%.1f mi", miles)
         }
     }
+
+    // MARK: - Appearance
+
+    @ViewBuilder
+    private var appearanceSection: some View {
+        Section {
+            Picker("Theme", selection: $appearanceRaw) {
+                ForEach(AppAppearance.allCases, id: \.rawValue) { appearance in
+                    Text(appearance.displayName).tag(appearance.rawValue)
+                }
+            }
+        } header: {
+            Text("Appearance")
+        } footer: {
+            Text("Automatic follows your device's Light or Dark setting.")
+        }
+    }
+
+    // MARK: - Units
 
     @ViewBuilder
     private var unitsSection: some View {

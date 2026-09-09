@@ -44,6 +44,7 @@ struct YoureFlockedApp: App {
     @State private var notificationManager = NotificationManager()
     @State private var liveActivityManager = LiveActivityManager()
     @State private var showSplash = true
+    @AppStorage(AppAppearance.storageKey) private var appearanceRaw: String = AppAppearance.system.rawValue
 
     var body: some Scene {
         WindowGroup {
@@ -60,6 +61,7 @@ struct YoureFlockedApp: App {
                         .zIndex(1)
                 }
             }
+            .preferredColorScheme(AppAppearance.stored(appearanceRaw).colorScheme)
             .task { @MainActor in
                 await LiveActivityManager.endOrphanedActivitiesOnLaunch()
                 if locationManager.isTracking {
