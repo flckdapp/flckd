@@ -32,15 +32,29 @@ final class LocalValhallaEngine: @unchecked Sendable {
     /// Runs a raw Valhalla `route` request on-device.
     /// - Returns: raw `{"trip": ...}` JSON, identical in shape to the HTTP API.
     func route(rawRequest json: String, region: URL? = nil) async throws -> Data {
+        try await routeTimed(rawRequest: json, region: region).data
+    }
+
+    /// As `route(rawRequest:region:)`, but reports per-call timing. A plan
+    /// makes many calls, so this is what separates a slow engine from a
+    /// chatty planner.
+    func routeTimed(
+        rawRequest json: String,
+        region: URL? = nil
+    ) async throws -> (data: Data, timing: EngineTiming) {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 do {
-                    let engine = try self.engineOnQueue(preferred: region)
+                    let (engine, buildMs) = try self.engineOnQueue(preferred: region)
+                    let watch = Stopwatch()
                     let response = try engine.route(rawRequest: json)   // blocking, sync
+                    let callMs = watch.elapsedMs
                     guard let data = response.data(using: .utf8) else {
                         throw RoutingError.invalidResponse
                     }
-                    continuation.resume(returning: data)
+                    continuation.resume(
+                        returning: (data, EngineTiming(buildMs: buildMs, callMs: callMs))
+                    )
                 } catch {
                     continuation.resume(throwing: Self.map(error))
                 }
@@ -49,11 +63,12 @@ final class LocalValhallaEngine: @unchecked Sendable {
     }
 
     /// Builds the engine lazily and reuses it. Construction is expensive
-    /// (mmap + index parse + tzdata extraction).
-    private func engineOnQueue(preferred: URL? = nil) throws -> Valhalla {
+    /// (mmap + index parse + tzdata extraction), so the returned `buildMs` is
+    /// non-nil only on the call that paid for it.
+    private func engineOnQueue(preferred: URL? = nil) throws -> (engine: Valhalla, buildMs: Double?) {
         dispatchPrecondition(condition: .onQueue(queue))
         let best = preferred ?? RegionStore.bestAvailableRegion()
-        if let engine, loadedRegion == best { return engine }
+        if let engine, loadedRegion == best { return (engine, nil) }
 
         self.engine?.close()
         self.engine = nil
@@ -62,6 +77,7 @@ final class LocalValhallaEngine: @unchecked Sendable {
         guard let tarURL = best else {
             throw RoutingError.engineUnavailable
         }
+        let buildWatch = Stopwatch()
         // ValhallaConfig uses URL.relativePath internally, so the URL has to
         // be an absolute file URL.
         let absolute = URL(fileURLWithPath: tarURL.path)
@@ -80,7 +96,7 @@ final class LocalValhallaEngine: @unchecked Sendable {
         let built = try Valhalla(config, configName: "flckd-valhalla.json")
         self.engine = built
         self.loadedRegion = tarURL
-        return built
+        return (built, buildWatch.elapsedMs)
     }
 
     /// Releases the native engine and unmaps the extract. Idempotent.

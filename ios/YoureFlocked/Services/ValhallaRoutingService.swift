@@ -107,13 +107,72 @@ actor ValhallaRoutingService {
         return bestCandidate(candidates, scoredAgainst: scoringCameras ?? cameras, level: level, useFOV: useFOV)
     }
 
+    /// Times a plan and publishes the result to `RoutingMetricsStore`.
+    /// Routing behaviour is unchanged; measurement is a side effect.
     func routeWithProgressiveAvoidance(
         from start: CLLocationCoordinate2D,
         to end: CLLocationCoordinate2D,
         cameras: [SurveillanceCamera],
         useFOV: Bool = false,
         costing: String = "auto",
-        level: AvoidanceLevel = .balanced
+        level: AvoidanceLevel = .balanced,
+        trigger: RoutePlanSample.Trigger = .initial,
+        speedMps: Double? = nil
+    ) async throws -> (route: ValhallaRoute, avoidedCount: Int, totalCount: Int) {
+        let watch = Stopwatch()
+        let metrics = RoutePlanAccumulator()
+
+        func publish(route: ValhallaRoute?, exposure: Int, failure: String?) async {
+            let sample = RoutePlanSample(
+                id: UUID(),
+                timestamp: Date(),
+                trigger: trigger,
+                level: level.label,
+                totalMs: watch.elapsedMs,
+                engineMsTotal: metrics.engineMsTotal,
+                engineMsMax: metrics.engineMsMax,
+                scoringMsTotal: metrics.scoringMsTotal,
+                engineBuildMs: metrics.engineBuildMs,
+                engineCalls: metrics.engineCalls,
+                refinementCalls: metrics.refinementCalls,
+                candidatesScored: metrics.candidatesScored,
+                corridorCameras: metrics.corridorCameras,
+                fencedCameras: metrics.fencedCameras,
+                resultExposure: exposure,
+                routeKm: route?.distanceKm ?? 0,
+                routeMinutes: (route?.timeSeconds ?? 0) / 60,
+                speedMps: speedMps,
+                thermalState: ProcessInfo.processInfo.thermalState.exportName,
+                failure: failure
+            )
+            await MainActor.run { RoutingMetricsStore.shared.record(sample) }
+        }
+
+        do {
+            let result = try await planProgressiveAvoidance(
+                from: start, to: end, cameras: cameras,
+                useFOV: useFOV, costing: costing, level: level, metrics: metrics
+            )
+            await publish(
+                route: result.route,
+                exposure: max(0, result.totalCount - result.avoidedCount),
+                failure: nil
+            )
+            return result
+        } catch {
+            await publish(route: nil, exposure: 0, failure: String(describing: error))
+            throw error
+        }
+    }
+
+    private func planProgressiveAvoidance(
+        from start: CLLocationCoordinate2D,
+        to end: CLLocationCoordinate2D,
+        cameras: [SurveillanceCamera],
+        useFOV: Bool,
+        costing: String,
+        level: AvoidanceLevel,
+        metrics: RoutePlanAccumulator
     ) async throws -> (route: ValhallaRoute, avoidedCount: Int, totalCount: Int) {
         let corridorCameras = camerasInCorridor(from: start, to: end, cameras: cameras, bufferKm: 5.0)
 
@@ -138,11 +197,13 @@ actor ValhallaRoutingService {
         }
 
         let totalCount = corridorCameras.count
+        metrics.corridorCameras = totalCount
 
         // Cameras closest to the direct start-to-end line matter most; the
         // exclusion set is the nearest `maxExclude` of them.
         let sorted = sortedByCorridorProximity(relevantCameras, from: start, to: end)
         let capped = Array(sorted.prefix(level.maxExclude))
+        metrics.fencedCameras = capped.count
 
         // Radius ladder: every avoidance level evaluates its own radius and
         // all smaller levels' radii. Combined with the shared candidate pool
@@ -186,6 +247,8 @@ actor ValhallaRoutingService {
         // cameras that can actually see it, tie-broken by fastest travel time.
         var pool: [(route: ValhallaRoute, exposure: Int)] = []
         func admit(_ routes: [ValhallaRoute], tag: String) {
+            let scoringWatch = Stopwatch()
+            defer { metrics.addScoring(scoringWatch.elapsedMs, candidates: routes.count) }
             for candidate in routes {
                 let exposed = exposedCameraIDs(route: candidate, cameras: corridorCameras, radiusMeters: Self.scoringRadiusMeters, useFOV: useFOV)
                 pool.append((candidate, exposed.count))
@@ -194,7 +257,7 @@ actor ValhallaRoutingService {
         }
         Self.log.info("plan start level=\(level.label, privacy: .public) corridor=\(corridorCameras.count) fenced=\(capped.count)")
 
-        if let baseline = try? await routeCandidates(from: start, to: end, avoiding: [], useFOV: useFOV, costing: costing, level: level, radiusOverride: nil) {
+        if let baseline = try? await routeCandidates(from: start, to: end, avoiding: [], useFOV: useFOV, costing: costing, level: level, radiusOverride: nil, metrics: metrics) {
             admit(baseline, tag: "baseline")
         }
 
@@ -208,7 +271,7 @@ actor ValhallaRoutingService {
                 if subset.isEmpty { break }
                 let routes: [ValhallaRoute]
                 do {
-                    routes = try await routeCandidates(from: start, to: end, avoiding: subset, useFOV: useFOV, costing: costing, level: level, radiusOverride: radius, snapRadiusMeters: snap)
+                    routes = try await routeCandidates(from: start, to: end, avoiding: subset, useFOV: useFOV, costing: costing, level: level, radiusOverride: radius, snapRadiusMeters: snap, metrics: metrics)
                 } catch RoutingError.noRouteFound {
                     Self.log.info("plan r=\(Int(radius)) unfence=\(Int(unfence)) snap=\(Int(snap)) fenced=\(subset.count): no route")
                     continue // still encircled; relax further
@@ -243,7 +306,7 @@ actor ValhallaRoutingService {
                         rungCalls += 1
                         refinementBudget -= 1
                         do {
-                            let refined = try await routeCandidates(from: start, to: end, avoiding: trial, useFOV: useFOV, costing: costing, level: level, radiusOverride: radius, snapRadiusMeters: snap)
+                            let refined = try await routeCandidates(from: start, to: end, avoiding: trial, useFOV: useFOV, costing: costing, level: level, radiusOverride: radius, snapRadiusMeters: snap, metrics: metrics, isRefinement: true)
                             unfenced.removeValue(forKey: target.id)
                             admit(refined, tag: "r=\(Int(radius)) unfence=\(Int(unfence)) snap=\(Int(snap)) refenced=\(target.id)")
                             primary = refined[0]
@@ -284,7 +347,9 @@ actor ValhallaRoutingService {
         costing: String,
         level: AvoidanceLevel,
         radiusOverride: Double?,
-        snapRadiusMeters: Double = 0
+        snapRadiusMeters: Double = 0,
+        metrics: RoutePlanAccumulator? = nil,
+        isRefinement: Bool = false
     ) async throws -> [ValhallaRoute] {
         guard LocalValhallaEngine.shared.hasRegion else {
             throw RoutingError.engineUnavailable
@@ -298,8 +363,20 @@ actor ValhallaRoutingService {
         #if DEBUG
         dumpRequest(json)
         #endif
-        let data = try await LocalValhallaEngine.shared.route(rawRequest: json, region: region)
-        return try parseCandidates(data)
+        let watch = Stopwatch()
+        do {
+            let (data, timing) = try await LocalValhallaEngine.shared.routeTimed(rawRequest: json, region: region)
+            metrics?.addEngineCall(timing, isRefinement: isRefinement)
+            return try parseCandidates(data)
+        } catch {
+            // A rejected rung still burned engine time, and the no-route rungs
+            // are the expensive ones. Dropping them would flatter the totals.
+            metrics?.addEngineCall(
+                EngineTiming(buildMs: nil, callMs: watch.elapsedMs),
+                isRefinement: isRefinement
+            )
+            throw error
+        }
     }
 
     #if DEBUG

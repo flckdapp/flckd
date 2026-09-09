@@ -36,6 +36,7 @@ struct RouteView: View {
     @State private var isSheetPresented = false
     
     @AppStorage("useMetric") private var useMetric: Bool = false
+    @AppStorage("showRoutingSpikeOverlay") private var showRoutingSpikeOverlay: Bool = false
     @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
 
     private let cameraBufferMeters: Double = 35
@@ -106,6 +107,16 @@ struct RouteView: View {
                 searchBar
                 if let missing = missingHomeRegion, routeResult == nil, !isCalculating {
                     regionPreflightBanner(missing)
+                }
+                if showRoutingSpikeOverlay {
+                    HStack {
+                        RoutingDebugOverlay(
+                            destination: selectedPlace?.placemark.location?.coordinate,
+                            level: AvoidanceLevel(rawValue: avoidanceLevelRaw) ?? .balanced
+                        )
+                        Spacer()
+                    }
+                    .padding(.horizontal)
                 }
             }
         }
@@ -781,7 +792,8 @@ struct RouteView: View {
                         to: destCoord,
                         cameras: cameras,
                         useFOV: false,
-                        level: level
+                        level: level,
+                        trigger: .recheck
                     )
                 }
             }
