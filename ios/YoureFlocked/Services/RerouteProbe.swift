@@ -18,6 +18,11 @@ import CoreLocation
 @Observable
 final class RerouteProbe {
 
+    /// Shared so a run outlives the view that started it. The overlay lives in
+    /// a `safeAreaInset` on one tab, and a view-owned probe would be torn down
+    /// by a tab switch mid-drive, silently ending the measurement.
+    static let shared = RerouteProbe()
+
     enum Mode: String, Sendable {
         case drive
         case sweep

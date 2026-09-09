@@ -29,7 +29,12 @@ struct ContentView: View {
                     .tag(tab)
             }
         }
-        .keepScreenAwake(keepScreenAwake && selectedTab == .map)
+        // A sleeping screen backgrounds the app, and LocalValhallaEngine tears
+        // down on didEnterBackground, so every probe reroute after that would
+        // pay a cold rebuild and the drive would measure cold starts instead
+        // of reroutes. One flag, one owner: fold the probe into the same
+        // condition rather than applying a second modifier that fights it.
+        .keepScreenAwake((keepScreenAwake && selectedTab == .map) || RerouteProbe.shared.isRunning)
         .task {
             locationManager.requestAuthorizationIfNeeded()
         }

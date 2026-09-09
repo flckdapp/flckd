@@ -13,7 +13,7 @@ struct RoutingDebugOverlay: View {
     @Environment(LocationManager.self) private var locationManager
 
     @State private var store = RoutingMetricsStore.shared
-    @State private var probe = RerouteProbe()
+    @State private var probe = RerouteProbe.shared
     @State private var isExpanded = true
     @State private var exportFile: ExportFile?
     @State private var exportError: String?
