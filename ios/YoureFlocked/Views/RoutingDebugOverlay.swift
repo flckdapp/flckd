@@ -7,7 +7,16 @@ import UIKit
 struct RoutingDebugOverlay: View {
 
     let destination: CLLocationCoordinate2D?
-    let level: AvoidanceLevel
+
+    /// The same key the route planner's slider writes, so the level shown here
+    /// is the level a plan will actually use. Reading it back rather than
+    /// taking it as a parameter keeps one source of truth; two devices being
+    /// on different levels silently invalidates a comparison.
+    @AppStorage("avoidanceLevel") private var avoidanceLevelRaw = AvoidanceLevel.balanced.rawValue
+
+    private var level: AvoidanceLevel {
+        AvoidanceLevel(rawValue: avoidanceLevelRaw) ?? .balanced
+    }
 
     @Environment(CameraStore.self) private var cameraStore
     @Environment(LocationManager.self) private var locationManager
@@ -133,6 +142,19 @@ struct RoutingDebugOverlay: View {
 
     private var controls: some View {
         VStack(spacing: 6) {
+            HStack(spacing: 4) {
+                ForEach(AvoidanceLevel.allCases, id: \.rawValue) { option in
+                    Button(option.label) { avoidanceLevelRaw = option.rawValue }
+                        .overlay {
+                            if level == option {
+                                RoundedRectangle(cornerRadius: 7)
+                                    .strokeBorder(.cyan, lineWidth: 1.5)
+                            }
+                        }
+                }
+            }
+            .disabled(probe.isRunning)
+
             HStack(spacing: 6) {
                 Button(probe.isRunning ? "Stop" : "Drive") {
                     if probe.isRunning {

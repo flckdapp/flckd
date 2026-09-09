@@ -111,8 +111,7 @@ struct RouteView: View {
                 if showRoutingSpikeOverlay {
                     HStack {
                         RoutingDebugOverlay(
-                            destination: selectedPlace?.placemark.location?.coordinate,
-                            level: AvoidanceLevel(rawValue: avoidanceLevelRaw) ?? .balanced
+                            destination: selectedPlace?.placemark.location?.coordinate
                         )
                         Spacer()
                     }
