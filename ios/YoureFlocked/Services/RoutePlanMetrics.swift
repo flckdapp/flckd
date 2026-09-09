@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 
 /// One timed run of `ValhallaRoutingService.routeWithProgressiveAvoidance`.
@@ -8,9 +9,11 @@ import Foundation
 /// AGENTS.md forbids anything in a shareable artefact that identifies where a
 /// real person drives. Durations, counts and scalars only.
 ///
-/// `speedMps` is a scalar magnitude with no bearing and no position, so it
-/// identifies no place. It is here because reroute latency only matters
-/// relative to how fast the car was moving when planning started.
+/// Coordinate-free is not the same as inference-free. Absolute timestamps, a
+/// speed trace and remaining distance, sampled across a whole trip, describe
+/// when a journey happened and what it looked like. That is acceptable for
+/// the developer's own device and would not be for anyone else's, which is
+/// why this whole layer is `#if DEBUG` and never reaches a distributed build.
 struct RoutePlanSample: Codable, Identifiable, Sendable {
 
     enum Trigger: String, Codable, Sendable {
@@ -72,7 +75,8 @@ struct RoutePlanSample: Codable, Identifiable, Sendable {
     /// Size of the region pack this plan actually routed against. Graph scale
     /// is the main non-CPU explanation for latency, and on a device with
     /// several packs installed the one in use is not the largest one present.
-    /// A byte count names no place.
+    /// Note this does name a place: the tile server publishes pack sizes, so
+    /// a byte count resolves to one state.
     let regionBytes: Int64?
     /// Thermal state when planning started. An A14 in a windscreen mount
     /// throttles hard enough to move these numbers, and that is a real
@@ -184,3 +188,4 @@ struct Stopwatch {
         return Double(seconds) * 1000 + Double(attoseconds) / 1e15
     }
 }
+#endif

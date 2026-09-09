@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 import os
 
@@ -183,23 +184,23 @@ final class RoutingMetricsStore {
         return values[min(max(rank, 0), values.count - 1)]
     }
 
-    /// Share of successful plans that landed inside the driving budget.
+    /// Share of *all* attempts that both succeeded and landed inside the
+    /// budget. Scoring only successful plans flatters the result: a reroute
+    /// that fails is a reroute the driver did not get, not a sample to drop.
     var withinBudgetFraction: Double? {
-        let values = successfulDurations
-        guard !values.isEmpty else { return nil }
-        let inside = values.lazy.filter { $0 <= Self.drivingBudgetMs }.count
-        return Double(inside) / Double(values.count)
+        guard !samples.isEmpty else { return nil }
+        let met = samples.lazy.filter { $0.succeeded && $0.totalMs <= Self.drivingBudgetMs }.count
+        return Double(met) / Double(samples.count)
     }
 
     // MARK: - Export
 
-    /// Writes the session to a JSON file and returns it for `ShareLink`.
+    /// Writes the session to a JSON file and returns it for the share sheet.
     ///
-    /// The payload is safe to send: it holds durations, counts, a hardware
-    /// identifier and the size of the installed region pack. It does not hold
-    /// coordinates or the region's name. Pack size is included because graph
-    /// scale is the main thing outside timing that explains latency, and a
-    /// byte count names no place.
+    /// Holds no coordinates, but do not mistake that for anonymous: pack size
+    /// resolves to a state against the public tile manifest, and timestamps
+    /// plus speed plus remaining distance describe the trip. Fine for the
+    /// developer's own device, which is the only place this compiles.
     func exportFile() throws -> URL {
         let payload = Export(
             exportedAt: Date(),
@@ -270,3 +271,4 @@ final class RoutingMetricsStore {
         }
     }
 }
+#endif

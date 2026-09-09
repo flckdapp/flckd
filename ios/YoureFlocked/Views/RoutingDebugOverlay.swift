@@ -1,3 +1,4 @@
+#if DEBUG
 import SwiftUI
 import CoreLocation
 import UIKit
@@ -250,3 +251,4 @@ private struct SpikeButtonStyle: ButtonStyle {
         controller.popoverPresentationController?.sourceView = controller.view
     }
 }
+#endif

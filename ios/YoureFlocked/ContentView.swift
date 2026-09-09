@@ -5,11 +5,17 @@ struct ContentView: View {
     @State private var selectedTab: Tab = .map
     @AppStorage("keepScreenAwake") private var keepScreenAwake: Bool = true
 
+    #if DEBUG
     /// Held in `@State` rather than read through `RerouteProbe.shared` inline.
     /// Observation of a bare singleton touched in `body` is easy to get wrong,
     /// and if it silently fails the screen sleeps mid-drive and every reroute
     /// after that measures a cold engine rebuild instead of a reroute.
     @State private var probe = RerouteProbe.shared
+
+    private var diagnosticsHoldingScreen: Bool { probe.isRunning }
+    #else
+    private var diagnosticsHoldingScreen: Bool { false }
+    #endif
 
     enum Tab: String, CaseIterable {
         case map = "Map"
@@ -40,7 +46,7 @@ struct ContentView: View {
         // pay a cold rebuild and the drive would measure cold starts instead
         // of reroutes. One flag, one owner: fold the probe into the same
         // condition rather than applying a second modifier that fights it.
-        .keepScreenAwake((keepScreenAwake && selectedTab == .map) || probe.isRunning)
+        .keepScreenAwake((keepScreenAwake && selectedTab == .map) || diagnosticsHoldingScreen)
         .task {
             locationManager.requestAuthorizationIfNeeded()
         }

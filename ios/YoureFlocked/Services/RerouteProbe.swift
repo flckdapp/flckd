@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 import CoreLocation
 
@@ -185,7 +186,7 @@ final class RerouteProbe {
         speedMps: Double?
     ) async {
         do {
-            _ = try await service.routeWithProgressiveAvoidance(
+            _ = try await service.timedRouteWithProgressiveAvoidance(
                 from: start,
                 to: end,
                 cameras: cameras,
@@ -209,3 +210,4 @@ final class RerouteProbe {
         isRunning = false
     }
 }
+#endif
