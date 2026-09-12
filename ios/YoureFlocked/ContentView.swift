@@ -2,8 +2,14 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(LocationManager.self) private var locationManager
+    @Environment(CameraStore.self) private var cameraStore
+    @Environment(NotificationManager.self) private var notificationManager
+    @Environment(LiveActivityManager.self) private var liveActivityManager
+    @Environment(ProximityAlertEngine.self) private var proximityEngine
     @State private var selectedTab: Tab = .map
     @AppStorage("keepScreenAwake") private var keepScreenAwake: Bool = true
+    @AppStorage("alertMode") private var alertModeRaw: String = AlertMode.nearCamera.rawValue
+    @AppStorage("enableHaptics") private var enableHaptics: Bool = true
 
     #if DEBUG
     /// Held in `@State` rather than read through `RerouteProbe.shared` inline.
@@ -56,9 +62,44 @@ struct ContentView: View {
         // of reroutes. One flag, one owner: fold the probe into the same
         // condition rather than applying a second modifier that fights it.
         .keepScreenAwake((keepScreenAwake && selectedTab.watchedWhileDriving) || diagnosticsHoldingScreen)
+        // Both of these sit above the TabView on purpose. Proximity warning is
+        // what the app is for, so neither the detection nor the banner may
+        // depend on which tab is showing, or on the map having been opened.
+        .overlay(alignment: .top) { proximityBanner }
+        .onChange(of: locationManager.currentLocation) { _, newLocation in
+            guard let location = newLocation else { return }
+            proximityEngine.handleLocationUpdate(
+                location: location,
+                heading: locationManager.heading,
+                cameraStore: cameraStore,
+                notificationManager: notificationManager,
+                liveActivityManager: liveActivityManager,
+                alertRadius: locationManager.alertRadius,
+                alertMode: AlertMode(rawValue: alertModeRaw) ?? .nearCamera,
+                enableHaptics: enableHaptics
+            )
+        }
         .task {
             locationManager.requestAuthorizationIfNeeded()
         }
+    }
+
+    @ViewBuilder
+    private var proximityBanner: some View {
+        VStack {
+            if let alert = proximityEngine.activeAlert {
+                ProximityBannerView(alert: alert, tripStats: proximityEngine.tripStats)
+                    .transition(
+                        .asymmetric(
+                            insertion: .move(edge: .top).combined(with: .opacity),
+                            removal: .move(edge: .top).combined(with: .opacity)
+                        )
+                    )
+                    .padding(.top, 8)
+            }
+            Spacer()
+        }
+        .animation(.easeOut(duration: 0.25), value: proximityEngine.activeAlert != nil)
     }
 
     @ViewBuilder
@@ -99,4 +140,6 @@ struct ContentView: View {
         .environment(LocationManager())
         .environment(CameraStore())
         .environment(NotificationManager())
+        .environment(LiveActivityManager())
+        .environment(ProximityAlertEngine())
 }

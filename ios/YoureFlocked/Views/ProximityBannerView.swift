@@ -9,8 +9,8 @@ import CoreLocation
 /// Layout: [accent bar] [type icon + label] | [distance] | [direction arrow + label] [+N badge]
 /// Background: translucent material capsule matching the app's floating control style.
 struct ProximityBannerView: View {
-    let alert: MapViewModel.ProximityAlert
-    var tripStats: MapViewModel.TripStats = .init()
+    let alert: ProximityAlertEngine.ProximityAlert
+    var tripStats: ProximityAlertEngine.TripStats = .init()
     @AppStorage("useMetric") private var useMetric: Bool = false
 
     var body: some View {
@@ -164,7 +164,7 @@ struct ProximityBannerView: View {
 
         VStack {
             ProximityBannerView(
-                alert: MapViewModel.ProximityAlert(
+                alert: ProximityAlertEngine.ProximityAlert(
                     cameraID: 12345,
                     camera: SurveillanceCamera(
                         osmID: 12345,
@@ -196,7 +196,7 @@ struct ProximityBannerView: View {
 
         VStack {
             ProximityBannerView(
-                alert: MapViewModel.ProximityAlert(
+                alert: ProximityAlertEngine.ProximityAlert(
                     cameraID: 67890,
                     camera: SurveillanceCamera(
                         osmID: 67890,

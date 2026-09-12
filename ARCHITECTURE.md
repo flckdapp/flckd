@@ -85,6 +85,7 @@ ios/
       OverpassService.swift         camera lookups, with retry and fallbacks
       DeFlockCDNService.swift       bulk ALPR tiles from DeFlock's CDN
       LocationManager.swift         location handling and distance checks
+      ProximityAlertEngine.swift    proximity warnings: hysteresis, cooldown, trip tally
       NotificationManager.swift     local notifications
       ValhallaRoutingService.swift  request building, avoidance, scoring
       LocalValhallaEngine.swift     the embedded Valhalla engine
@@ -190,6 +191,19 @@ cameras than that, so system geofencing can't do the job.
 Instead the app takes continuous location updates and compares them against
 cached camera positions in memory. That comparison never leaves the phone.
 DeFlock's app does the same.
+
+Warning is the app's primary job, so it can't depend on which screen is
+open. `ProximityAlertEngine` is owned by the app, not by a view, and the
+banner is drawn above the tab bar. It used to live in `MapViewModel`: a
+driver with a route on screen got no warning at all, because the banner was
+map-only and foreground notifications are suppressed in favour of it.
+
+The engine also keeps the camera set current, refetching once you've
+travelled half the search radius from the centre of what's cached. Distance
+rather than a timer, so it scales with speed and does nothing while parked.
+Camera data used to be loaded once and never refreshed, so driving out of
+that first box meant every camera beyond it was invisible to both warnings
+and routing, with nothing to say so.
 
 ### Routing runs on the device
 
