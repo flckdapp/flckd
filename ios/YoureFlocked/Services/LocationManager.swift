@@ -16,6 +16,10 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
 
     // MARK: - Configuration
 
+    /// The key Settings' slider writes through `@AppStorage`. Named so the
+    /// slider and the seeding in `init` can't drift apart on a typo.
+    static let alertRadiusKey = "alertRadius"
+
     var alertRadius: CLLocationDistance = 200
     var distanceFilter: CLLocationDistance = 25
 
@@ -30,6 +34,12 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
 
     override init() {
         super.init()
+        // Same trap as the fetch radius: Settings pushed this on change and
+        // nothing read it back, so a user who widened their alert radius got
+        // the 200 m default again on the next launch while Settings showed
+        // the wider value. This one decides whether a warning fires at all.
+        let storedAlertRadius = UserDefaults.standard.double(forKey: Self.alertRadiusKey)
+        if storedAlertRadius > 0 { alertRadius = storedAlertRadius }
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
         manager.distanceFilter = distanceFilter
