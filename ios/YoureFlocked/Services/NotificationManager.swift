@@ -307,6 +307,16 @@ final class NotificationManager: NSObject, @unchecked Sendable, UNUserNotificati
 
     // MARK: - UNUserNotificationCenterDelegate
 
+    /// Suppressed while the app is foregrounded because the in-app banner is
+    /// already saying the same thing, and two simultaneous warnings for one
+    /// camera is worse than one.
+    ///
+    /// That holds only because the banner is presented above the tab view and
+    /// so appears on every screen. It used to be drawn by the map alone, which
+    /// made this an unconditional discard: off the map tab the banner was
+    /// absent and the notification was thrown away, so nothing warned the
+    /// driver at all. If the banner ever becomes conditional again, this has
+    /// to become conditional with it.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,

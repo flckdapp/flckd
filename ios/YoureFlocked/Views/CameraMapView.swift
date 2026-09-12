@@ -26,6 +26,8 @@ struct CameraMapView: View {
     @Environment(LiveActivityManager.self) private var liveActivityManager
     @Environment(\.modelContext) private var modelContext
 
+    @Environment(ProximityAlertEngine.self) private var proximityEngine
+
     @State private var viewModel = MapViewModel()
     @State private var rotationModel = MapRotationModel()
     @State private var suspectedLocations: [SuspectedLocation] = []
@@ -44,7 +46,6 @@ struct CameraMapView: View {
     var body: some View {
         ZStack {
             mapContent
-            proximityBanner
             fetchStatusBanner
             overlayControls
             if showDebugOverlay { debugOverlay }
@@ -63,10 +64,10 @@ struct CameraMapView: View {
                 .presentationCornerRadius(24)
                 .presentationDragIndicator(.hidden)
         }
-        .sheet(isPresented: $viewModel.showTripSummary, onDismiss: { viewModel.resetTrip() }) {
-            TripSummarySheet(stats: viewModel.tripStats) {
-                viewModel.resetTrip()
-                viewModel.showTripSummary = false
+        .sheet(isPresented: Bindable(proximityEngine).showTripSummary, onDismiss: { proximityEngine.resetTrip() }) {
+            TripSummarySheet(stats: proximityEngine.tripStats) {
+                proximityEngine.resetTrip()
+                proximityEngine.showTripSummary = false
             }
             .presentationDetents([.height(280)])
             .presentationBackgroundInteraction(.enabled)
@@ -75,7 +76,7 @@ struct CameraMapView: View {
             .presentationDragIndicator(.hidden)
         }
         .onChange(of: viewModel.followMode) { _, _ in
-            viewModel.checkTripEnd()
+            proximityEngine.checkTripEnd(isFollowingUser: viewModel.isFollowingUser)
         }
         .alert("Offline Download", isPresented: $showDownloadAlert) {
             Button("OK", role: .cancel) {}
@@ -96,39 +97,6 @@ struct CameraMapView: View {
             cameraStore.cacheContainer = modelContext.container
             await loadSuspectedLocations()
         }
-        .onChange(of: locationManager.currentLocation) { _, newLocation in
-            guard let location = newLocation else { return }
-            viewModel.handleLocationUpdate(
-                location: location,
-                heading: locationManager.heading,
-                cameraStore: cameraStore,
-                notificationManager: notificationManager,
-                liveActivityManager: liveActivityManager,
-                alertRadius: locationManager.alertRadius,
-                alertMode: AlertMode(rawValue: alertModeRaw) ?? .nearCamera,
-                enableHaptics: enableHaptics
-            )
-        }
-    }
-
-    // MARK: - Proximity Banner Overlay
-
-    @ViewBuilder
-    private var proximityBanner: some View {
-        VStack {
-            if let alert = viewModel.activeAlert {
-                ProximityBannerView(alert: alert, tripStats: viewModel.tripStats)
-                    .transition(
-                        .asymmetric(
-                            insertion: .move(edge: .top).combined(with: .opacity),
-                            removal: .move(edge: .top).combined(with: .opacity)
-                        )
-                    )
-                    .padding(.top, 8)
-            }
-            Spacer()
-        }
-        .animation(.easeOut(duration: 0.25), value: viewModel.activeAlert != nil)
     }
 
     // MARK: - Fetch Status Banner
@@ -138,7 +106,7 @@ struct CameraMapView: View {
     @ViewBuilder
     private var fetchStatusBanner: some View {
         VStack {
-            if cameraStore.lastError != nil, viewModel.activeAlert == nil {
+            if cameraStore.lastError != nil, proximityEngine.activeAlert == nil {
                 HStack(spacing: 6) {
                     Image(systemName: "wifi.exclamationmark")
                     Text("Camera data unavailable — retrying")
@@ -544,7 +512,7 @@ struct MapSnapshotButton: View {
 // MARK: - Trip Summary Sheet
 
 struct TripSummarySheet: View {
-    let stats: MapViewModel.TripStats
+    let stats: ProximityAlertEngine.TripStats
     let onDismiss: () -> Void
 
     var body: some View {
@@ -755,6 +723,7 @@ struct FieldOfViewCone: InsettableShape {
             .environment(CameraStore())
             .environment(NotificationManager())
             .environment(LiveActivityManager())
+            .environment(ProximityAlertEngine())
     }
 }
 
