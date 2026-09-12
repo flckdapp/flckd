@@ -77,6 +77,7 @@ ios/
       SettingsView.swift            settings
       ProximityBannerView.swift     the in-app proximity warning
       SplashView.swift              launch screen
+      RoutingDebugOverlay.swift     debug only: the routing latency HUD
     ViewModels/
       MapViewModel.swift            map state, filtering, proximity coordination
       CameraStore.swift             central data store
@@ -91,6 +92,9 @@ ios/
       USStateBounds.swift           rough region boxes for preflight UX
       SuspectedLocationService.swift  optional CSV download
       LiveActivityManager.swift     Live Activity on the lock screen
+      RoutePlanMetrics.swift        debug only: one timed record per plan
+      RoutingMetricsStore.swift     debug only: session stats and JSON export
+      RerouteProbe.swift            debug only: repeated planning while driving
     Resources/
       Info.plist, entitlements, assets
   YoureFlockedWidgets/              widget and Live Activity target
@@ -215,6 +219,24 @@ trade how many cameras are fenced against how large each fence is.
 
 Engine configuration, storage rules, and threading are in
 [docs/on-device-routing.md](docs/on-device-routing.md).
+
+### Routing diagnostics are debug-only, and enforced
+
+Four files measure how long route planning takes: a per-plan record, a store
+with session statistics and a JSON export, a probe that replans on a timer
+while driving, and an on-screen HUD. They answered whether a reroute can
+finish fast enough to be useful to a moving car.
+
+They never ship. Everything is inside `#if DEBUG`, so Release builds, which
+is what Archive and TestFlight use, don't contain them. A Release build phase
+then checks the binary for a sentinel string and fails if it finds one,
+because verifying the artefact is worth more than trusting that the source is
+still guarded.
+
+The export holds no coordinates, but it isn't anonymous: pack size resolves
+to a state against the public tile manifest, and timestamps with speed and
+remaining distance describe a trip. Acceptable for a development device,
+which is the only place it exists. See [AGENTS.md](AGENTS.md).
 
 ### The camera cache is a feature, not an optimisation
 

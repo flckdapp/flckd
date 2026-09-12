@@ -49,10 +49,12 @@ it, these are the parts that matter:
   serial `DispatchQueue`, bridged into async/await with a continuation.
   Never call the engine from a Swift actor or the main thread.
 - **Lifetime.** The engine is built lazily on first use (mmap, index parse,
-  tzdata extraction, so not free) and torn down on `didEnterBackground` and
-  on memory warnings. It rebuilds on the next request. If turn-by-turn
-  navigation is ever added and needs background reroutes, the background
-  teardown will have to be skipped while navigating.
+  tzdata extraction) and torn down on `didEnterBackground` and on memory
+  warnings. It rebuilds on the next request. Construction was measured at
+  72 ms on an A18 and 99 ms on an A14 against a 455 MB pack, so a rebuild is
+  cheap next to a plan, which takes several hundred milliseconds per engine
+  call. Turn-by-turn should still skip the background teardown while
+  navigating, but the cost of getting it wrong is small.
 - **Cache size.** The package's default config sets a 1 GB tile cache,
   which is a server setting and costs about 15 MB of dirty memory at
   construction. The app sets it to 32 MB.

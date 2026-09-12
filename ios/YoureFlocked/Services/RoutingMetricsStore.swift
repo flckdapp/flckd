@@ -19,6 +19,12 @@ final class RoutingMetricsStore {
     /// overlay; nothing branches on it.
     static let drivingBudgetMs: Double = 2000
 
+    /// Emitted into every export so the shipped artefact can be checked for
+    /// one unambiguous marker rather than a list of UI strings that drift.
+    /// `project.yml`'s release build phase fails the build if this appears in
+    /// a non-debug binary. Renaming it means renaming it there too.
+    static let buildSentinel = "FLCKD_DIAGNOSTICS_PRESENT_DO_NOT_SHIP"
+
     private static let log = Logger(subsystem: "io.vws.app.flckd", category: "routing.metrics")
 
     private(set) var samples: [RoutePlanSample] = []
@@ -203,6 +209,7 @@ final class RoutingMetricsStore {
     /// developer's own device, which is the only place this compiles.
     func exportFile() throws -> URL {
         let payload = Export(
+            diagnosticsBuild: Self.buildSentinel,
             exportedAt: Date(),
             device: Self.hardwareIdentifier(),
             systemVersion: ProcessInfo.processInfo.operatingSystemVersionString,
@@ -248,6 +255,7 @@ final class RoutingMetricsStore {
             let withinBudgetFraction: Double?
         }
 
+        let diagnosticsBuild: String
         let exportedAt: Date
         let device: String
         let systemVersion: String
