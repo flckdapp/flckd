@@ -41,7 +41,7 @@ struct SettingsView: View {
         Form {
             appearanceSection
             unitsSection
-            mapSection
+            screenSection
             alertSection
             routingSection
             filterSection
@@ -107,13 +107,13 @@ struct SettingsView: View {
     // MARK: - Map
 
     @ViewBuilder
-    private var mapSection: some View {
+    private var screenSection: some View {
         Section {
             Toggle("Keep Screen Awake", isOn: $keepScreenAwake)
         } header: {
-            Text("Map")
+            Text("Screen")
         } footer: {
-            Text("Stops the screen locking while the map is open. Uses more battery, so keep the phone on a charger for long drives.")
+            Text("Stops the screen locking while the map or a route is open. Uses more battery, so keep the phone on a charger for long drives.")
         }
     }
 

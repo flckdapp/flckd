@@ -29,6 +29,15 @@ struct ContentView: View {
             case .settings: return "gear"
             }
         }
+
+        /// Screens a driver looks at without touching the phone, so the idle
+        /// timer would black them out mid-journey.
+        var watchedWhileDriving: Bool {
+            switch self {
+            case .map, .route: return true
+            case .settings: return false
+            }
+        }
     }
 
     var body: some View {
@@ -46,7 +55,7 @@ struct ContentView: View {
         // pay a cold rebuild and the drive would measure cold starts instead
         // of reroutes. One flag, one owner: fold the probe into the same
         // condition rather than applying a second modifier that fights it.
-        .keepScreenAwake((keepScreenAwake && selectedTab == .map) || diagnosticsHoldingScreen)
+        .keepScreenAwake((keepScreenAwake && selectedTab.watchedWhileDriving) || diagnosticsHoldingScreen)
         .task {
             locationManager.requestAuthorizationIfNeeded()
         }
