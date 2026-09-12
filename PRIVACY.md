@@ -62,8 +62,8 @@ to run your own.
 
 | Destination | What it receives | When |
 |---|---|---|
-| **DeFlock CDN**<br>`cdn.deflock.me` | The public camera index, then the 20-degree ALPR data tile or tiles that intersect the map area. A tile name reveals a coarse area, not an exact position. | While the map is open, when a tile is missing or out of date |
-| **OpenStreetMap Overpass**<br>`overpass.deflock.org`, `overpass-api.de`, `overpass.kumi.systems`, `overpass.private.coffee` | A map bounding box, for speed-camera data. If the DeFlock CDN is unavailable, the same box is used for ALPR and other camera data too. When the map follows you, that box is centred on your position. | While the map is open |
+| **DeFlock CDN**<br>`cdn.deflock.me` | The public camera index, then the 20-degree ALPR data tile or tiles that intersect the area being loaded. A tile name reveals a coarse area, not an exact position. | While the app is open: when you move the map, and as you travel, when a tile is missing or out of date |
+| **OpenStreetMap Overpass**<br>`overpass.deflock.org`, `overpass-api.de`, `overpass.kumi.systems`, `overpass.private.coffee` | A bounding box, for speed-camera data. If the DeFlock CDN is unavailable, the same box is used for ALPR and other camera data too. The box is centred on your position when the data is being loaded for where you are. | While the app is open: when you move the map, and as you travel |
 | **Apple (MapKit)** | Map tiles for the area you're viewing. In the route search field, the text you type plus the map region. | While the map or route search is open |
 | **Tile server**<br>default `tiles.flckd.app` (a Cloudflare R2 bucket), configurable | Which region pack you're downloading. Nothing about your position. | Only while a region download is running |
 | **ALPRWatch**<br>`alprwatch.org` | Nothing about you. A static file download. | Only if you switch on "Show Suspected Locations", which is off by default |
@@ -98,10 +98,17 @@ Your trips are private. Your map browsing mostly is, but not entirely.
 
 Nobody learns where you're driving, because the route is computed on your
 phone. DeFlock receives requests for the camera-data tiles that cover the
-map area. Overpass receives a bounding box for speed cameras, and for all
-camera types if the DeFlock CDN is down; that box is centred on you when the
-map follows your position. Apple sees which part of the world you're looking
-at and what you type into the search field.
+area being loaded. Overpass receives a bounding box for speed cameras, and
+for all camera types if the DeFlock CDN is down. Apple sees which part of
+the world you're looking at and what you type into the search field.
+
+The app has to know about the cameras around you to warn you about them, so
+it loads camera data for where you are and reloads it as you travel, on
+whichever screen you have open. Those requests are centred on your position
+and happen roughly every time you cover half the camera search radius in
+Settings, so on a long drive there are several of them. A bounding box is
+coarser than a position, and the route itself is still never sent anywhere,
+but this is the part of using the app that isn't private.
 
 It wouldn't be true to say nothing ever leaves your device. This is what
 does.

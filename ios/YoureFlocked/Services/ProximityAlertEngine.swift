@@ -57,7 +57,9 @@ enum RelativeDirection: String, CaseIterable {
 @Observable @MainActor
 final class ProximityAlertEngine {
 
-    var hasInitialLocation: Bool = false
+    /// Refetch once the user has travelled this fraction of the fetch radius
+    /// from the centre of what's cached, leaving the rest as headroom ahead.
+    private let cameraRefreshFraction: Double = 0.5
 
     // MARK: - Trip Encounter Tracking
 
@@ -175,11 +177,7 @@ final class ProximityAlertEngine {
         alertMode: AlertMode,
         enableHaptics: Bool
     ) {
-        // Initial fetch on first location
-        if !hasInitialLocation {
-            hasInitialLocation = true
-            Task { await cameraStore.fetchCameras(around: location.coordinate) }
-        }
+        refreshCamerasIfNeeded(around: location.coordinate, cameraStore: cameraStore)
 
         let nearby = cameraStore.checkProximity(
             location: location,
@@ -329,6 +327,43 @@ final class ProximityAlertEngine {
                 )
             }
         }
+    }
+
+    // MARK: - Keeping Cameras Current
+
+    /// Fetches cameras for where the user actually is, as they move.
+    ///
+    /// Camera data used to be captured once, when a route was planned or the
+    /// map first appeared, and never refreshed. Driving out of that box meant
+    /// every camera beyond it was unknown: not avoided when routing, and not
+    /// warned about, with nothing to indicate anything was missing.
+    ///
+    /// Distance travelled is the trigger rather than a timer, so it scales
+    /// with speed and does nothing at all while parked.
+    ///
+    /// The decision reads `cameraStore.lastFetchBounds`, which only advances
+    /// on a fetch that actually completed, rather than a copy kept here. The
+    /// store throttles and can drop a request; against its real state a
+    /// dropped fetch is simply retried on the next location update instead of
+    /// being lost until the user has travelled another full step.
+    private func refreshCamerasIfNeeded(
+        around coordinate: CLLocationCoordinate2D,
+        cameraStore: CameraStore
+    ) {
+        guard let covered = cameraStore.lastFetchBounds else {
+            Task { await cameraStore.fetchCameras(around: coordinate) }
+            return
+        }
+
+        let centre = CLLocation(
+            latitude: (covered.north + covered.south) / 2,
+            longitude: (covered.east + covered.west) / 2
+        )
+        let here = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let step = cameraStore.fetchRadiusKm * 1000 * cameraRefreshFraction
+        guard here.distance(from: centre) >= step else { return }
+
+        Task { await cameraStore.fetchCameras(around: coordinate) }
     }
 
     // MARK: - Exit Grace Timer

@@ -198,6 +198,13 @@ banner is drawn above the tab bar. It used to live in `MapViewModel`: a
 driver with a route on screen got no warning at all, because the banner was
 map-only and foreground notifications are suppressed in favour of it.
 
+The engine also keeps the camera set current, refetching once you've
+travelled half the search radius from the centre of what's cached. Distance
+rather than a timer, so it scales with speed and does nothing while parked.
+Camera data used to be loaded once and never refreshed, so driving out of
+that first box meant every camera beyond it was invisible to both warnings
+and routing, with nothing to say so.
+
 ### Routing runs on the device
 
 `MKDirections` can't route around arbitrary places, so Apple's routing can't
