@@ -45,6 +45,10 @@ final class CameraStore {
 
     // MARK: - Configuration
 
+    /// The key Settings' slider writes through `@AppStorage`. Named so the
+    /// slider and the seeding below can't drift apart on a typo.
+    static let fetchRadiusKey = "fetchRadius"
+
     /// Radius (km) around user's location to fetch cameras for
     var fetchRadiusKm: Double = 5.0
 
@@ -103,6 +107,18 @@ final class CameraStore {
     private var retryTask: Task<Void, Never>?
     private var retryAttempt = 0
     private let maxRetryAttempts = 3
+
+    // MARK: - Lifecycle
+
+    init() {
+        // Settings writes the slider through `@AppStorage` and pushes it here
+        // on change. Nothing read it back, so every launch reverted to the
+        // default while Settings still displayed the stored value: the setting
+        // appeared to work and silently didn't survive a relaunch.
+        // `double(forKey:)` yields 0 when the key was never written.
+        let stored = UserDefaults.standard.double(forKey: Self.fetchRadiusKey)
+        if stored > 0 { fetchRadiusKm = stored }
+    }
 
     // MARK: - Data Fetching
 

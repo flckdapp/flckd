@@ -20,8 +20,8 @@ struct SettingsView: View {
     @State private var downloadMessage: String?
     @State private var showClearCacheConfirmation: Bool = false
 
-    @AppStorage("alertRadius") private var alertRadius: Double = 200
-    @AppStorage("fetchRadius") private var fetchRadius: Double = 5.0
+    @AppStorage(LocationManager.alertRadiusKey) private var alertRadius: Double = 200
+    @AppStorage(CameraStore.fetchRadiusKey) private var fetchRadius: Double = 5.0
     @AppStorage("showALPROnly") private var showALPROnly: Bool = false
     @AppStorage("showSpeedCameras") private var showSpeedCameras: Bool = true
     @AppStorage("showGenericCameras") private var showGenericCameras: Bool = true
