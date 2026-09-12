@@ -39,6 +39,31 @@ the whole tree.
 If a change adds a network call, changes what is sent, or adds a dependency,
 update PRIVACY.md in the same commit.
 
+## Diagnostics stay out of shipped builds
+
+The routing latency HUD, the reroute probe, and the metrics store exist to
+answer performance questions during development. They record how long route
+planning takes and write a report the developer can share by hand. That is
+fine on a development device and would not be fine on a user's: the report
+carries timestamps, speed and remaining distance, which together describe a
+trip, and the region pack size resolves to a state against the public tile
+manifest.
+
+So they are wrapped in `#if DEBUG` and are absent from any Release build,
+including TestFlight. Rules:
+
+- Don't remove or widen a `#if DEBUG` around diagnostics to make something
+  compile. If Release fails to build because it reached diagnostic code, the
+  call site is in the wrong place. Move the call, not the guard.
+- Don't add a runtime flag that switches diagnostics on in a Release build.
+  A compile-time gate is the whole point.
+- A Release build asserts that the binary doesn't contain
+  `FLCKD_DIAGNOSTICS_PRESENT_DO_NOT_SHIP`. Don't delete that build phase and
+  don't rename the sentinel on one side only. If it fails, something is
+  reachable that shouldn't be; fix that rather than the check.
+- If diagnostics ever grow a network call, stop. That would make PRIVACY.md
+  false, and nothing here is worth that.
+
 ## Documentation
 
 Docs in this repository are written for people. Keep them plain and direct.

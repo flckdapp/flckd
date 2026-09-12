@@ -36,6 +36,9 @@ struct RouteView: View {
     @State private var isSheetPresented = false
     
     @AppStorage("useMetric") private var useMetric: Bool = false
+    #if DEBUG
+    @AppStorage("showRoutingSpikeOverlay") private var showRoutingSpikeOverlay: Bool = false
+    #endif
     @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
 
     private let cameraBufferMeters: Double = 35
@@ -107,6 +110,17 @@ struct RouteView: View {
                 if let missing = missingHomeRegion, routeResult == nil, !isCalculating {
                     regionPreflightBanner(missing)
                 }
+                #if DEBUG
+                if showRoutingSpikeOverlay {
+                    HStack {
+                        RoutingDebugOverlay(
+                            destination: selectedPlace?.placemark.location?.coordinate
+                        )
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                }
+                #endif
             }
         }
         .sheet(isPresented: $isSheetPresented, onDismiss: {
@@ -751,13 +765,17 @@ struct RouteView: View {
             // which looks wrong on the map.
             let level = AvoidanceLevel(rawValue: avoidanceLevelRaw) ?? .balanced
             lastRoutedLevel = level.rawValue
-            var result = try await valhallaService.routeWithProgressiveAvoidance(
-                from: userLocation,
-                to: destCoord,
-                cameras: cameras,
-                useFOV: false,
-                level: level
+            #if DEBUG
+            var result = try await valhallaService.timedRouteWithProgressiveAvoidance(
+                from: userLocation, to: destCoord, cameras: cameras,
+                useFOV: false, level: level, trigger: .initial
             )
+            #else
+            var result = try await valhallaService.routeWithProgressiveAvoidance(
+                from: userLocation, to: destCoord, cameras: cameras,
+                useFOV: false, level: level
+            )
+            #endif
 
             // The chosen route can stray outside the start-to-end corridor
             // box. If it does, fetch cameras along the actual route geometry
@@ -776,13 +794,17 @@ struct RouteView: View {
                     cameras = Array(byID.values)
                     routeCameras = cameras
                     calculationStatus = "Rechecking cameras along the route..."
-                    result = try await valhallaService.routeWithProgressiveAvoidance(
-                        from: userLocation,
-                        to: destCoord,
-                        cameras: cameras,
-                        useFOV: false,
-                        level: level
+                    #if DEBUG
+                    result = try await valhallaService.timedRouteWithProgressiveAvoidance(
+                        from: userLocation, to: destCoord, cameras: cameras,
+                        useFOV: false, level: level, trigger: .recheck
                     )
+                    #else
+                    result = try await valhallaService.routeWithProgressiveAvoidance(
+                        from: userLocation, to: destCoord, cameras: cameras,
+                        useFOV: false, level: level
+                    )
+                    #endif
                 }
             }
 

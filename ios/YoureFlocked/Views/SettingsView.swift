@@ -27,6 +27,9 @@ struct SettingsView: View {
     @AppStorage("showGenericCameras") private var showGenericCameras: Bool = true
     @AppStorage("alertMode") private var alertModeRaw: String = AlertMode.nearCamera.rawValue
     @AppStorage("showDebugOverlay") private var showDebugOverlay: Bool = false
+    #if DEBUG
+    @AppStorage("showRoutingSpikeOverlay") private var showRoutingSpikeOverlay: Bool = false
+    #endif
     @AppStorage("showSuspectedLocations") private var showSuspectedLocations: Bool = false
     @AppStorage("offlineRadius") private var offlineRadius: Double = 20.0
     @AppStorage("useMetric") private var useMetric: Bool = false
@@ -183,6 +186,9 @@ struct SettingsView: View {
                     }
                 }
             }
+            #if DEBUG
+            Toggle("Routing Latency HUD", isOn: $showRoutingSpikeOverlay)
+            #endif
         } footer: {
             Text("Download road data so routes are computed on this device and your destination never leaves it.")
         }

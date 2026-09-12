@@ -51,6 +51,22 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
     entitlements:
       path: YoureFlocked/Resources/YoureFlocked.entitlements
+    postBuildScripts:
+      # The routing latency HUD, reroute probe and metrics store are wrapped
+      # in #if DEBUG, so a Release build should not contain them. Verify the
+      # artefact rather than trusting that the source is still gated: a stray
+      # edit to a conditional would otherwise ship silently.
+      # OWASP MASTG-TEST-0084.
+      - name: Assert no diagnostics in release builds
+        basedOnDependencyAnalysis: false
+        script: |
+          [ "$CONFIGURATION" = "Debug" ] && exit 0
+          BINARY="$TARGET_BUILD_DIR/$EXECUTABLE_PATH"
+          [ -f "$BINARY" ] || exit 0
+          if strings -a "$BINARY" | grep -q 'FLCKD_DIAGNOSTICS_PRESENT_DO_NOT_SHIP'; then
+            echo "error: diagnostics are compiled into this $CONFIGURATION build. They are #if DEBUG for a reason; do not ship this archive."
+            exit 1
+          fi
 
   YoureFlockedWidgets:
     type: app-extension
