@@ -1,0 +1,9 @@
+# Agent of Empires repo config. Committed so every worktree session gets it.
+# Docs: https://github.com/njbrake/agent-of-empires/blob/main/docs/guides/repo-config.md
+
+[hooks]
+# Runs once after the worktree is created, before the agent starts.
+# Copies the gitignored files a fresh checkout needs (local UI tests,
+# xcconfig secrets, .env files, agent notes) from the main worktree.
+# What gets copied is listed in .worktreeinclude; `wt` is worktrunk.
+on_create = ["wt step copy-ignored --require-include"]

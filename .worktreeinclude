@@ -1,0 +1,21 @@
+# Gitignored files that a new worktree needs. Read by `wt step copy-ignored`,
+# which the aoe on_create hook in .agent-of-empires/config.toml runs after the
+# worktree is created. Only files that are both gitignored and listed here are
+# copied; build output, logs and screenshots stay behind.
+
+# Local UI tests (real map fixes; local only by design, see AGENTS.md)
+ios/YoureFlockedUITests/**
+
+# Local secrets and config
+*.xcconfig
+.env
+.env.local
+.env.r2
+
+# Agent scratch and notes
+ai-docs/
+.omo/
+
+# Generated project and dependencies (saves a cold start)
+ios/YoureFlocked.xcodeproj/
+server/node_modules/
