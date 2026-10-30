@@ -74,12 +74,7 @@
     padding: 32px; text-align: center; color: var(--muted); font-size: 14px;
   }
   .error { color: var(--err); }
-  .note {
-    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-    padding: 16px 20px; font-size: 14px; line-height: 1.6; margin-top: 32px;
-  }
-  .note p + p { margin-top: 8px; }
-  .note .meta { color: var(--muted); font-size: 13px; }
+  #cameras-container { margin-bottom: 32px; }
   footer { margin-top: 40px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.8; }
   footer code { background: var(--card); border: 1px solid var(--border); border-radius: 4px;
                 padding: 1px 6px; font-size: 11px; }
@@ -105,18 +100,14 @@
     <div class="card"><div class="label">Speed Cameras</div><div class="value" id="camera-count">&ndash;</div></div>
   </div>
 
+  <h2>Speed Cameras</h2>
+  <div id="cameras-container">
+    <div class="empty">Loading&hellip;</div>
+  </div>
+
   <h2>Available States</h2>
   <div id="packs-container">
     <div class="empty" id="loading">Loading&hellip;</div>
-  </div>
-
-  <div class="note">
-    <p><strong>Speed cameras.</strong> One national file of every speed and
-    red-light camera mapped in OpenStreetMap, both as <code>highway=speed_camera</code>
-    nodes and as <code>type=enforcement</code> relations. The app downloads it
-    together with a state pack, so it never has to ask a live server for the
-    cameras around you. Every phone gets the same file.</p>
-    <p class="meta" id="camera-meta">Not published yet.</p>
   </div>
 
   <footer>
@@ -170,6 +161,7 @@
   var dot = document.getElementById("dot");
   var statusText = document.getElementById("status-text");
   var container = document.getElementById("packs-container");
+  var camerasContainer = document.getElementById("cameras-container");
 
   fetch("/v1/manifest.json", { cache: "no-cache" })
     .then(function (r) {
@@ -193,12 +185,20 @@
       }
 
       var cams = m.speed_cameras;
-      if (cams && typeof cams.path === "string" && /^\/v1\/cameras\/[a-f0-9]{64}\.json$/.test(cams.path)) {
-        document.getElementById("camera-count").textContent =
-          typeof cams.count === "number" ? cams.count.toLocaleString() : "\u2013";
-        document.getElementById("camera-meta").innerHTML =
-          '<a href="' + esc(cams.path) + '">Download the file</a> \u00b7 ' +
-          fmtBytes(cams.bytes) + " \u00b7 map data " + esc(fmtDate(cams.osm_data_date));
+      if (cams && typeof cams.count === "number") {
+        document.getElementById("camera-count").textContent = cams.count.toLocaleString();
+        camerasContainer.innerHTML =
+          "<table><thead><tr>" +
+          "<th>Data</th><th class=\"num\">Size</th><th class=\"num\">Map Data</th><th class=\"num\">Status</th>" +
+          "</tr></thead><tbody><tr>" +
+          "<td>Speed and red-light cameras" +
+            '<span class="iso">' + esc(cams.count.toLocaleString()) + " cameras</span></td>" +
+          '<td class="num">' + fmtBytes(cams.bytes) + "</td>" +
+          '<td class="num">' + fmtDate(cams.osm_data_date || m.osm_data_date) + "</td>" +
+          '<td class="num"><span class="badge">Available</span></td>' +
+          "</tr></tbody></table>";
+      } else {
+        camerasContainer.innerHTML = '<div class="empty">No speed cameras published yet.</div>';
       }
 
       var packs = Array.isArray(m.packs) ? m.packs.slice() : [];
@@ -228,6 +228,7 @@
     .catch(function (e) {
       dot.className = "dot err";
       statusText.textContent = "No release published";
+      camerasContainer.innerHTML = '<div class="empty">No speed cameras published yet.</div>';
       container.innerHTML = '<div class="error">Could not load the manifest (' +
         esc(e.message) + "). The server may not have a published release yet.</div>";
     });
