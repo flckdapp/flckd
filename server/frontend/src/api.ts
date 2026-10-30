@@ -98,6 +98,8 @@ export const postJob = (): Promise<Job> => api("POST", "/api/jobs", jobSchema, {
 
 export const postPublish = (): Promise<Job> => api("POST", "/api/publish", jobSchema, {});
 
+export const postCameras = (): Promise<Job> => api("POST", "/api/cameras", jobSchema, {});
+
 export const postCancel = (jobId: string): Promise<Job> =>
   api("POST", `/api/jobs/${encodeURIComponent(jobId)}/cancel`, jobSchema, {});
 

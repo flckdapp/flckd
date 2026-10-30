@@ -16,6 +16,7 @@ struct SettingsView: View {
     @State private var cacheSizeBytes: Int64 = 0
     @State private var cdnTileCount: Int = 0
     @State private var cdnCacheBytes: Int64 = 0
+    @State private var cdnSnapshotDate: Date?
     @State private var isDownloading: Bool = false
     @State private var downloadMessage: String?
     @State private var showClearCacheConfirmation: Bool = false
@@ -215,31 +216,24 @@ struct SettingsView: View {
     @ViewBuilder
     private var cameraDataSection: some View {
         Section {
-            HStack {
-                Label("ALPR Cameras", systemImage: "antenna.radiowaves.left.and.right")
-                Spacer()
-                Text(cameraStore.lastALPRSource?.rawValue ?? "DeFlock CDN")
-                    .foregroundStyle(.secondary)
-            }
+            sourceRow(
+                "ALPR Cameras",
+                icon: "antenna.radiowaves.left.and.right",
+                source: cameraStore.lastALPRSource?.rawValue ?? CameraStore.CameraDataSource.deflockCDN.rawValue,
+                details: [cameraStore.lastALPRSource == .overpass ? nil : cdnSnapshotDate.map {
+                    "Data from \($0.formatted(date: .abbreviated, time: .omitted))"
+                }]
+            )
 
-            HStack {
-                Label("Speed Cameras", systemImage: "gauge.with.needle")
-                Spacer()
-                Text("OpenStreetMap (Overpass)")
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack {
-                Text("Last Updated")
-                Spacer()
-                if let date = cameraStore.lastFetchDate {
-                    Text(date.formatted(date: .abbreviated, time: .shortened))
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Not yet fetched")
-                        .foregroundStyle(.secondary)
-                }
-            }
+            sourceRow(
+                "Speed Cameras",
+                icon: "gauge.with.needle",
+                source: cameraStore.speedCameraSource,
+                details: [
+                    cameraStore.speedCameraCountLabel,
+                    cameraStore.speedCameraDataDate.map { "Data from \(ReleaseDate.label($0))" },
+                ]
+            )
 
             VStack(alignment: .leading) {
                 HStack {
@@ -340,7 +334,7 @@ struct SettingsView: View {
         } header: {
             Text("Camera Data")
         } footer: {
-            Text("Bulk ALPR locations come from DeFlock's hourly snapshots and are cached on this device, so the map works during outages and offline. Speed cameras and live updates use the OpenStreetMap Overpass API. Apple Maps tiles are not available for offline caching. Camera data \u{00A9} OpenStreetMap contributors (ODbL), via DeFlock.")
+            Text("Bulk ALPR locations come from DeFlock's hourly snapshots and are cached on this device, so the map works during outages and offline. Speed and red-light cameras come from a national file downloaded with your first routing region; until then, and whenever DeFlock is down, the app asks OpenStreetMap's Overpass servers for one whole-degree grid cell at a time. Apple Maps tiles are not available for offline caching. Camera data \u{00A9} OpenStreetMap contributors (ODbL), via DeFlock and the tile server.")
         }
         .task {
             await refreshCDNStatus()
@@ -357,6 +351,27 @@ struct SettingsView: View {
         let status = await cameraStore.cdnStatus()
         cdnTileCount = status.cachedTileCount
         cdnCacheBytes = status.cachedBytes
+        cdnSnapshotDate = status.snapshotDate
+    }
+
+    private func sourceRow(_ title: String, icon: String, source: String, details: [String?]) -> some View {
+        HStack {
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                    ForEach(details.compactMap { $0 }, id: \.self) { detail in
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } icon: {
+                Image(systemName: icon)
+            }
+            Spacer()
+            Text(source)
+                .foregroundStyle(.secondary)
+        }
     }
 
     // MARK: - Location
@@ -504,5 +519,6 @@ struct SettingsView: View {
             .environment(LocationManager())
             .environment(CameraStore())
             .environment(NotificationManager())
+            .environment(OfflineDataUpdater())
     }
 }

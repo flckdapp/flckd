@@ -19,6 +19,7 @@ import {
 import {
   Activity,
   CalendarClock,
+  Gauge,
   History,
   PanelLeftClose,
   PanelLeftOpen,
@@ -27,8 +28,14 @@ import {
 } from "lucide-react";
 
 import { fmtDateTime } from "./format";
-import { CADENCES, STATUS_COLOR, isLive } from "./jobmeta";
+import { CADENCES, KIND_LABEL, STATUS_COLOR, isLive } from "./jobmeta";
 import type { Job, State } from "../../shared/contracts";
+
+function KindIcon({ kind, size }: { kind: Job["kind"]; size: number }) {
+  if (kind === "build") return <Play size={size} />;
+  if (kind === "cameras") return <Gauge size={size} />;
+  return <Upload size={size} />;
+}
 
 const DESKTOP = "(min-width: 768px)";
 
@@ -77,9 +84,9 @@ function JobRow({
     >
       <Flex align="center" justify="between" gap="2">
         <Flex align="center" gap="2" minWidth="0">
-          {job.kind === "build" ? <Play size={13} /> : <Upload size={13} />}
+          <KindIcon kind={job.kind} size={13} />
           <Text size="2" weight={selected ? "medium" : "regular"} truncate>
-            {job.kind}
+            {KIND_LABEL[job.kind]}
           </Text>
         </Flex>
         <Flex align="center" gap="2" style={{ flexShrink: 0 }}>
@@ -109,7 +116,7 @@ function JobIconRow({
     <div
       role="button"
       tabIndex={0}
-      title={`${job.kind} · ${fmtDateTime(job.created_at)} · ${job.status}`}
+      title={`${KIND_LABEL[job.kind]} · ${fmtDateTime(job.created_at)} · ${job.status}`}
       className={`job-icon${selected ? " selected" : ""}`}
       onClick={() => onSelect(job.id)}
       onKeyDown={(e) => {
@@ -119,13 +126,7 @@ function JobIconRow({
         }
       }}
     >
-      {isLive(job) ? (
-        <Spinner size="1" />
-      ) : job.kind === "build" ? (
-        <Play size={14} />
-      ) : (
-        <Upload size={14} />
-      )}
+      {isLive(job) ? <Spinner size="1" /> : <KindIcon kind={job.kind} size={14} />}
     </div>
   );
 }

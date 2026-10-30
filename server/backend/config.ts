@@ -30,6 +30,7 @@ export const defaultSettings: Settings = {
   cadence: "manual",
   threads: 2,
   remote: { enabled: false, endpoint: "", bucket: "", region: "auto", provider: "Cloudflare" },
+  cameras: { enabled: true, cadence: "daily" },
 };
 
 export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<RuntimeConfig> {

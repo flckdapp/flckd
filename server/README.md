@@ -24,8 +24,10 @@ docker compose up --build --wait
 Open **http://localhost:8642** for the builder. The generated public site
 is served at **http://localhost:8080**. Select regions, save settings, then
 choose **Build now**. Nothing starts downloading road data until you start
-a build or enable a schedule. The public index is available immediately,
-but has no packs until a build succeeds.
+a build or enable a schedule. After the first build, speed cameras refresh
+daily unless you turn that off; see [Speed cameras](#speed-cameras). The
+public index is available immediately, but has no packs until a build
+succeeds.
 
 The first startup downloads the image dependencies. Subsequent startups
 reuse Docker's build cache. `bun run stop` stops the services without
@@ -128,7 +130,7 @@ the public document root. No Docker socket is mounted in the container.
 |---|---|
 | `/data/control` | SQLite database, saved credentials and instance lock |
 | `/data/work` | Source map, graph, scratch data and private job status |
-| `/site` | Public index, logo, manifests and immutable pack parts |
+| `/site` | Public index, logo, manifests, immutable pack parts and speed-camera files |
 
 Stop the container before backing up `/data/control`, so SQLite and its
 WAL file are consistent. The database contains secrets: protect backups
@@ -161,7 +163,8 @@ The app does not configure bucket public access or domains. R2 custom
 domains need a `/` to `/index.html` rewrite. Preserve byte ranges and do not
 compress the binary pack files at your CDN.
 
-Immutable pack parts upload before the pointer manifest. Automated jobs
+Immutable pack parts and speed-camera files upload before the pointer
+manifest. Automated jobs
 never delete remote objects; configure a deliberate retention policy if
 you need to reclaim bucket space. Local release retention defaults to 3.
 
@@ -192,6 +195,37 @@ states to the catalog costs minutes rather than a second full build. Set
 `REBUILD_GRAPH=1` to force a rebuild.
 
 Two threads need roughly 5 GB RAM. These are estimates, not guarantees.
+
+## Speed cameras
+
+Every build also extracts every speed and red-light camera in the source
+map into one national file: `highway=speed_camera` nodes, nodes with a
+speed or red-light `enforcement` tag, and `type=enforcement` relations
+(`enforcement=maxspeed`, `average_speed` or `traffic_signals`), placed on
+their `device` member. It is published at `/v1/cameras/<sha256>.json` and
+listed under `speed_cameras` in the manifest. The app downloads it together
+with a state pack, so it never has to ask a live server for the cameras
+around the user. Every phone gets the same bytes.
+
+The file is content-addressed like the packs: unchanged camera data keeps
+its URL, so nobody downloads it twice. It is a few hundred kilobytes, so it
+isn't split into parts.
+
+A missing camera is a silent false negative, so cameras have their own
+schedule in the **Speed cameras** panel, separate from road builds. It is on
+by default and refreshes **Daily**. A refresh applies the latest map
+changes, re-extracts the file and republishes it into the current release
+without rebuilding the graph. It needs a published release, so nothing runs
+until the first build, and it takes minutes rather than hours, most of it
+applying the map changes. Geofabrik publishes those changes once a day, so a
+faster schedule wouldn't find anything new. Every build also extracts the
+file and restarts the camera schedule. **Manual** refreshes only with builds
+and when you choose **Refresh speed cameras**. Turning the panel off
+publishes no camera file with the next release, and the app falls back to
+asking OpenStreetMap's servers, one grid cell at a time.
+
+The file carries OpenStreetMap data, so it is under the ODbL like the
+packs; the public index page shows the attribution.
 
 The catalog is the 50 states and DC — exactly what the default Geofabrik US
 extract covers. Puerto Rico and the US Virgin Islands are **not** in that
@@ -314,6 +348,7 @@ container, and only apply when you use this repository's `compose.yml`:
 bun run check
 bun test backend
 bun run build
+python3 -m unittest discover -s builder/tests
 ```
 
 `backend/` owns HTTP, SQLite, scheduling and job execution. `frontend/`

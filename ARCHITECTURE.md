@@ -76,20 +76,22 @@ ios/
       OfflineRoutingView.swift      tile server and region pack settings
       SettingsView.swift            settings
       ProximityBannerView.swift     the in-app proximity warning
+      OfflineUpdateBanner.swift     "update available" / "updated" notice
       SplashView.swift              launch screen
       RoutingDebugOverlay.swift     debug only: the routing latency HUD
     ViewModels/
       MapViewModel.swift            map state, filtering, proximity coordination
       CameraStore.swift             central data store
     Services/
-      OverpassService.swift         camera lookups, with retry and fallbacks
+      OverpassService.swift         fallback camera lookups by grid cell, with retry
       DeFlockCDNService.swift       bulk ALPR tiles from DeFlock's CDN
       LocationManager.swift         location handling and distance checks
       ProximityAlertEngine.swift    proximity warnings: hysteresis, cooldown, trip tally
       NotificationManager.swift     local notifications
       ValhallaRoutingService.swift  request building, avoidance, scoring
       LocalValhallaEngine.swift     the embedded Valhalla engine
-      TilePackService.swift         manifest, pack download, RegionStore
+      TilePackService.swift         manifest, pack and speed-camera file download, RegionStore
+      OfflineDataUpdater.swift      daily update check for packs and the camera file
       USStateBounds.swift           rough region boxes for preflight UX
       SuspectedLocationService.swift  optional CSV download
       LiveActivityManager.swift     Live Activity on the lock screen
@@ -121,10 +123,31 @@ Views (SwiftUI) -> ViewModels (@Observable) -> Services -> data (SwiftData + API
 
 ## Where the data comes from
 
-### Cameras: OpenStreetMap, via DeFlock and Overpass
+### Cameras: OpenStreetMap, via DeFlock, the tile server and Overpass
 
-Camera data is fetched by whole-degree grid cell (`GridCell`), never by a
-box around the user. The grid is anchored at the equator and prime
+Speed and red-light cameras come from a national file the tile server
+publishes next to the region packs (`/v1/cameras/<sha256>.json`, listed as
+`speed_cameras` in the manifest). The builder extracts it from the same OSM
+extract as the roads, refreshes it on its own schedule (daily by default),
+and reads both tagging schemes: `highway=speed_camera` nodes and
+`type=enforcement` relations with `enforcement=maxspeed`, `average_speed`
+or `traffic_signals`, placed on their `device` member. `OfflineRoutingView`
+downloads it after a pack installs and when the catalog is opened with a
+region installed; `TilePackService` checks its sha256 and `SpeedCameraFile`
+stores it in Application Support. While it exists, `CameraStore` takes
+speed cameras from it and never asks Overpass for them. See
+[server/README.md](server/README.md#speed-cameras).
+
+`OfflineDataUpdater` keeps the packs and the camera file current. When the
+app becomes active, at most once a day and only if something has been
+downloaded, it fetches the catalog and compares sha256s. With "Update
+Automatically" on (the default) it downloads what changed, packs only over
+a non-expensive, non-constrained network, and shows an "updated" banner;
+otherwise, or if a download fails, it shows an "update available" banner
+whose Update button downloads over any network.
+
+Everything that still goes to the network is fetched by whole-degree grid
+cell (`GridCell`), never by a box around the user. The grid is anchored at the equator and prime
 meridian, so a cell's four corners are integers that are the same for every
 phone inside it, and nothing in a request is derived from a position.
 `CameraStore` keeps a record of which cells it has loaded and asks for a
@@ -135,11 +158,14 @@ no-ops until the user crosses into a new cell.
 ALPR cameras come mainly from DeFlock's hourly, OpenStreetMap-derived
 20-degree tiles. The app reads the public index at
 `https://cdn.deflock.me/regions/index.json`, honours its expiry, and
-downloads only the tiles that intersect the cell being loaded. Speed
-cameras come from an Overpass query for the cell, cached on disk per cell.
-If the DeFlock CDN is unavailable, one Overpass query for the cell supplies
-all camera types. If "Show Speed Cameras" is off, Overpass is not queried
-at all while the CDN is up.
+downloads only the tiles that intersect the cell being loaded.
+
+Overpass is the fallback. Before the speed-camera file has been downloaded,
+speed cameras come from an Overpass query for the cell, cached on disk per
+cell. If the DeFlock CDN is unavailable, one Overpass query for the cell
+supplies the other camera types. If "Show Speed Cameras" is off, speed
+cameras are dropped from the store, and Overpass is not queried at all
+while the CDN is up.
 
 The primary Overpass endpoint is
 `https://overpass.deflock.org/api/interpreter`, with `overpass-api.de` as
@@ -150,8 +176,8 @@ in a POST body, not the URL.
 [out:json][timeout:25];
 (
   node["highway"="speed_camera"](lat,lon,lat+1,lon+1);
-  node["enforcement"="maxspeed"](lat,lon,lat+1,lon+1);
-  relation["type"="enforcement"](lat,lon,lat+1,lon+1);
+  node["enforcement"~"(^|;)(maxspeed|average_speed|traffic_signals)(;|$)"](lat,lon,lat+1,lon+1);
+  relation["type"="enforcement"]["enforcement"~"(^|;)(maxspeed|average_speed|traffic_signals)(;|$)"](lat,lon,lat+1,lon+1);
 );
 out center;
 ```
@@ -308,7 +334,8 @@ places; see [AGENTS.md](AGENTS.md).
 **Working**
 
 - MVVM scaffold
-- Overpass client with retry and fallback endpoints, plus DeFlock CDN tiles
+- National speed-camera file from the tile server; Overpass by grid cell as
+  the fallback, plus DeFlock CDN tiles
 - Camera model with full OSM tag parsing
 - Map with camera markers
 - Distance-based proximity alerts and local notifications

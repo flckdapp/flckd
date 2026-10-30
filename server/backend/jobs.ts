@@ -11,7 +11,7 @@ import { statusFileSchema } from "./schemas";
 type RunningChild = ReturnType<typeof Bun.spawn>;
 
 type JobRequest = {
-  readonly kind: "build" | "publish";
+  readonly kind: Job["kind"];
   readonly settings: Settings;
   readonly credentials: Credentials;
 };
@@ -123,7 +123,9 @@ export class JobRunner {
 
   private async spawn(job: Job, request: JobRequest, secrets: readonly string[]): Promise<{ readonly exitCode: number | null; readonly stage: string; readonly detail: string; readonly local_published: boolean; readonly remote_published: boolean }> {
     const statusFile = join(this.#config.workDir, "jobs", job.id, "status.json");
-    const cmd = request.kind === "build" ? [join(this.#config.binDir, "run-build.sh"), ...request.settings.regions] : [join(this.#config.binDir, "push-r2.sh"), this.#config.docroot];
+    const cmd = request.kind === "build" ? [join(this.#config.binDir, "run-build.sh"), ...request.settings.regions]
+      : request.kind === "cameras" ? [join(this.#config.binDir, "run-build.sh"), "--cameras-only"]
+      : [join(this.#config.binDir, "push-r2.sh"), this.#config.docroot];
     const env = this.jobEnv(job, request, statusFile);
     const child = Bun.spawn(["bash", ...cmd], { stdout: "pipe", stderr: "pipe", env, cwd: this.#config.workDir, detached: true });
     this.#child = child;
@@ -151,6 +153,7 @@ export class JobRunner {
       REGION_SET: this.#config.regionSet,
       WWW_DIR: this.#config.siteDir,
       R2_PRUNE: "0",
+      SPEED_CAMERAS: request.settings.cameras.enabled ? "1" : "0",
       PYTHONUNBUFFERED: "1",
     };
     for (const key of ["PBF_URL", "PBF_NAME", "KEEP_RELEASES", "PART_BYTES", "MAX_CACHE_MB", "SKIP_PBF_UPDATE", "SKIP_TIMEZONES", "HOME", "TMPDIR"]) {

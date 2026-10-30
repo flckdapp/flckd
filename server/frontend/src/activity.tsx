@@ -17,12 +17,13 @@ import {
 import { Activity, Check } from "lucide-react";
 
 import { fmtBytes, fmtDateTime } from "./format";
-import { STAGES, STATUS_COLOR, isLive } from "./jobmeta";
+import { KIND_LABEL, STATUS_COLOR, isLive, stagesFor } from "./jobmeta";
 import type { LogEntry } from "./events";
 import type { Job, State } from "../../shared/contracts";
 
 function StageProgress({ job }: { job: Job }) {
-  const idx = STAGES.findIndex((s) => s === job.stage);
+  const stages = stagesFor(job.kind);
+  const idx = stages.findIndex((s) => s === job.stage);
   const live = isLive(job);
   const bar = !live ? null : (
     <Flex align="center" gap="2">
@@ -52,7 +53,7 @@ function StageProgress({ job }: { job: Job }) {
   return (
     <Flex direction="column" gap="2">
       <Flex gap="4" wrap="wrap">
-        {STAGES.map((stage, i) => {
+        {stages.map((stage, i) => {
           if (i < idx)
             return (
               <Flex key={stage} align="center" gap="1">
@@ -152,7 +153,7 @@ export function JobPanel({
               <Badge color={STATUS_COLOR[selected.status]} variant="soft">
                 {selected.status}
               </Badge>
-              <Badge color="gray" variant="soft">{selected.kind}</Badge>
+              <Badge color="gray" variant="soft">{KIND_LABEL[selected.kind]}</Badge>
               <Text size="1" color="gray">
                 {selected.regions.length} regions
                 {selected.exit_code !== null ? ` · exit ${selected.exit_code}` : ""}

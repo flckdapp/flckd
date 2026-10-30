@@ -104,6 +104,7 @@ export function SettingsCard({
                   ? `${cadenceLabel} — starts one interval after saving`
                   : `Next build due ${fmtDateTime(state.next_due_at)}`}
             </Text>
+
           </Flex>
 
           <Flex direction="column" gap="2">

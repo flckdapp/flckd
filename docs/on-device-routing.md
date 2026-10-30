@@ -19,9 +19,10 @@ routing path was removed rather than made optional. There's no setting for
 it and nothing a future refactor or remote config could switch back on.
 
 This is about route data, not about being offline in general. Map tiles
-still come from Apple, and camera data still comes from DeFlock's CDN and
-from Overpass. Those requests reveal roughly what you're looking at; a
-routing request would reveal where you're going.
+still come from Apple, and ALPR data still comes from DeFlock's CDN, with
+Overpass as the fallback. Speed cameras come from a national file
+downloaded with the region pack. Those requests reveal roughly what you're
+looking at; a routing request would reveal where you're going.
 
 ---
 

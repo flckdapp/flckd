@@ -38,12 +38,28 @@ request (CF-Cache-Status: BYPASS), which fails when the home origin is off.
 Parts are named with a .tar extension on purpose: Cloudflare's default
 cacheable-extension list includes .tar but not .part or .0007.
 
+Speed cameras
+-------------
+The national speed-camera file from extract_cameras.py is published the same
+way, at /v1/cameras/<sha256>.json, and listed under "speed_cameras" in the
+manifest. It is one small file, so it is not split into parts.
+
+A full release lists it in both the release manifest and the pointer.
+--cameras-only refreshes just the pointer's entry and leaves the packs and
+every release manifest alone; that is the daily job that keeps camera data
+current between road builds. Unchanged camera data has the same sha256, so
+its URL doesn't change and no client downloads it again.
+
 Usage:
     publish.py --staging /data/staging \
                --docroot /srv/tiles \
                --regions /opt/flckd/regions/us-states.json \
                --build-id 2026-08-30 \
+               [--cameras /data/speed-cameras.json] \
                [--part-bytes 134217728] [--keep 3] [--dry-run]
+
+    publish.py --docroot /srv/tiles --build-id <job> \
+               --cameras /data/speed-cameras.json --cameras-only
 """
 import argparse
 import hashlib
@@ -147,14 +163,100 @@ def load_regions(path):
     return {p["id"]: p for p in data["packs"]}
 
 
+def publish_cameras(src, docroot, build_id):
+    """Copy the camera file to its content-addressed path. Returns the
+    manifest entry."""
+    data = Path(src).read_bytes()
+    try:
+        doc = json.loads(data)
+    except ValueError as exc:
+        die("%s is not valid JSON: %s" % (src, exc))
+    if not isinstance(doc.get("cameras"), list):
+        die("%s has no cameras list" % src)
+
+    digest = hashlib.sha256(data).hexdigest()
+    root = docroot / "v1" / "cameras"
+    root.mkdir(parents=True, exist_ok=True)
+    dest = root / (digest + ".json")
+    if not dest.is_file():
+        tmp = root / (digest + ".json.tmp")
+        tmp.write_bytes(data)
+        os.replace(tmp, dest)
+    stamp(dest)
+    log("speed cameras: %d in %s" % (len(doc["cameras"]), human(len(data))))
+    return {
+        "path": "/v1/cameras/%s.json" % digest,
+        "bytes": len(data),
+        "sha256": digest,
+        "count": len(doc["cameras"]),
+        "osm_data_date": doc.get("osm_data_date"),
+        "license": doc.get("license"),
+        "build_id": build_id,
+    }
+
+
+def camera_path(manifest):
+    entry = manifest.get("speed_cameras") if isinstance(manifest, dict) else None
+    return entry.get("path") if isinstance(entry, dict) else None
+
+
+def read_pointer(docroot):
+    try:
+        return json.loads((docroot / "v1" / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def prune_cameras(docroot, keep):
+    """Delete camera files that neither pointer (old or new) nor any retained
+    release references. The previous pointer's file is kept because a client
+    may have fetched that pointer moments ago and not the file yet."""
+    root = docroot / "v1" / "cameras"
+    if not root.is_dir():
+        return
+    keep = {p for p in keep if p}
+    rel_root = docroot / "v1" / "releases"
+    if rel_root.is_dir():
+        for mf in rel_root.glob("*/manifest.json"):
+            try:
+                keep.add(camera_path(json.loads(mf.read_text(encoding="utf-8"))))
+            except (OSError, ValueError):
+                log("WARNING: %s unreadable; not pruning camera files this run" % mf)
+                return
+    for f in root.iterdir():
+        if "/v1/cameras/%s" % f.name not in keep:
+            f.unlink()
+            log("pruned camera file %s" % f.name[:12])
+
+
+def publish_cameras_only(args, docroot):
+    pointer = read_pointer(docroot)
+    if pointer is None:
+        die("no published release at %s/v1/manifest.json to attach speed cameras "
+            "to; run a full build first" % docroot)
+    previous = camera_path(pointer)
+    entry = publish_cameras(args.cameras, docroot, args.build_id)
+    pointer["speed_cameras"] = entry
+    write_json_atomic(docroot / "v1" / "manifest.json", pointer, mtime=int(time.time()))
+    prune_cameras(docroot, {entry["path"], previous})
+    unchanged = entry["path"] == previous
+    log("speed cameras %s at %s" % ("unchanged" if unchanged else "updated", entry["path"]))
+    print(json.dumps({"build_id": args.build_id, "speed_cameras": entry,
+                      "unchanged": unchanged}))
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--staging", required=True,
+    ap.add_argument("--staging",
                     help="directory holding <region>.tar files from cut-packs.sh")
     ap.add_argument("--docroot", required=True,
                     help="nginx root; this script writes <docroot>/v1/...")
-    ap.add_argument("--regions", required=True,
+    ap.add_argument("--regions",
                     help="region set json (names, bboxes, iso codes)")
+    ap.add_argument("--cameras",
+                    help="speed-camera JSON from extract_cameras.py")
+    ap.add_argument("--cameras-only", action="store_true",
+                    help="publish only --cameras, into the current pointer")
     ap.add_argument("--build-id", required=True,
                     help="release id, e.g. 2026-08-30")
     ap.add_argument("--part-bytes", type=int, default=128 * 1024 * 1024,
@@ -167,8 +269,16 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    staging = Path(args.staging)
     docroot = Path(args.docroot)
+    if args.cameras_only:
+        if not args.cameras:
+            die("--cameras-only needs --cameras")
+        publish_cameras_only(args, docroot)
+        return
+    if not args.staging or not args.regions:
+        die("--staging and --regions are required for a release")
+
+    staging = Path(args.staging)
     regions = load_regions(args.regions)
 
     if args.part_bytes and args.part_bytes > 500 * 1000 * 1000:
@@ -256,6 +366,9 @@ def main():
         "total_bytes": total_bytes,
         "packs": entries,
     }
+    if args.cameras:
+        manifest["speed_cameras"] = publish_cameras(args.cameras, docroot, args.build_id)
+    previous_cameras = camera_path(read_pointer(docroot))
 
     # Immutable per-release copy first, then the mutable pointer. Order
     # matters: the pointer must never advertise something not yet on disk.
@@ -268,6 +381,7 @@ def main():
                       mtime=int(time.time()))
 
     pruned = prune(docroot, args.keep)
+    prune_cameras(docroot, {camera_path(pointer), previous_cameras})
 
     write_json_atomic(docroot / "v1" / "build-status.json", {
         "build_id": args.build_id,

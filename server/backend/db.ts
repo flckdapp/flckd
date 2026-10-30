@@ -97,15 +97,38 @@ CREATE TABLE IF NOT EXISTS job_log (job_id TEXT NOT NULL, sequence INTEGER NOT N
   }
 
   advanceSchedule(cadence: Settings["cadence"], now = Date.now()): void {
-    const days = { manual: 0, daily: 1, weekly: 7, every_30_days: 30 }[cadence];
-    const due = days === 0 ? "" : new Date(now + days * 86400_000).toISOString();
-    this.#db.query("INSERT OR REPLACE INTO kv VALUES ('next_due', ?)").run(due);
+    this.#db.query("INSERT OR REPLACE INTO kv VALUES ('next_due', ?)").run(dueAfter(cadence, now));
+  }
+
+  camerasNextDue(): string | null {
+    return this.#db.query<KvRow, []>("SELECT value FROM kv WHERE key='cameras_next_due'").get()?.value || null;
+  }
+
+  // Same anchoring rule as the road schedule, on the camera setting's own
+  // cadence. A database from before this setting has no stored key, so it
+  // gets an anchor the first time this runs.
+  scheduleCameras(cameras: Settings["cameras"], now = Date.now()): void {
+    const key = cameras.enabled ? cameras.cadence : "off";
+    const previous = this.#db.query<KvRow, []>("SELECT value FROM kv WHERE key='cameras_cadence'").get()?.value;
+    if (previous === key) return;
+    this.#db.query("INSERT OR REPLACE INTO kv VALUES ('cameras_cadence', ?)").run(key);
+    this.advanceCameraSchedule(cameras, now);
+  }
+
+  advanceCameraSchedule(cameras: Settings["cameras"], now = Date.now()): void {
+    const due = cameras.enabled ? dueAfter(cameras.cadence, now) : "";
+    this.#db.query("INSERT OR REPLACE INTO kv VALUES ('cameras_next_due', ?)").run(due);
   }
 
   markInterruptedOnStartup(): void {
     const now = new Date().toISOString();
     this.#db.query("UPDATE jobs SET status='interrupted', finished_at=?, detail='interrupted by restart' WHERE status IN ('queued','running')").run(now);
   }
+}
+
+function dueAfter(cadence: Settings["cadence"], now: number): string {
+  const days = { manual: 0, daily: 1, weekly: 7, every_30_days: 30 }[cadence];
+  return days === 0 ? "" : new Date(now + days * 86400_000).toISOString();
 }
 
 function rowToJob(row: JobRow): Job {

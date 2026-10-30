@@ -74,6 +74,10 @@ attribution above.
 
 **Overpass.**
 
+- Keep it off the normal path. Speed cameras come from the tile server's
+  national file, extracted from a Geofabrik extract rather than from
+  Overpass, so Overpass is asked only before that file is downloaded or
+  while the CDN is down.
 - Query by whole-degree grid cell with a sensible `[timeout:…]`, and cache
   each cell on disk for a day so it is asked for once. Use the CDN tiles for
   anything wide-area. `OverpassService` does this.

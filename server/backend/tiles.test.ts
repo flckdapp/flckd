@@ -7,10 +7,13 @@ import { tileHandler } from "./tiles";
 let root: string;
 let server: ReturnType<typeof Bun.serve>;
 const pack = `/v1/packs/${"a".repeat(64)}/part-0000.tar`;
+const cameras = `/v1/cameras/${"b".repeat(64)}.json`;
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "flckd-tiles-"));
   await mkdir(join(root, "v1", "packs", "a".repeat(64)), { recursive: true });
   await Bun.write(join(root, pack), "0123456789");
+  await Bun.write(join(root, cameras), '{"cameras":[]}');
+  await Bun.write(join(root, "v1", "cameras", "notes.json"), "PRIVATE");
   await Bun.write(join(root, "index.html"), "<main>Public site</main>");
   await Bun.write(join(root, "control.sqlite"), "PRIVATE");
   server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: tileHandler(root) });
@@ -29,8 +32,16 @@ test("serves byte ranges and conditional requests through Bun", async () => {
   expect(invalid.status).toBe(416);
 });
 
+test("serves the speed-camera file as immutable JSON, like a pack", async () => {
+  const response = await fetch(new URL(cameras, server.url));
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toContain("application/json");
+  expect(response.headers.get("cache-control")).toContain("immutable");
+  expect(await response.json()).toEqual({ cameras: [] });
+});
+
 test("never serves private files or builder API paths", async () => {
-  for (const path of ["/api/state", "/control.sqlite", "/v1/packs/COMPLETE", "/.env"]) {
+  for (const path of ["/api/state", "/control.sqlite", "/v1/packs/COMPLETE", "/.env", "/v1/cameras/notes.json"]) {
     expect((await fetch(new URL(path, server.url))).status).toBe(404);
   }
   expect((await fetch(new URL("/", server.url))).status).toBe(200);

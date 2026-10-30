@@ -6,6 +6,8 @@ import SwiftUI
 /// and the offline-only policy. Reached from SettingsView.
 struct OfflineRoutingView: View {
     @AppStorage("tileServerURL") private var tileServerURL: String = TilePackService.defaultServerURL
+    @Environment(CameraStore.self) private var cameraStore
+    @Environment(OfflineDataUpdater.self) private var offlineUpdater
 
     private let packService = TilePackService()
 
@@ -17,12 +19,15 @@ struct OfflineRoutingView: View {
     @State private var downloadProgress: Double = 0
     @State private var downloadError: String?
     @State private var updateAllProgress: (completed: Int, total: Int)?
+    @State private var speedCameraError: String?
 
     var body: some View {
         Form {
             policySection
             serverSection
+            updatesSection
             installedSection
+            speedCameraSection
             availableSection
         }
         .navigationTitle("Offline Routing")
@@ -93,7 +98,30 @@ struct OfflineRoutingView: View {
         } header: {
             Text("Tile Server")
         } footer: {
-            Text("The server that provides downloadable road data. Regions download once and update monthly.")
+            Text("The server that provides road data and speed cameras.")
+        }
+    }
+
+    @ViewBuilder
+    private var updatesSection: some View {
+        Section {
+            Toggle("Update Automatically", isOn: Bindable(offlineUpdater).autoUpdate)
+            HStack {
+                Text("Last Checked")
+                Spacer()
+                if offlineUpdater.isUpdating {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text(offlineUpdater.lastCheck?.formatted(.relative(presentation: .named)) ?? "Never")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text("Updates")
+        } footer: {
+            Text(offlineUpdater.autoUpdate
+                 ? "Checks once a day when the app opens and downloads updates. Regions download on Wi-Fi only."
+                 : "Checks once a day when the app opens and tells you when an update is available.")
         }
     }
 
@@ -121,6 +149,40 @@ struct OfflineRoutingView: View {
     }
 
     @ViewBuilder
+    private var speedCameraSection: some View {
+        Section {
+            HStack {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Speed Cameras")
+                        if let summary = cameraStore.speedCameraFileSummary {
+                            Text(summary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } icon: {
+                    Image(systemName: "gauge.with.needle")
+                }
+                Spacer()
+                if cameraStore.speedCameraFileSummary != nil {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(Color(red: 0.0, green: 0.7, blue: 0.65))
+                } else {
+                    Text("Not downloaded")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } footer: {
+            if let speedCameraError {
+                Text(speedCameraError).foregroundStyle(.red)
+            } else {
+                Text("Downloaded with your regions and updated with them. Everyone gets the same file.")
+            }
+        }
+    }
+
+    @ViewBuilder
     private func installedRow(_ region: InstalledRegion) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
@@ -137,7 +199,7 @@ struct OfflineRoutingView: View {
                     download(pack, buildId: manifest.buildId)
                 }
                 .buttonStyle(.bordered)
-                .disabled(downloadingID != nil)
+                .disabled(downloadingID != nil || offlineUpdater.isUpdating)
             } else {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(Color(red: 0.0, green: 0.7, blue: 0.65))
@@ -156,7 +218,7 @@ struct OfflineRoutingView: View {
                 Text("Update All Regions")
             }
         }
-        .disabled(downloadingID != nil)
+        .disabled(downloadingID != nil || offlineUpdater.isUpdating)
     }
 
     @ViewBuilder
@@ -174,8 +236,7 @@ struct OfflineRoutingView: View {
     }
 
     private func outdatedPack(for region: InstalledRegion) -> TilePack? {
-        guard let manifest, region.buildId != manifest.buildId else { return nil }
-        return manifest.packs.first { $0.id == region.id }
+        manifest?.packs.first { $0.id == region.id && $0.sha256 != region.sha256 }
     }
 
     @ViewBuilder
@@ -204,7 +265,7 @@ struct OfflineRoutingView: View {
     @ViewBuilder
     private func availableRow(_ pack: TilePack, buildId: String) -> some View {
         let installedRegion = installed.first { $0.id == pack.id }
-        let isCurrent = installedRegion?.buildId == buildId
+        let isCurrent = installedRegion?.sha256 == pack.sha256
         let isDownloading = downloadingID == pack.id
 
         HStack {
@@ -226,7 +287,7 @@ struct OfflineRoutingView: View {
                     download(pack, buildId: buildId)
                 }
                 .buttonStyle(.bordered)
-                .disabled(downloadingID != nil)
+                .disabled(downloadingID != nil || offlineUpdater.isUpdating)
             }
         }
     }
@@ -240,11 +301,31 @@ struct OfflineRoutingView: View {
         manifestError = nil
         do {
             manifest = try await packService.fetchManifest()
+            offlineUpdater.recordCheck()
+            // This screen lists every update, so a banner saying one is
+            // available would only repeat it.
+            if case .available = offlineUpdater.notice { offlineUpdater.dismissNotice() }
         } catch {
             manifest = nil
             manifestError = error.localizedDescription
         }
         isLoadingManifest = false
+        if !installed.isEmpty { await updateSpeedCameras() }
+    }
+
+    /// Rides on a manifest fetch or a pack download that is already
+    /// happening, so it never adds a request at a time of its own.
+    @MainActor
+    private func updateSpeedCameras() async {
+        guard let artifact = manifest?.speedCameras else { return }
+        do {
+            if try await packService.downloadSpeedCameras(artifact) {
+                cameraStore.reloadSpeedCameraFile()
+            }
+            speedCameraError = nil
+        } catch {
+            speedCameraError = "Speed cameras: \(error.localizedDescription)"
+        }
     }
 
     private func download(_ pack: TilePack, buildId: String) {
@@ -284,12 +365,15 @@ struct OfflineRoutingView: View {
     private func install(_ pack: TilePack, buildId: String) async throws {
         downloadingID = pack.id
         downloadProgress = 0
+        offlineUpdater.manualDownloadActive = true
+        defer { offlineUpdater.manualDownloadActive = false }
         try await packService.downloadPack(pack, buildId: buildId) { fraction in
             Task { @MainActor in
                 downloadProgress = fraction
             }
         }
         installed = RegionStore.installedRegions()
+        await updateSpeedCameras()
     }
 
     private func delete(at offsets: IndexSet) {
@@ -304,4 +388,6 @@ struct OfflineRoutingView: View {
 
 #Preview {
     NavigationStack { OfflineRoutingView() }
+        .environment(CameraStore())
+        .environment(OfflineDataUpdater())
 }

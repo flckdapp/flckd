@@ -7,16 +7,23 @@ export const remoteSchema = z.object({
   region: z.string().max(64),
   provider: z.enum(["Cloudflare", "AWS", "Other"]),
 });
+export const cadenceSchema = z.enum(["manual", "daily", "weekly", "every_30_days"]);
+export const camerasSchema = z.object({
+  enabled: z.boolean(),
+  cadence: cadenceSchema,
+});
 export const settingsSchema = z.object({
   regions: z.array(z.string().regex(/^[a-z-]+$/)).max(53),
-  cadence: z.enum(["manual", "daily", "weekly", "every_30_days"]),
+  cadence: cadenceSchema,
   threads: z.number().int().min(1).max(64),
   remote: remoteSchema,
+  // Defaulted so settings saved before speed cameras existed still load.
+  cameras: camerasSchema.default({ enabled: true, cadence: "daily" }),
 }).strict();
 export type Settings = z.infer<typeof settingsSchema>;
 export const jobSchema = z.object({
   id: z.string(),
-  kind: z.enum(["build", "publish"]),
+  kind: z.enum(["build", "publish", "cameras"]),
   status: z.enum(["queued", "running", "succeeded", "failed", "interrupted", "cancelled"]),
   stage: z.string(),
   detail: z.string(),
@@ -37,6 +44,8 @@ export const stateSchema = z.object({
   regions: z.array(z.object({ id: z.string(), name: z.string(), iso3166_2: z.string() })),
   jobs: z.array(jobSchema),
   next_due_at: z.string().nullable(),
+  // Null when speed cameras are off or their schedule is manual.
+  cameras_next_due_at: z.string().nullable(),
   active_job_id: z.string().nullable(),
   storage: z.object({ free_bytes: z.number(), site_path: z.string() }),
   credentials: z.object({

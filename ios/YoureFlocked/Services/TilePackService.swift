@@ -12,6 +12,8 @@ struct TileManifest: Codable {
     let osmDataDate: String?
     let totalBytes: Int64?
     let packs: [TilePack]
+    /// Absent on servers built before the speed-camera file existed.
+    let speedCameras: SpeedCameraArtifact?
 
     enum CodingKeys: String, CodingKey {
         case schema, packs
@@ -19,6 +21,22 @@ struct TileManifest: Codable {
         case valhallaVersion = "valhalla_version"
         case osmDataDate = "osm_data_date"
         case totalBytes = "total_bytes"
+        case speedCameras = "speed_cameras"
+    }
+}
+
+/// The national speed-camera file the manifest points at
+/// (server/builder/bin/extract_cameras.py).
+struct SpeedCameraArtifact: Codable, Hashable {
+    let path: String
+    let bytes: Int64
+    let sha256: String
+    let count: Int?
+    let osmDataDate: String?
+
+    enum CodingKeys: String, CodingKey {
+        case path, bytes, sha256, count
+        case osmDataDate = "osm_data_date"
     }
 }
 
@@ -191,6 +209,79 @@ enum RegionStore {
     }
 }
 
+// MARK: - Speed Camera File
+
+/// The downloaded speed-camera file:
+///
+///     Application Support/valhalla/speed-cameras.json
+///
+/// It comes down with a region pack, never on a timer of its own, and is
+/// read on the device. While it exists the app needs no live server to know
+/// where speed cameras are. Every phone gets the same bytes, so downloading
+/// it reveals nothing about where anyone is.
+enum SpeedCameraFile {
+
+    struct Contents {
+        let cameras: [SurveillanceCamera]
+        let osmDataDate: String?
+    }
+
+    private struct Document: Decodable {
+        let osmDataDate: String?
+        let cameras: [Entry]
+
+        enum CodingKeys: String, CodingKey {
+            case cameras
+            case osmDataDate = "osm_data_date"
+        }
+    }
+
+    private struct Entry: Decodable {
+        let id: Int64
+        let lat: Double
+        let lon: Double
+        let tags: [String: String]?
+    }
+
+    static func defaultURL() -> URL? {
+        guard let base = try? FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: true
+        ) else { return nil }
+        let dir = base.appendingPathComponent("valhalla", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("speed-cameras.json")
+    }
+
+    /// The server publishes speed and red-light cameras only, with relation
+    /// ids already negated, and leaves the app's own classification tag off.
+    static func decode(_ data: Data) -> Contents? {
+        guard let doc = try? JSONDecoder().decode(Document.self, from: data) else { return nil }
+        let cameras = doc.cameras.map { entry in
+            var tags = entry.tags ?? [:]
+            if tags["surveillance:type"] == nil {
+                tags["surveillance:type"] = SurveillanceType.speedCamera.rawValue
+            }
+            return SurveillanceCamera(osmID: entry.id, latitude: entry.lat, longitude: entry.lon, tags: tags)
+        }
+        return Contents(cameras: cameras, osmDataDate: doc.osmDataDate)
+    }
+
+    static func load(from url: URL) -> Contents? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return decode(data)
+    }
+
+    static func sha256(of url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return hex(SHA256.hash(data: data))
+    }
+
+    static func hex(_ digest: SHA256.Digest) -> String {
+        digest.map { String(format: "%02x", $0) }.joined()
+    }
+}
+
 // MARK: - Tile Pack Service
 
 enum TilePackError: LocalizedError {
@@ -200,6 +291,7 @@ enum TilePackError: LocalizedError {
     case versionMismatch(server: String)
     case checksumMismatch(String)
     case notATilePack
+    case notASpeedCameraFile
     case insufficientSpace(needed: Int64, available: Int64)
 
     var errorDescription: String? {
@@ -216,6 +308,8 @@ enum TilePackError: LocalizedError {
             return "Download corrupted (\(what) checksum failed). Try again."
         case .notATilePack:
             return "Downloaded file is not a valid tile pack."
+        case .notASpeedCameraFile:
+            return "The tile server's speed-camera file is unreadable."
         case .insufficientSpace(let needed, let available):
             let f = ByteCountFormatter()
             return "Not enough free space: need \(f.string(fromByteCount: needed)), have \(f.string(fromByteCount: available))."
@@ -238,12 +332,22 @@ actor TilePackService {
 
     private let session: URLSession
 
-    init() {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 3600
-        config.httpAdditionalHeaders = ["User-Agent": Self.userAgent]
-        self.session = URLSession(configuration: config)
+    /// - Parameters:
+    ///   - session: Injected by tests to observe requests.
+    ///   - wifiOnly: Refuse cellular and Low Data Mode, for downloads the
+    ///     user didn't start.
+    init(session: URLSession? = nil, wifiOnly: Bool = false) {
+        if let session {
+            self.session = session
+        } else {
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 30
+            config.timeoutIntervalForResource = 3600
+            config.httpAdditionalHeaders = ["User-Agent": Self.userAgent]
+            config.allowsExpensiveNetworkAccess = !wifiOnly
+            config.allowsConstrainedNetworkAccess = !wifiOnly
+            self.session = URLSession(configuration: config)
+        }
     }
 
     static func serverBaseURL() -> URL? {
@@ -265,8 +369,9 @@ actor TilePackService {
 
     func fetchManifest() async throws -> TileManifest {
         guard let base = Self.serverBaseURL() else { throw TilePackError.invalidServerURL }
-        let url = base.appendingPathComponent("v1/manifest.json")
-        let (data, response) = try await session.data(from: url)
+        var request = URLRequest(url: base.appendingPathComponent("v1/manifest.json"))
+        request.cachePolicy = .reloadRevalidatingCacheData
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw TilePackError.invalidManifest }
         guard http.statusCode == 200 else { throw TilePackError.serverError(http.statusCode) }
         do {
@@ -374,6 +479,38 @@ actor TilePackService {
             try? FileManager.default.removeItem(at: tmpURL)
             throw error
         }
+    }
+
+    /// Downloads the speed-camera file the manifest lists, unless the copy on
+    /// disk already has that sha256. Returns whether the file changed.
+    func downloadSpeedCameras(
+        _ artifact: SpeedCameraArtifact,
+        base: URL? = nil,
+        to destination: URL? = SpeedCameraFile.defaultURL()
+    ) async throws -> Bool {
+        guard let base = base ?? Self.serverBaseURL(),
+              let url = URL(string: artifact.path, relativeTo: base) else {
+            throw TilePackError.invalidServerURL
+        }
+        guard let destination else { return false }
+        if SpeedCameraFile.sha256(of: destination) == artifact.sha256 { return false }
+
+        let (data, response) = try await session.data(from: url.absoluteURL)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw TilePackError.serverError((response as? HTTPURLResponse)?.statusCode ?? -1)
+        }
+        guard SpeedCameraFile.hex(SHA256.hash(data: data)) == artifact.sha256 else {
+            throw TilePackError.checksumMismatch("speed cameras")
+        }
+        guard SpeedCameraFile.decode(data) != nil else {
+            throw TilePackError.notASpeedCameraFile
+        }
+        try data.write(to: destination, options: .atomic)
+        var installed = destination
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? installed.setResourceValues(values)
+        return true
     }
 
     /// The mobile engine mmaps the tar and requires `index.bin` to be the

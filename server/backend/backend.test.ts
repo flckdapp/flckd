@@ -128,6 +128,104 @@ describe("backend boundaries", () => {
     } finally { deps.stopScheduler(); await deps.runner.shutdown(); deps.store.close(); }
   });
 
+  it("refreshes speed cameras through HTTP only once a release exists", async () => {
+    const fixture = await makeFixture({});
+    const { app, deps } = await createApp(fixture.env);
+    const headers = { host: "127.0.0.1", "X-FLCKD-Request": "1", "Content-Type": "application/json" };
+    try {
+      deps.store.saveSettings({ ...defaultSettings, regions: ["oklahoma"] });
+      expect((await app.request("/api/cameras", { method: "POST", headers })).status).toBe(409);
+
+      await writeFile(join(fixture.env["DOCROOT"] ?? "", "v1", "manifest.json"), '{"build_id":"r1","packs":[]}\n');
+      expect((await app.request("/api/cameras", { method: "POST", headers })).status).toBe(202);
+      const deadline = Date.now() + 5000;
+      while (deps.store.activeJob() !== null && Date.now() < deadline) await Bun.sleep(30);
+
+      const job = deps.store.jobs()[0];
+      expect(job?.kind).toBe("cameras");
+      expect(job?.status).toBe("succeeded");
+      expect(job?.local_published).toBe(true);
+      expect(deps.store.logs(job?.id ?? "").entries.map((e) => e.text).join("")).toContain("refreshing speed cameras");
+
+      deps.store.saveSettings({ ...defaultSettings, regions: ["oklahoma"], cameras: { enabled: false, cadence: "daily" } });
+      const off = await app.request("/api/cameras", { method: "POST", headers });
+      expect(off.status).toBe(409);
+      expect(await off.json()).toEqual({ detail: "Speed cameras are turned off" });
+    } finally { deps.stopScheduler(); await deps.runner.shutdown(); deps.store.close(); }
+  });
+
+  it("schedules speed cameras on their own setting, apart from road builds", async () => {
+    const root = await mkdtemp(join(import.meta.dir, ".tmp-"));
+    roots.push(root);
+    const store = new Store(join(root, "test.sqlite"));
+    store.schedule("weekly", 0);
+    store.scheduleCameras({ enabled: true, cadence: "daily" }, 0);
+    expect(store.nextDue()).toBe("1970-01-08T00:00:00.000Z");
+    expect(store.camerasNextDue()).toBe("1970-01-02T00:00:00.000Z");
+
+    store.scheduleCameras({ enabled: true, cadence: "daily" }, 5000);
+    expect(store.camerasNextDue()).toBe("1970-01-02T00:00:00.000Z");
+    store.schedule("manual", 0);
+    expect(store.camerasNextDue()).toBe("1970-01-02T00:00:00.000Z");
+
+    store.scheduleCameras({ enabled: true, cadence: "weekly" }, 0);
+    expect(store.camerasNextDue()).toBe("1970-01-08T00:00:00.000Z");
+    store.scheduleCameras({ enabled: true, cadence: "manual" }, 0);
+    expect(store.camerasNextDue()).toBeNull();
+    store.scheduleCameras({ enabled: false, cadence: "daily" }, 0);
+    expect(store.camerasNextDue()).toBeNull();
+    store.close();
+  });
+
+  it("loads settings saved before speed cameras existed as on and daily", async () => {
+    const root = await mkdtemp(join(import.meta.dir, ".tmp-"));
+    roots.push(root);
+    const store = new Store(join(root, "test.sqlite"));
+    const { cameras: _omitted, ...old } = defaultSettings;
+    const { Database } = await import("bun:sqlite");
+    const raw = new Database(join(root, "test.sqlite"));
+    raw.query("INSERT INTO kv(key, value) VALUES('settings', ?)").run(JSON.stringify({ ...old, regions: ["oklahoma"] }));
+    raw.close();
+
+    expect(store.settings()?.cameras).toEqual({ enabled: true, cadence: "daily" });
+    store.close();
+  });
+
+  it("tells a build whether to publish speed cameras", async () => {
+    const fixture = await makeFixture({});
+    const { app, deps } = await createApp(fixture.env);
+    const headers = { host: "127.0.0.1", "X-FLCKD-Request": "1", "Content-Type": "application/json" };
+    try {
+      deps.store.saveSettings({ ...defaultSettings, regions: ["oklahoma"], cameras: { enabled: false, cadence: "daily" } });
+      expect((await app.request("/api/jobs", { method: "POST", headers })).status).toBe(202);
+      const deadline = Date.now() + 5000;
+      while (deps.store.activeJob() !== null && Date.now() < deadline) await Bun.sleep(30);
+
+      const job = deps.store.jobs()[0];
+      expect(deps.store.logs(job?.id ?? "").entries.map((e) => e.text).join("")).toContain("cameras=0");
+      expect(deps.store.camerasNextDue()).toBeNull();
+    } finally { deps.stopScheduler(); await deps.runner.shutdown(); deps.store.close(); }
+  });
+
+  it("runs the camera refresh, not a build, when only the cameras are due", async () => {
+    const fixture = await makeFixture({});
+    await writeFile(join(fixture.env["DOCROOT"] ?? "", "v1", "manifest.json"), '{"build_id":"r1","packs":[]}\n');
+    const { deps } = await createApp(fixture.env);
+    try {
+      const cameras = { enabled: true, cadence: "daily" } as const;
+      deps.store.saveSettings({ ...defaultSettings, regions: ["oklahoma"], cadence: "weekly", cameras });
+      deps.store.schedule("weekly", Date.now());
+      deps.store.advanceCameraSchedule(cameras, Date.now() - 2 * 86400_000);
+      const deadline = Date.now() + 5000;
+      while (deps.store.jobs().length === 0 && Date.now() < deadline) await Bun.sleep(30);
+      while (deps.store.activeJob() !== null && Date.now() < deadline) await Bun.sleep(30);
+
+      expect(deps.store.jobs().map((job) => [job.kind, job.status])).toEqual([["cameras", "succeeded"]]);
+      expect(Date.parse(deps.store.camerasNextDue() ?? "")).toBeGreaterThan(Date.now());
+      expect(Date.parse(deps.store.nextDue() ?? "")).toBeGreaterThan(Date.now() + 6 * 86400_000);
+    } finally { deps.stopScheduler(); await deps.runner.shutdown(); deps.store.close(); }
+  });
+
   it("persists schedule anchors without moving them on unchanged settings", async () => {
     const root = await mkdtemp(join(import.meta.dir, ".tmp-"));
     roots.push(root);
