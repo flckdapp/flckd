@@ -23,7 +23,7 @@ struct SettingsView: View {
     @AppStorage(LocationManager.alertRadiusKey) private var alertRadius: Double = 200
     @AppStorage(CameraStore.fetchRadiusKey) private var fetchRadius: Double = 5.0
     @AppStorage("showALPROnly") private var showALPROnly: Bool = false
-    @AppStorage("showSpeedCameras") private var showSpeedCameras: Bool = true
+    @AppStorage(CameraStore.showSpeedCamerasKey) private var showSpeedCameras: Bool = true
     @AppStorage("showGenericCameras") private var showGenericCameras: Bool = true
     @AppStorage("alertMode") private var alertModeRaw: String = AlertMode.nearCamera.rawValue
     @AppStorage("showDebugOverlay") private var showDebugOverlay: Bool = false
@@ -204,6 +204,9 @@ struct SettingsView: View {
                 Toggle("Show Speed Cameras", isOn: $showSpeedCameras)
                 Toggle("Show Generic Cameras", isOn: $showGenericCameras)
             }
+        }
+        .onChange(of: showSpeedCameras) { _, newValue in
+            cameraStore.speedCamerasEnabled = newValue
         }
     }
 

@@ -43,10 +43,11 @@ position, no route, no destination. You can point the app at your own copy
 instead. See [docs/on-device-routing.md](docs/on-device-routing.md).
 
 The app is not fully offline. Camera lookups go to DeFlock and OpenStreetMap,
-and map imagery comes from Apple, and those requests do contain location
-information. [PRIVACY.md](PRIVACY.md) lists exactly what leaves your device,
-to whom, and when, along with the command to check that the list is
-complete.
+and map imagery comes from Apple. Camera lookups name a whole-degree grid
+cell (about 111 km by 85 km), never your position, and each cell is asked
+for at most once a day. [PRIVACY.md](PRIVACY.md) lists exactly what leaves
+your device, to whom, and when, along with the command to check that the
+list is complete.
 
 ## Building
 

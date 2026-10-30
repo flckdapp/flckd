@@ -170,12 +170,12 @@ final class MapViewModel {
         let center = region.center
 
         // Scale the fetch radius with the visible span so a zoomed-out view
-        // covers what the user sees, clamped to 40 km to keep Overpass
-        // queries reasonable.
+        // covers what the user sees, clamped to 40 km so a continent-wide
+        // view asks for at most four grid cells around the centre.
         let latKm = region.span.latitudeDelta * 111.0
         let lonKm = region.span.longitudeDelta * 111.0 * cos(center.latitude * .pi / 180)
         let radiusKm = min(max(max(latKm, lonKm) * 0.6, cameraStore.fetchRadiusKm), 40)
-        await cameraStore.fetchCameras(around: center, radiusKm: radiusKm)
+        await cameraStore.fetchCameras(covering: BoundingBox.around(center: center, radiusKm: radiusKm))
     }
 
     // MARK: - Location Tracking
