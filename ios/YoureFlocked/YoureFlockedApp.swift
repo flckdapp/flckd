@@ -44,6 +44,7 @@ struct YoureFlockedApp: App {
     @State private var notificationManager = NotificationManager()
     @State private var liveActivityManager = LiveActivityManager()
     @State private var proximityEngine = ProximityAlertEngine()
+    @State private var offlineUpdater = OfflineDataUpdater()
     @State private var showSplash = true
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw: String = AppAppearance.system.rawValue
 
@@ -56,6 +57,7 @@ struct YoureFlockedApp: App {
                     .environment(notificationManager)
                     .environment(liveActivityManager)
                     .environment(proximityEngine)
+                    .environment(offlineUpdater)
 
                 if showSplash {
                     SplashView()

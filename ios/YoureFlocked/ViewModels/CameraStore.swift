@@ -113,8 +113,19 @@ final class CameraStore {
     }
 
     var speedCameraDataDate: String? { loadSpeedCameraFile()?.osmDataDate }
-    /// When the last successful camera fetch completed.
-    var lastFetchDate: Date?
+
+    var speedCameraCountLabel: String? {
+        guard let count = loadSpeedCameraFile()?.cameras.count else { return nil }
+        return "\(count.formatted()) camera\(count == 1 ? "" : "s")"
+    }
+
+    /// "2,341 cameras · map data Oct 28, 2026", or nil with no file.
+    var speedCameraFileSummary: String? {
+        guard let count = speedCameraCountLabel else { return nil }
+        guard let date = speedCameraDataDate else { return count }
+        return "\(count) · map data \(ReleaseDate.label(date))"
+    }
+
     /// Whether the last speed-camera (Overpass) fetch succeeded.
     var speedCamerasAvailable: Bool = true
 
@@ -252,7 +263,6 @@ final class CameraStore {
             for cell in needed { coverage[cell] = now }
             lastFetchBounds = BoundingBox.union(cells.map(\.bounds))
             lastFetchTime = now
-            lastFetchDate = now
             retryAttempt = 0
             schedulePersist()
         } catch {

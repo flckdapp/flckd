@@ -332,8 +332,11 @@ actor TilePackService {
 
     private let session: URLSession
 
-    /// - Parameter session: Injected by tests to observe requests.
-    init(session: URLSession? = nil) {
+    /// - Parameters:
+    ///   - session: Injected by tests to observe requests.
+    ///   - wifiOnly: Refuse cellular and Low Data Mode, for downloads the
+    ///     user didn't start.
+    init(session: URLSession? = nil, wifiOnly: Bool = false) {
         if let session {
             self.session = session
         } else {
@@ -341,6 +344,8 @@ actor TilePackService {
             config.timeoutIntervalForRequest = 30
             config.timeoutIntervalForResource = 3600
             config.httpAdditionalHeaders = ["User-Agent": Self.userAgent]
+            config.allowsExpensiveNetworkAccess = !wifiOnly
+            config.allowsConstrainedNetworkAccess = !wifiOnly
             self.session = URLSession(configuration: config)
         }
     }
@@ -364,8 +369,9 @@ actor TilePackService {
 
     func fetchManifest() async throws -> TileManifest {
         guard let base = Self.serverBaseURL() else { throw TilePackError.invalidServerURL }
-        let url = base.appendingPathComponent("v1/manifest.json")
-        let (data, response) = try await session.data(from: url)
+        var request = URLRequest(url: base.appendingPathComponent("v1/manifest.json"))
+        request.cachePolicy = .reloadRevalidatingCacheData
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw TilePackError.invalidManifest }
         guard http.statusCode == 200 else { throw TilePackError.serverError(http.statusCode) }
         do {

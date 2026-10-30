@@ -6,6 +6,8 @@ struct ContentView: View {
     @Environment(NotificationManager.self) private var notificationManager
     @Environment(LiveActivityManager.self) private var liveActivityManager
     @Environment(ProximityAlertEngine.self) private var proximityEngine
+    @Environment(OfflineDataUpdater.self) private var offlineUpdater
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: Tab = .map
     @AppStorage("keepScreenAwake") private var keepScreenAwake: Bool = true
     @AppStorage("alertMode") private var alertModeRaw: String = AlertMode.nearCamera.rawValue
@@ -82,6 +84,16 @@ struct ContentView: View {
         .task {
             locationManager.requestAuthorizationIfNeeded()
         }
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            guard phase == .active else { return }
+            Task { await offlineUpdater.checkIfDue(cameraStore: cameraStore) }
+        }
+        .task(id: offlineUpdater.notice) {
+            guard case .downloaded = offlineUpdater.notice else { return }
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
+            offlineUpdater.dismissNotice()
+        }
     }
 
     @ViewBuilder
@@ -97,9 +109,20 @@ struct ContentView: View {
                     )
                     .padding(.top, 8)
             }
+            if let notice = offlineUpdater.notice {
+                OfflineUpdateBanner(
+                    notice: notice,
+                    isUpdating: offlineUpdater.isUpdating,
+                    onUpdate: { Task { await offlineUpdater.installPending(cameraStore: cameraStore) } },
+                    onDismiss: { offlineUpdater.dismissNotice() }
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .padding(.top, 8)
+            }
             Spacer()
         }
         .animation(.easeOut(duration: 0.25), value: proximityEngine.activeAlert != nil)
+        .animation(.easeOut(duration: 0.25), value: offlineUpdater.notice)
     }
 
     @ViewBuilder
@@ -142,4 +165,5 @@ struct ContentView: View {
         .environment(NotificationManager())
         .environment(LiveActivityManager())
         .environment(ProximityAlertEngine())
+        .environment(OfflineDataUpdater())
 }

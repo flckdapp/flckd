@@ -76,6 +76,7 @@ ios/
       OfflineRoutingView.swift      tile server and region pack settings
       SettingsView.swift            settings
       ProximityBannerView.swift     the in-app proximity warning
+      OfflineUpdateBanner.swift     "update available" / "updated" notice
       SplashView.swift              launch screen
       RoutingDebugOverlay.swift     debug only: the routing latency HUD
     ViewModels/
@@ -90,6 +91,7 @@ ios/
       ValhallaRoutingService.swift  request building, avoidance, scoring
       LocalValhallaEngine.swift     the embedded Valhalla engine
       TilePackService.swift         manifest, pack and speed-camera file download, RegionStore
+      OfflineDataUpdater.swift      daily update check for packs and the camera file
       USStateBounds.swift           rough region boxes for preflight UX
       SuspectedLocationService.swift  optional CSV download
       LiveActivityManager.swift     Live Activity on the lock screen
@@ -126,15 +128,23 @@ Views (SwiftUI) -> ViewModels (@Observable) -> Services -> data (SwiftData + API
 Speed and red-light cameras come from a national file the tile server
 publishes next to the region packs (`/v1/cameras/<sha256>.json`, listed as
 `speed_cameras` in the manifest). The builder extracts it from the same OSM
-extract as the roads, refreshes it daily between road builds, and reads
-both tagging schemes: `highway=speed_camera` nodes and `type=enforcement`
-relations with `enforcement=maxspeed`, `average_speed` or
-`traffic_signals`, placed on their `device` member. `OfflineRoutingView`
+extract as the roads, refreshes it on its own schedule (daily by default),
+and reads both tagging schemes: `highway=speed_camera` nodes and
+`type=enforcement` relations with `enforcement=maxspeed`, `average_speed`
+or `traffic_signals`, placed on their `device` member. `OfflineRoutingView`
 downloads it after a pack installs and when the catalog is opened with a
-region installed, so it never has a timer of its own; `TilePackService`
-checks its sha256 and `SpeedCameraFile` stores it in Application Support.
-While it exists, `CameraStore` takes speed cameras from it and never asks
-Overpass for them. See [server/README.md](server/README.md#speed-cameras).
+region installed; `TilePackService` checks its sha256 and `SpeedCameraFile`
+stores it in Application Support. While it exists, `CameraStore` takes
+speed cameras from it and never asks Overpass for them. See
+[server/README.md](server/README.md#speed-cameras).
+
+`OfflineDataUpdater` keeps the packs and the camera file current. When the
+app becomes active, at most once a day and only if something has been
+downloaded, it fetches the catalog and compares sha256s. With "Update
+Automatically" on (the default) it downloads what changed, packs only over
+a non-expensive, non-constrained network, and shows an "updated" banner;
+otherwise, or if a download fails, it shows an "update available" banner
+whose Update button downloads over any network.
 
 Everything that still goes to the network is fetched by whole-degree grid
 cell (`GridCell`), never by a box around the user. The grid is anchored at the equator and prime

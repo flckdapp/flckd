@@ -66,6 +66,9 @@ actor DeFlockCDNService {
     /// Status snapshot for the Settings screen.
     struct Status: Sendable {
         var lastTileDate: Date?
+        /// When DeFlock published the newest snapshot on disk: the tile
+        /// URL's `?v=` value is that time in epoch seconds.
+        var snapshotDate: Date?
         var cachedTileCount: Int
         var cachedBytes: Int64
         var lastFetchWasFromCache: Bool
@@ -146,15 +149,23 @@ actor DeFlockCDNService {
     func status() -> Status {
         var count = 0
         var bytes: Int64 = 0
+        var newestVersion: TimeInterval?
         if let files = try? FileManager.default.contentsOfDirectory(
             at: cacheDirectory, includingPropertiesForKeys: [.fileSizeKey]) {
             for file in files where file.pathExtension == "json" {
                 count += 1
                 bytes += Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
             }
+            for file in files where file.pathExtension == "version" {
+                guard let text = try? String(contentsOf: file, encoding: .utf8),
+                      let version = TimeInterval(text.trimmingCharacters(in: .whitespacesAndNewlines))
+                else { continue }
+                newestVersion = max(newestVersion ?? version, version)
+            }
         }
         return Status(
             lastTileDate: lastTileDate,
+            snapshotDate: newestVersion.map(Date.init(timeIntervalSince1970:)),
             cachedTileCount: count,
             cachedBytes: bytes,
             lastFetchWasFromCache: lastFetchWasFromCache
