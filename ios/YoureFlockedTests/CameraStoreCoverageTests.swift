@@ -22,10 +22,11 @@ final class CameraStoreCoverageTests: XCTestCase {
         super.tearDown()
     }
 
-    private func makeStore() -> CameraStore {
+    private func makeStore(speedCameraFile: URL? = nil) -> CameraStore {
         let store = CameraStore(
             overpassService: OverpassService(session: StubURLProtocol.session(), cacheDirectory: overpassDir),
-            cdnService: DeFlockCDNService(session: StubURLProtocol.session(), cacheDirectory: cdnDir)
+            cdnService: DeFlockCDNService(session: StubURLProtocol.session(), cacheDirectory: cdnDir),
+            speedCameraFile: speedCameraFile
         )
         store.fetchFloor = 0
         store.speedCamerasEnabled = true
@@ -117,6 +118,72 @@ final class CameraStoreCoverageTests: XCTestCase {
 
         XCTAssertEqual(overpassBodies.count, 1)
         XCTAssertTrue(overpassBodies[0].contains("(40,-76,41,-75)"))
+    }
+
+    private func speedFile(_ cameras: [(id: Int64, lat: Double, lon: Double)]) -> URL {
+        let url = overpassDir.appendingPathComponent("speed-cameras-\(UUID().uuidString).json")
+        SpeedCameraFixture.write(cameras, to: url)
+        return url
+    }
+
+    func testWithTheDownloadedFileOverpassIsNeverAskedForSpeedCameras() async {
+        let store = makeStore(speedCameraFile: speedFile([(1, 40.5, -75.5), (2, 41.5, -75.5)]))
+
+        await store.fetchCameras(around: here)
+        XCTAssertEqual(store.cameras.map(\.osmID), [1], "only the cell's own cameras")
+        await store.fetchCameras(around: CLLocationCoordinate2D(latitude: 41.1, longitude: here.longitude))
+
+        XCTAssertEqual(overpassBodies.count, 0)
+        XCTAssertEqual(Set(store.cameras.map(\.osmID)), [1, 2])
+        XCTAssertEqual(store.speedCameraSource, "Region download")
+    }
+
+    func testRoutePlanningWithTheFileSendsNothingToOverpass() async throws {
+        let store = makeStore(speedCameraFile: speedFile([(1, 40.5, -75.5)]))
+        let corridor = BoundingBox(south: 40.2, west: -75.7, north: 41.3, east: -74.9)
+
+        let cameras = try await store.fetchFromBestSource(in: corridor)
+
+        XCTAssertEqual(overpassBodies.count, 0)
+        XCTAssertEqual(cameras.map(\.osmID), [1])
+    }
+
+    func testTurningSpeedCamerasOffRemovesThemFromMapAndAlerts() async {
+        let store = makeStore(speedCameraFile: speedFile([(1, 40.5, -75.5)]))
+        await store.fetchCameras(around: here)
+        XCTAssertEqual(store.cameras.count, 1)
+
+        store.speedCamerasEnabled = false
+        await store.fetchCameras(around: here)
+
+        XCTAssertEqual(store.cameras.count, 0)
+        XCTAssertEqual(store.checkProximity(location: CLLocation(latitude: 40.5, longitude: -75.5), alertRadius: 500).count, 0)
+    }
+
+    func testWhenTheCDNIsDownSpeedCamerasStillComeFromTheFile() async {
+        StubURLProtocol.recorder.reset { request in
+            request.host.contains("overpass") ? (200, StubURLProtocol.emptyOverpass) : (503, Data())
+        }
+        let store = makeStore(speedCameraFile: speedFile([(1, 40.5, -75.5)]))
+
+        await store.fetchCameras(around: here)
+
+        XCTAssertEqual(overpassBodies.count, 1, "ALPRs fall back to Overpass")
+        XCTAssertTrue(overpassBodies[0].contains("man_made"))
+        XCTAssertEqual(store.cameras.map(\.osmID), [1])
+    }
+
+    func testANewFileReplacesTheOldCameras() async {
+        let file = speedFile([(1, 40.5, -75.5)])
+        let store = makeStore(speedCameraFile: file)
+        await store.fetchCameras(around: here)
+
+        SpeedCameraFixture.write([(3, 40.6, -75.5)], to: file)
+        store.reloadSpeedCameraFile()
+        await store.fetchCameras(around: here)
+
+        XCTAssertEqual(store.cameras.map(\.osmID), [3])
+        XCTAssertEqual(overpassBodies.count, 0)
     }
 
     func testRouteCorridorSendsOnlyWholeCells() async throws {

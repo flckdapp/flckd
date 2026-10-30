@@ -128,6 +128,82 @@ describe("backend boundaries", () => {
     } finally { deps.stopScheduler(); await deps.runner.shutdown(); deps.store.close(); }
   });
 
+  it("refreshes speed cameras through HTTP only once a release exists", async () => {
+    const fixture = await makeFixture({});
+    const { app, deps } = await createApp(fixture.env);
+    const headers = { host: "127.0.0.1", "X-FLCKD-Request": "1", "Content-Type": "application/json" };
+    try {
+      deps.store.saveSettings({ ...defaultSettings, regions: ["oklahoma"] });
+      expect((await app.request("/api/cameras", { method: "POST", headers })).status).toBe(409);
+
+      await writeFile(join(fixture.env["DOCROOT"] ?? "", "v1", "manifest.json"), '{"build_id":"r1","packs":[]}\n');
+      expect((await app.request("/api/cameras", { method: "POST", headers })).status).toBe(202);
+      const deadline = Date.now() + 5000;
+      while (deps.store.activeJob() !== null && Date.now() < deadline) await Bun.sleep(30);
+
+      const job = deps.store.jobs()[0];
+      expect(job?.kind).toBe("cameras");
+      expect(job?.status).toBe("succeeded");
+      expect(job?.local_published).toBe(true);
+      expect(deps.store.logs(job?.id ?? "").entries.map((e) => e.text).join("")).toContain("refreshing speed cameras");
+    } finally { deps.stopScheduler(); await deps.runner.shutdown(); deps.store.close(); }
+  });
+
+  it("refreshes speed cameras daily between weekly builds, never on a manual schedule", async () => {
+    const root = await mkdtemp(join(import.meta.dir, ".tmp-"));
+    roots.push(root);
+    const store = new Store(join(root, "test.sqlite"));
+    store.schedule("weekly", 0);
+    expect(store.nextDue()).toBe("1970-01-08T00:00:00.000Z");
+    expect(store.camerasNextDue()).toBe("1970-01-02T00:00:00.000Z");
+    store.advanceSchedule("weekly", 86400_000 * 7);
+    expect(store.camerasNextDue()).toBe("1970-01-09T00:00:00.000Z");
+    store.schedule("every_30_days", 0);
+    expect(store.camerasNextDue()).toBe("1970-01-02T00:00:00.000Z");
+    store.schedule("daily", 0);
+    expect(store.camerasNextDue()).toBeNull();
+    store.schedule("manual", 0);
+    expect(store.camerasNextDue()).toBeNull();
+    store.close();
+  });
+
+  it("gives a database from before the camera refresh a camera anchor", async () => {
+    const root = await mkdtemp(join(import.meta.dir, ".tmp-"));
+    roots.push(root);
+    const path = join(root, "test.sqlite");
+    const old = new Store(path);
+    old.schedule("weekly", 0);
+    old.close();
+    const { Database } = await import("bun:sqlite");
+    const raw = new Database(path);
+    raw.exec("DELETE FROM kv WHERE key='cameras_next_due'");
+    raw.close();
+
+    const store = new Store(path);
+    store.schedule("weekly", 5000);
+    expect(store.camerasNextDue()).toBe("1970-01-02T00:00:05.000Z");
+    expect(store.nextDue()).toBe("1970-01-08T00:00:00.000Z");
+    store.close();
+  });
+
+  it("runs the camera refresh, not a build, when only the cameras are due", async () => {
+    const fixture = await makeFixture({});
+    await writeFile(join(fixture.env["DOCROOT"] ?? "", "v1", "manifest.json"), '{"build_id":"r1","packs":[]}\n');
+    const { deps } = await createApp(fixture.env);
+    try {
+      deps.store.saveSettings({ ...defaultSettings, regions: ["oklahoma"], cadence: "weekly" });
+      deps.store.schedule("weekly", Date.now());
+      deps.store.advanceCameraSchedule("weekly", Date.now() - 2 * 86400_000);
+      const deadline = Date.now() + 5000;
+      while (deps.store.jobs().length === 0 && Date.now() < deadline) await Bun.sleep(30);
+      while (deps.store.activeJob() !== null && Date.now() < deadline) await Bun.sleep(30);
+
+      expect(deps.store.jobs().map((job) => [job.kind, job.status])).toEqual([["cameras", "succeeded"]]);
+      expect(Date.parse(deps.store.camerasNextDue() ?? "")).toBeGreaterThan(Date.now());
+      expect(Date.parse(deps.store.nextDue() ?? "")).toBeGreaterThan(Date.now() + 6 * 86400_000);
+    } finally { deps.stopScheduler(); await deps.runner.shutdown(); deps.store.close(); }
+  });
+
   it("persists schedule anchors without moving them on unchanged settings", async () => {
     const root = await mkdtemp(join(import.meta.dir, ".tmp-"));
     roots.push(root);

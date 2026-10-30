@@ -13,6 +13,7 @@ export async function buildState(store: Store, config: RuntimeConfig, regions: R
     regions,
     jobs: [...store.jobs()],
     next_due_at: store.nextDue(),
+    cameras_next_due_at: store.camerasNextDue(),
     active_job_id: active?.id ?? null,
     storage: { free_bytes: await freeBytes(config.dataDir), site_path: config.docroot },
     credentials: effective.credentialState,

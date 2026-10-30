@@ -91,6 +91,10 @@ export async function createApp(env: NodeJS.ProcessEnv = process.env): Promise<{
     await requireManifest(config.docroot);
     return c.json(jobSchema.parse(startJob("publish", deps)), 202);
   });
+  app.post("/api/cameras", async (c) => {
+    await requireManifest(config.docroot);
+    return c.json(jobSchema.parse(startJob("cameras", deps)), 202);
+  });
   app.post("/api/jobs/:id/cancel", async (c) => {
     const cancelled = runner.cancel(c.req.param("id"));
     events.state(await buildState(store, config, regions));
@@ -124,7 +128,7 @@ export async function createApp(env: NodeJS.ProcessEnv = process.env): Promise<{
   return { app, deps };
 }
 
-function startJob(kind: "build" | "publish", deps: AppDeps): Job {
+function startJob(kind: Job["kind"], deps: AppDeps): Job {
   const effective = effectiveSettings(deps.store.settings(), deps.store.credentials(), deps.config);
   validateSettings(effective.settings, deps.regions);
   if (kind === "build" && effective.settings.regions.length === 0) throw new HttpStatusError(422, "Select at least one region");

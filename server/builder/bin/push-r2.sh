@@ -74,7 +74,7 @@ ASSET_DIR="$DOCROOT"
 [ -f "${ASSET_DIR}/logo.png" ]   || die "required dashboard asset missing: ${ASSET_DIR}/logo.png"
 [ -f "${ASSET_DIR}/index.html" ] || die "required dashboard asset missing: ${ASSET_DIR}/index.html"
 
-UPLOAD_PASSES=5
+UPLOAD_PASSES=6
 pass() {
   log "$1/${UPLOAD_PASSES} $2"
   progress "$(( $1 - 1 ))" "$UPLOAD_PASSES" "$2"
@@ -122,14 +122,24 @@ rclone copy "${DOCROOT}/v1/packs" "${DEST}/v1/packs" "${FLAGS[@]}" \
   --header-upload "Cache-Control: ${IMMUTABLE}" \
   --header-upload "Content-Type: application/octet-stream"
 
-# 2. Immutable per-release manifests.
-pass 2 "uploading release manifests"
+# 2. Speed-camera files. Content-addressed like the packs, and additive for
+#    the same reason.
+pass 2 "uploading speed cameras"
+if [ -d "${DOCROOT}/v1/cameras" ]; then
+  rclone copy "${DOCROOT}/v1/cameras" "${DEST}/v1/cameras" "${FLAGS[@]}" \
+    --header-upload "Cache-Control: ${IMMUTABLE}" \
+    --header-upload "Content-Type: application/json"
+fi
+
+# 3. Immutable per-release manifests.
+pass 3 "uploading release manifests"
 rclone copy "${DOCROOT}/v1/releases" "${DEST}/v1/releases" "${FLAGS[@]}" \
   --header-upload "Cache-Control: ${IMMUTABLE}" \
   --header-upload "Content-Type: application/json"
 
-# 3. The pointer, last. It must never advertise a pack that is not uploaded.
-pass 3 "uploading pointer manifest"
+# 4. The pointer, last. It must never advertise a pack or camera file that
+#    is not uploaded.
+pass 4 "uploading pointer manifest"
 rclone copyto "${DOCROOT}/v1/manifest.json" "${DEST}/v1/manifest.json" "${FLAGS[@]}" \
   --header-upload "Cache-Control: ${POINTER}" \
   --header-upload "Content-Type: application/json"
@@ -141,9 +151,9 @@ if [ -f "${DOCROOT}/v1/build-status.json" ]; then
     --header-upload "Content-Type: application/json"
 fi
 
-# 4. Dashboard assets. R2 custom domains do not provide index fallback, so the
+# 5. Dashboard assets. R2 custom domains do not provide index fallback, so the
 #    Cloudflare front door rewrites / to /index.html.
-pass 4 "uploading dashboard assets"
+pass 5 "uploading dashboard assets"
 rclone copyto "${ASSET_DIR}/logo.png" "${DEST}/logo.png" "${FLAGS[@]}" \
   --header-upload "Cache-Control: ${DASHBOARD_LOGO}" \
   --header-upload "Content-Type: image/png"
@@ -151,21 +161,26 @@ rclone copyto "${ASSET_DIR}/index.html" "${DEST}/index.html" "${FLAGS[@]}" \
   --header-upload "Cache-Control: ${DASHBOARD_INDEX}" \
   --header-upload "Content-Type: text/html; charset=utf-8"
 
-# 5. Only now is it safe to delete. publish.py has already pruned the local
+# 6. Only now is it safe to delete. publish.py has already pruned the local
 #    tree by reference count, so anything absent locally is unreferenced by
 #    every retained release and by the pointer just uploaded. The control
 #    plane sets R2_PRUNE=0: unattended runs never delete remote objects.
 if [ "${R2_PRUNE:-1}" = "1" ]; then
-  pass 5 "pruning objects no retained release references"
+  pass 6 "pruning objects no retained release references"
   rclone sync "${DOCROOT}/v1/packs" "${DEST}/v1/packs" "${FLAGS[@]}" \
     --exclude "COMPLETE" \
     --header-upload "Cache-Control: ${IMMUTABLE}" \
     --header-upload "Content-Type: application/octet-stream"
+  if [ -d "${DOCROOT}/v1/cameras" ]; then
+    rclone sync "${DOCROOT}/v1/cameras" "${DEST}/v1/cameras" "${FLAGS[@]}" \
+      --header-upload "Cache-Control: ${IMMUTABLE}" \
+      --header-upload "Content-Type: application/json"
+  fi
   rclone sync "${DOCROOT}/v1/releases" "${DEST}/v1/releases" "${FLAGS[@]}" \
     --header-upload "Cache-Control: ${IMMUTABLE}" \
     --header-upload "Content-Type: application/json"
 else
-  pass 5 "R2_PRUNE=0, leaving orphaned objects in place"
+  pass 6 "R2_PRUNE=0, leaving orphaned objects in place"
 fi
 
 progress "$UPLOAD_PASSES" "$UPLOAD_PASSES" "upload complete"

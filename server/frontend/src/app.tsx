@@ -6,12 +6,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Callout, Flex, Spinner, Text } from "@radix-ui/themes";
-import { Ban, Play, RefreshCw, TriangleAlert, Upload } from "lucide-react";
+import { Ban, Gauge, Play, RefreshCw, TriangleAlert, Upload } from "lucide-react";
 
 import {
   errText,
   getLogs,
   getState,
+  postCameras,
   postCancel,
   postJob,
   postPublish,
@@ -25,7 +26,7 @@ import { SettingsCard } from "./settings";
 import { isLive } from "./jobmeta";
 import { ErrorBanner, Header, Page } from "./shell";
 import { settingsSchema } from "../../shared/contracts";
-import type { Settings, State } from "../../shared/contracts";
+import type { Job, Settings, State } from "../../shared/contracts";
 
 function settingsEqual(a: Settings, b: Settings): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
@@ -42,7 +43,7 @@ export function App() {
   const baselineRef = useRef<Settings | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<null | "save" | "build" | "publish" | "cancel">(null);
+  const [busy, setBusy] = useState<null | "save" | Job["kind"] | "cancel">(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [resyncTick, setResyncTick] = useState(0);
 
@@ -128,12 +129,12 @@ export function App() {
     }
   }
 
-  async function start(kind: "build" | "publish"): Promise<void> {
+  async function start(kind: Job["kind"]): Promise<void> {
     if (busy !== null || (kind === "build" && dirty)) return;
     setBusy(kind);
     setActionError(null);
     try {
-      const job = kind === "build" ? await postJob() : await postPublish();
+      const job = kind === "build" ? await postJob() : kind === "cameras" ? await postCameras() : await postPublish();
       setSelectedJobId(job.id);
       await refresh();
     } catch (e) {
@@ -231,6 +232,15 @@ export function App() {
             >
               {busy === "publish" ? <Spinner size="1" /> : <Upload size={13} />}
               Publish existing site
+            </Button>
+            <Button
+              variant="soft"
+              onClick={() => void start("cameras")}
+              disabled={dirty || running || busy !== null || state.settings.regions.length === 0}
+              title="Update the map and republish the national speed-camera file without rebuilding roads"
+            >
+              {busy === "cameras" ? <Spinner size="1" /> : <Gauge size={13} />}
+              Refresh speed cameras
             </Button>
             {activeJob !== null && isLive(activeJob) ? (
               <Button

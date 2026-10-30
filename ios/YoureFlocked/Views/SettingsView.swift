@@ -225,8 +225,15 @@ struct SettingsView: View {
             HStack {
                 Label("Speed Cameras", systemImage: "gauge.with.needle")
                 Spacer()
-                Text("OpenStreetMap (Overpass)")
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(cameraStore.speedCameraSource)
+                        .foregroundStyle(.secondary)
+                    if let date = cameraStore.speedCameraDataDate {
+                        Text("Map data \(ReleaseDate.label(date))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
             HStack {
@@ -340,7 +347,7 @@ struct SettingsView: View {
         } header: {
             Text("Camera Data")
         } footer: {
-            Text("Bulk ALPR locations come from DeFlock's hourly snapshots and are cached on this device, so the map works during outages and offline. Speed cameras and live updates use the OpenStreetMap Overpass API. Apple Maps tiles are not available for offline caching. Camera data \u{00A9} OpenStreetMap contributors (ODbL), via DeFlock.")
+            Text("Bulk ALPR locations come from DeFlock's hourly snapshots and are cached on this device, so the map works during outages and offline. Speed and red-light cameras come from a national file downloaded with your first routing region; until then, and whenever DeFlock is down, the app asks OpenStreetMap's Overpass servers for one whole-degree grid cell at a time. Apple Maps tiles are not available for offline caching. Camera data \u{00A9} OpenStreetMap contributors (ODbL), via DeFlock and the tile server.")
         }
         .task {
             await refreshCDNStatus()

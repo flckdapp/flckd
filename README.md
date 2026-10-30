@@ -39,13 +39,15 @@ That road data is downloaded once per region. The default source,
 `tiles.flckd.app`, is a Cloudflare R2 bucket of static files: there's no
 server of mine behind it, so nothing of mine sees the request. Cloudflare
 sees your IP address and which state you asked for, and nothing else: no
-position, no route, no destination. You can point the app at your own copy
-instead. See [docs/on-device-routing.md](docs/on-device-routing.md).
+position, no route, no destination. The same download brings a national
+file of speed and red-light cameras, identical for everyone. You can point
+the app at your own copy instead. See
+[docs/on-device-routing.md](docs/on-device-routing.md).
 
-The app is not fully offline. Camera lookups go to DeFlock and OpenStreetMap,
-and map imagery comes from Apple. Camera lookups name a whole-degree grid
-cell (about 111 km by 85 km), never your position, and each cell is asked
-for at most once a day. [PRIVACY.md](PRIVACY.md) lists exactly what leaves
+The app is not fully offline. ALPR lookups go to DeFlock, OpenStreetMap is
+the fallback for camera data, and map imagery comes from Apple. Camera
+lookups name a fixed tile or a whole-degree grid cell (about 111 km by
+85 km), never your position. [PRIVACY.md](PRIVACY.md) lists exactly what leaves
 your device, to whom, and when, along with the command to check that the
 list is complete.
 

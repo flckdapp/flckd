@@ -74,6 +74,12 @@
     padding: 32px; text-align: center; color: var(--muted); font-size: 14px;
   }
   .error { color: var(--err); }
+  .note {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 20px; font-size: 14px; line-height: 1.6; margin-top: 32px;
+  }
+  .note p + p { margin-top: 8px; }
+  .note .meta { color: var(--muted); font-size: 13px; }
   footer { margin-top: 40px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.8; }
   footer code { background: var(--card); border: 1px solid var(--border); border-radius: 4px;
                 padding: 1px 6px; font-size: 11px; }
@@ -96,6 +102,7 @@
     <div class="card"><div class="label">Released</div><div class="value" id="build-id">&ndash;</div></div>
     <div class="card"><div class="label">Map Data</div><div class="value" id="osm-date">&ndash;</div></div>
     <div class="card"><div class="label">Total Size</div><div class="value" id="total-size">&ndash;</div></div>
+    <div class="card"><div class="label">Speed Cameras</div><div class="value" id="camera-count">&ndash;</div></div>
   </div>
 
   <h2>Available States</h2>
@@ -103,10 +110,21 @@
     <div class="empty" id="loading">Loading&hellip;</div>
   </div>
 
+  <div class="note">
+    <p><strong>Speed cameras.</strong> One national file of every speed and
+    red-light camera mapped in OpenStreetMap, both as <code>highway=speed_camera</code>
+    nodes and as <code>type=enforcement</code> relations. The app downloads it
+    together with a state pack, so it never has to ask a live server for the
+    cameras around you. Every phone gets the same file.</p>
+    <p class="meta" id="camera-meta">Not published yet.</p>
+  </div>
+
   <footer>
     <div>Manifest: <code><a href="/v1/manifest.json">/v1/manifest.json</a></code>
          &nbsp;&middot;&nbsp; Health: <code><a href="/health">/health</a></code></div>
     <div id="engine-line"></div>
+    <div>Road and camera data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>,
+         available under the <a href="https://opendatacommons.org/licenses/odbl/">Open Database License</a>.</div>
     <div>This server keeps no request logs. Ever.</div>
   </footer>
 </div>
@@ -172,6 +190,15 @@
       if (m.valhalla_version) {
         document.getElementById("engine-line").textContent =
           "Routing graph built with Valhalla " + m.valhalla_version;
+      }
+
+      var cams = m.speed_cameras;
+      if (cams && typeof cams.path === "string" && /^\/v1\/cameras\/[a-f0-9]{64}\.json$/.test(cams.path)) {
+        document.getElementById("camera-count").textContent =
+          typeof cams.count === "number" ? cams.count.toLocaleString() : "\u2013";
+        document.getElementById("camera-meta").innerHTML =
+          '<a href="' + esc(cams.path) + '">Download the file</a> \u00b7 ' +
+          fmtBytes(cams.bytes) + " \u00b7 map data " + esc(fmtDate(cams.osm_data_date));
       }
 
       var packs = Array.isArray(m.packs) ? m.packs.slice() : [];

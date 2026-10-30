@@ -2,6 +2,7 @@
 # One release, end to end.
 #
 #   update-pbf.sh   keep us-latest.osm.pbf current (Geofabrik daily diffs)
+#   extract_cameras.py  every speed and red-light camera, one national file
 #   clip-pbf.sh     shrink it to the selected regions, unless all are selected
 #   build-graph.sh  build one Valhalla graph (the expensive step)
 #   cut-packs.sh    cut per-state tars out of that graph (cheap)
@@ -17,11 +18,17 @@
 # whole catalog. A graph already built from the same source is reused rather
 # than rebuilt. See server/README.md.
 #
-# Camera data is not in these tiles. It stays on the live Overpass feed, so
-# the urgent data is not coupled to this slow channel.
+# Speed cameras are not in the routing tiles. They are a separate national
+# file, extracted from the same source map and published next to the packs,
+# so the app never has to ask a live server for the cameras around the user.
+# A missing camera is a silent false negative, so the camera file is also
+# refreshed on its own, daily, without rebuilding the graph:
+#   run-build.sh --cameras-only       update the map, re-extract, republish
+#                                     the camera file into the current release
 #
 # Usage (inside the builder container):
 #   run-build.sh [region-id ...]      default: every region in the set
+#   run-build.sh --cameras-only
 #
 # Environment:
 #   DATA_DIR        work dir                        (default /data)
@@ -45,6 +52,9 @@
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+
+CAMERAS_ONLY=0
+if [ "${1:-}" = "--cameras-only" ]; then CAMERAS_ONLY=1; shift; fi
 
 DATA_DIR="${DATA_DIR:-/data}"
 DOCROOT="${DOCROOT:-/srv/tiles}"
@@ -106,7 +116,14 @@ abort_detail() {
 }
 trap 'status "failed" "$(abort_detail "$LINENO")"' ERR
 
-log "=== FLCKD tile release ${BUILD_ID} ==="
+if [ "$CAMERAS_ONLY" = 1 ]; then
+  log "=== FLCKD speed camera refresh ${BUILD_ID} ==="
+  # Before the map update: that can download 12 GB, and without a release
+  # there is nothing to attach the camera file to.
+  [ -f "$DOCROOT/v1/manifest.json" ] || fail "no published release yet; run a full build first"
+else
+  log "=== FLCKD tile release ${BUILD_ID} ==="
+fi
 log "threads=${THREADS} docroot=${DOCROOT} keep=${KEEP_RELEASES}"
 TOTAL_REGIONS="$(python3 -c '
 import json,sys; print(len(json.load(open(sys.argv[1]))["packs"]))' "$REGION_SET")"
@@ -138,6 +155,23 @@ esac
 log "source PBF: $(human "$(stat -c %s "$PBF")"), dated ${OSM_DATE}"
 
 # ---------------------------------------------------------------------------
+# From the whole source map, never the clipped one: the file is national
+# whichever states this server publishes. First, because it is cheap, so a
+# broken extract fails in minutes rather than after the graph build.
+status "cameras" "speed and red-light cameras from the source map"
+CAMERAS_FILE="${DATA_DIR}/speed-cameras.json"
+python3 "$BIN/extract_cameras.py" --pbf "$PBF" --out "$CAMERAS_FILE" --osm-data-date "$OSM_DATE"
+
+if [ "$CAMERAS_ONLY" = 1 ]; then
+  status "publish" "speed cameras"
+  python3 "$BIN/publish.py" \
+    --docroot  "$DOCROOT" \
+    --build-id "$BUILD_ID" \
+    --cameras  "$CAMERAS_FILE" \
+    --cameras-only
+  STATUS_LOCAL_PUBLISHED=true
+else
+# ---------------------------------------------------------------------------
 # Scratch and time both scale with the source, so a partial catalog builds
 # from a clipped source. Clipping the whole set would cost a full pass over
 # the file to arrive back at the file, so that case is left alone.
@@ -167,8 +201,10 @@ python3 "$BIN/publish.py" \
   --build-id "$BUILD_ID" \
   --part-bytes "$PART_BYTES" \
   --keep     "$KEEP_RELEASES" \
-  --osm-data-date "$OSM_DATE"
+  --osm-data-date "$OSM_DATE" \
+  --cameras  "$CAMERAS_FILE"
 STATUS_LOCAL_PUBLISHED=true
+fi
 
 # The docroot is a complete site: nginx and the app read only this tree.
 if [ -n "$WWW_DIR" ] && [ -f "$WWW_DIR/index.html" ] && [ -f "$WWW_DIR/logo.png" ]; then
@@ -220,4 +256,8 @@ if [ -s "$SKIPPED_FILE" ]; then
   done_detail="${done_detail}; not in the source map: $(cat "$SKIPPED_FILE")"
 fi
 status "done" "$done_detail"
-log "=== release ${BUILD_ID} complete in $(( elapsed / 60 )) min ==="
+if [ "$CAMERAS_ONLY" = 1 ]; then
+  log "=== speed camera refresh ${BUILD_ID} complete in $(( elapsed / 60 )) min ==="
+else
+  log "=== release ${BUILD_ID} complete in $(( elapsed / 60 )) min ==="
+fi

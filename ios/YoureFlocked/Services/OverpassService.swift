@@ -109,15 +109,18 @@ actor OverpassService {
     ///
     /// Speed cameras are mapped two ways in OSM: `highway=speed_camera` nodes
     /// and `type=enforcement` relations (with a handful of bare
-    /// `enforcement=maxspeed` nodes). Several hundred US cameras exist only
-    /// as relations, so both schemes are read. `out center` gives relations
-    /// a representative point.
+    /// `enforcement=*` nodes). Several hundred US cameras exist only as
+    /// relations, so both schemes are read. Only speed and red-light
+    /// enforcement counts, the same rule as the server's speed-camera file;
+    /// `check`, `toll` and the rest are checkpoints and scales. `out center`
+    /// gives relations a representative point.
     static func query(for cell: GridCell, kind: Kind) -> String {
         let bbox = cell.overpassBBox
+        let cameraEnforcement = "(^|;)(maxspeed|average_speed|traffic_signals)(;|$)"
         let speed = """
           node["highway"="speed_camera"](\(bbox));
-          node["enforcement"="maxspeed"](\(bbox));
-          relation["type"="enforcement"](\(bbox));
+          node["enforcement"~"\(cameraEnforcement)"](\(bbox));
+          relation["type"="enforcement"]["enforcement"~"\(cameraEnforcement)"](\(bbox));
         """
         switch kind {
         case .speed:

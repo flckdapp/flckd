@@ -6,6 +6,7 @@ import SwiftUI
 /// and the offline-only policy. Reached from SettingsView.
 struct OfflineRoutingView: View {
     @AppStorage("tileServerURL") private var tileServerURL: String = TilePackService.defaultServerURL
+    @Environment(CameraStore.self) private var cameraStore
 
     private let packService = TilePackService()
 
@@ -17,12 +18,14 @@ struct OfflineRoutingView: View {
     @State private var downloadProgress: Double = 0
     @State private var downloadError: String?
     @State private var updateAllProgress: (completed: Int, total: Int)?
+    @State private var speedCameraError: String?
 
     var body: some View {
         Form {
             policySection
             serverSection
             installedSection
+            speedCameraSection
             availableSection
         }
         .navigationTitle("Offline Routing")
@@ -116,6 +119,29 @@ struct OfflineRoutingView: View {
                 } else {
                     Text("Swipe a region, or tap Edit, to remove it and free the space. You can download it again at any time.")
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var speedCameraSection: some View {
+        Section {
+            HStack {
+                Label("Speed Cameras", systemImage: "gauge.with.needle")
+                Spacer()
+                if let date = cameraStore.speedCameraDataDate {
+                    Text("Map data \(ReleaseDate.label(date))")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Not downloaded")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } footer: {
+            if let speedCameraError {
+                Text(speedCameraError).foregroundStyle(.red)
+            } else {
+                Text("A national file of speed and red-light cameras comes down with your regions and updates when you open this screen. Everyone gets the same file, so it says nothing about where you are. Without it the app asks OpenStreetMap for speed cameras one grid cell at a time.")
             }
         }
     }
@@ -245,6 +271,22 @@ struct OfflineRoutingView: View {
             manifestError = error.localizedDescription
         }
         isLoadingManifest = false
+        if !installed.isEmpty { await updateSpeedCameras() }
+    }
+
+    /// Rides on a manifest fetch or a pack download that is already
+    /// happening, so it never adds a request at a time of its own.
+    @MainActor
+    private func updateSpeedCameras() async {
+        guard let artifact = manifest?.speedCameras else { return }
+        do {
+            if try await packService.downloadSpeedCameras(artifact) {
+                cameraStore.reloadSpeedCameraFile()
+            }
+            speedCameraError = nil
+        } catch {
+            speedCameraError = "Speed cameras: \(error.localizedDescription)"
+        }
     }
 
     private func download(_ pack: TilePack, buildId: String) {
@@ -290,6 +332,7 @@ struct OfflineRoutingView: View {
             }
         }
         installed = RegionStore.installedRegions()
+        await updateSpeedCameras()
     }
 
     private func delete(at offsets: IndexSet) {
@@ -304,4 +347,5 @@ struct OfflineRoutingView: View {
 
 #Preview {
     NavigationStack { OfflineRoutingView() }
+        .environment(CameraStore())
 }

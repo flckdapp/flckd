@@ -16,7 +16,7 @@ export const settingsSchema = z.object({
 export type Settings = z.infer<typeof settingsSchema>;
 export const jobSchema = z.object({
   id: z.string(),
-  kind: z.enum(["build", "publish"]),
+  kind: z.enum(["build", "publish", "cameras"]),
   status: z.enum(["queued", "running", "succeeded", "failed", "interrupted", "cancelled"]),
   stage: z.string(),
   detail: z.string(),
@@ -37,6 +37,10 @@ export const stateSchema = z.object({
   regions: z.array(z.object({ id: z.string(), name: z.string(), iso3166_2: z.string() })),
   jobs: z.array(jobSchema),
   next_due_at: z.string().nullable(),
+  // The daily speed-camera refresh between road builds. Null when the
+  // schedule is manual (nothing runs unattended) or daily (every build
+  // already refreshes them).
+  cameras_next_due_at: z.string().nullable(),
   active_job_id: z.string().nullable(),
   storage: z.object({ free_bytes: z.number(), site_path: z.string() }),
   credentials: z.object({

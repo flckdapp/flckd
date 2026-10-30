@@ -9,6 +9,7 @@ export function tileHandler(directory: string): (request: Request) => Promise<Re
     if (path === "/health") return new Response(request.method === "HEAD" ? null : "ok\n", { headers: { "Cache-Control": "no-store" } });
     const publicPath = path === "/" ? "/index.html" : path;
     const immutable = /^\/v1\/packs\/[a-f0-9]{64}\/part-\d+\.tar$/.test(publicPath)
+      || /^\/v1\/cameras\/[a-f0-9]{64}\.json$/.test(publicPath)
       || /^\/v1\/releases\/[a-zA-Z0-9_-]+\/manifest\.json$/.test(publicPath);
     if (!immutable && !["/index.html", "/logo.png", "/v1/manifest.json", "/v1/build-status.json"].includes(publicPath)) return new Response(null, { status: 404 });
     let filePath: string;

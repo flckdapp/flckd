@@ -64,11 +64,14 @@ final class CameraStore {
     /// far from a cell edge the neighbouring cell is requested too.
     var fetchRadiusKm: Double = 5.0
 
-    /// When off, Overpass is never asked. Hiding speed cameras on the map
-    /// used to leave the query running underneath.
+    /// When off, speed cameras are neither loaded nor kept, so they leave the
+    /// map and the alerts, and Overpass is never asked for them. Hiding them
+    /// on the map used to leave the query running underneath.
     var speedCamerasEnabled: Bool = true {
         didSet {
-            if speedCamerasEnabled && !oldValue { coverage.removeAll() }
+            guard speedCamerasEnabled != oldValue else { return }
+            if !speedCamerasEnabled { cameras.removeAll { $0.surveillanceType == .speedCamera } }
+            coverage.removeAll()
         }
     }
 
@@ -81,6 +84,14 @@ final class CameraStore {
     private let overpassService: OverpassService
     private let cdnService: DeFlockCDNService
     private var lastFetchTime: Date?
+
+    /// The speed-camera file downloaded with a region pack. While it exists,
+    /// speed cameras come from it and Overpass is only the fallback for when
+    /// the DeFlock CDN is down. Read lazily: it is a few hundred kilobytes.
+    private let speedCameraFile: URL?
+    @ObservationIgnored private var speedCameraFileRead = false
+    @ObservationIgnored private var fileSpeedCameras: SpeedCameraFile.Contents?
+    private var speedCameraFileVersion = 0
 
     /// Cells in memory and when they were loaded. A cell fetched within
     /// `OverpassService.cacheTTL` is covered and is not requested again.
@@ -95,6 +106,13 @@ final class CameraStore {
 
     /// Which source served the last successful ALPR fetch.
     var lastALPRSource: CameraDataSource?
+
+    var speedCameraSource: String {
+        guard loadSpeedCameraFile() != nil else { return CameraDataSource.overpass.rawValue }
+        return "Region download"
+    }
+
+    var speedCameraDataDate: String? { loadSpeedCameraFile()?.osmDataDate }
     /// When the last successful camera fetch completed.
     var lastFetchDate: Date?
     /// Whether the last speed-camera (Overpass) fetch succeeded.
@@ -139,10 +157,12 @@ final class CameraStore {
 
     init(
         overpassService: OverpassService = OverpassService(),
-        cdnService: DeFlockCDNService = DeFlockCDNService()
+        cdnService: DeFlockCDNService = DeFlockCDNService(),
+        speedCameraFile: URL? = SpeedCameraFile.defaultURL()
     ) {
         self.overpassService = overpassService
         self.cdnService = cdnService
+        self.speedCameraFile = speedCameraFile
 
         // Settings writes the slider through `@AppStorage` and pushes it here
         // on change. Nothing read it back, so every launch reverted to the
@@ -154,6 +174,35 @@ final class CameraStore {
         if let show = UserDefaults.standard.object(forKey: Self.showSpeedCamerasKey) as? Bool {
             speedCamerasEnabled = show
         }
+    }
+
+    // MARK: - Speed Camera File
+
+    private func loadSpeedCameraFile() -> SpeedCameraFile.Contents? {
+        _ = speedCameraFileVersion
+        if !speedCameraFileRead {
+            speedCameraFileRead = true
+            fileSpeedCameras = speedCameraFile.flatMap(SpeedCameraFile.load(from:))
+        }
+        return fileSpeedCameras
+    }
+
+    /// Call after a new speed-camera file is installed. Drops the speed
+    /// cameras held in memory and forgets which cells are loaded, so the next
+    /// fetch takes speed cameras from the new file: one deleted from the map
+    /// disappears rather than lingering from the old one.
+    func reloadSpeedCameraFile() {
+        speedCameraFileRead = false
+        fileSpeedCameras = nil
+        speedCameraFileVersion += 1
+        cameras.removeAll { $0.surveillanceType == .speedCamera }
+        coverage.removeAll()
+    }
+
+    private func fileSpeedCameras(in cell: GridCell) -> [SurveillanceCamera]? {
+        guard let contents = loadSpeedCameraFile() else { return nil }
+        let bounds = cell.bounds
+        return contents.cameras.filter { bounds.contains($0.coordinate) }
     }
 
     // MARK: - Data Fetching
@@ -231,9 +280,10 @@ final class CameraStore {
         return result
     }
 
-    /// ALPRs come from DeFlock's CDN (hourly bulk snapshots, disk-cached);
-    /// speed cameras come from Overpass. If the CDN fails entirely,
-    /// everything falls back to a single Overpass query for the cell.
+    /// ALPRs come from DeFlock's CDN (hourly bulk snapshots, disk-cached).
+    /// Speed cameras come from the file downloaded with a region pack, or
+    /// from Overpass when there is no file yet. If the CDN fails entirely,
+    /// the other camera types fall back to one Overpass query for the cell.
     @MainActor
     private func fetchFromBestSource(cell: GridCell) async throws -> [SurveillanceCamera] {
         // Hoist the actor references so the async-let child tasks capture
@@ -241,11 +291,13 @@ final class CameraStore {
         let cdn = cdnService
         let overpass = overpassService
         let wantSpeed = speedCamerasEnabled
+        let fromFile = wantSpeed ? fileSpeedCameras(in: cell) : nil
         do {
-            guard wantSpeed else {
+            guard wantSpeed, fromFile == nil else {
                 let alprs = try await cdn.fetchALPRCameras(in: cell.bounds)
                 lastALPRSource = .deflockCDN
-                return alprs
+                if fromFile != nil { speedCamerasAvailable = true }
+                return alprs + (fromFile ?? [])
             }
 
             async let alprTask = cdn.fetchALPRCameras(in: cell.bounds)
@@ -263,11 +315,14 @@ final class CameraStore {
             speedCamerasAvailable = false
             return alprs
         } catch {
-            // CDN down: single combined Overpass query.
+            // CDN down: single combined Overpass query. Speed cameras still
+            // come from the file when there is one.
             let fetched = try await overpass.allCameras(in: cell)
             lastALPRSource = .overpass
             speedCamerasAvailable = true
-            return wantSpeed ? fetched : fetched.filter { $0.surveillanceType != .speedCamera }
+            guard wantSpeed else { return fetched.filter { $0.surveillanceType != .speedCamera } }
+            guard let fromFile else { return fetched }
+            return fetched.filter { $0.surveillanceType != .speedCamera } + fromFile
         }
     }
 
@@ -326,7 +381,7 @@ final class CameraStore {
     /// Merge new cameras with existing, deduplicating by OSM ID
     private func mergeCameras(_ newCameras: [SurveillanceCamera]) {
         var cameraMap = Dictionary(cameras.map { ($0.osmID, $0) }, uniquingKeysWith: { _, new in new })
-        for camera in newCameras {
+        for camera in newCameras where speedCamerasEnabled || camera.surveillanceType != .speedCamera {
             cameraMap[camera.osmID] = camera
         }
         var merged = Array(cameraMap.values)

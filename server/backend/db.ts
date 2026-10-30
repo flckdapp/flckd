@@ -91,15 +91,35 @@ CREATE TABLE IF NOT EXISTS job_log (job_id TEXT NOT NULL, sequence INTEGER NOT N
 
   schedule(cadence: Settings["cadence"], now = Date.now()): void {
     const previous = this.#db.query<KvRow, []>("SELECT value FROM kv WHERE key='cadence'").get()?.value;
-    if (previous === cadence) return;
+    if (previous === cadence) {
+      // Databases from before the camera refresh have a cadence but no
+      // camera anchor; without this they would never refresh cameras.
+      if (this.#db.query<KvRow, []>("SELECT value FROM kv WHERE key='cameras_next_due'").get() === null) this.advanceCameraSchedule(cadence, now);
+      return;
+    }
     this.#db.query("INSERT OR REPLACE INTO kv VALUES ('cadence', ?)").run(cadence);
     this.advanceSchedule(cadence, now);
   }
 
+  // A build extracts fresh cameras too, so it also restarts the camera clock.
   advanceSchedule(cadence: Settings["cadence"], now = Date.now()): void {
     const days = { manual: 0, daily: 1, weekly: 7, every_30_days: 30 }[cadence];
     const due = days === 0 ? "" : new Date(now + days * 86400_000).toISOString();
     this.#db.query("INSERT OR REPLACE INTO kv VALUES ('next_due', ?)").run(due);
+    this.advanceCameraSchedule(cadence, now);
+  }
+
+  camerasNextDue(): string | null {
+    return this.#db.query<KvRow, []>("SELECT value FROM kv WHERE key='cameras_next_due'").get()?.value || null;
+  }
+
+  // Speed cameras are refreshed daily between slower road builds. A manual
+  // schedule means the operator hasn't agreed to unattended downloads, and a
+  // daily one already refreshes cameras with every build.
+  advanceCameraSchedule(cadence: Settings["cadence"], now = Date.now()): void {
+    const refreshes = cadence === "weekly" || cadence === "every_30_days";
+    const due = refreshes ? new Date(now + 86400_000).toISOString() : "";
+    this.#db.query("INSERT OR REPLACE INTO kv VALUES ('cameras_next_due', ?)").run(due);
   }
 
   markInterruptedOnStartup(): void {
