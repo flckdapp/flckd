@@ -50,13 +50,23 @@ struct OSMElement: Codable, Identifiable {
 
         var cameraTags = tags ?? [:]
 
-        // Speed cameras are mapped under highway=speed_camera, a separate tag scheme.
-        if cameraTags["highway"] == "speed_camera" && cameraTags["surveillance:type"] == nil {
+        // Speed cameras have their own tag schemes: highway=speed_camera on a
+        // node, or a type=enforcement relation (enforcement=maxspeed, and
+        // occasionally that key on a bare node). None carry surveillance:type.
+        let isSpeedCamera = cameraTags["highway"] == "speed_camera"
+            || cameraTags["type"] == "enforcement"
+            || cameraTags["enforcement"] != nil
+        if isSpeedCamera && cameraTags["surveillance:type"] == nil {
             cameraTags["surveillance:type"] = SurveillanceType.speedCamera.rawValue
         }
 
+        // Node and relation IDs are separate number spaces in OSM but share
+        // one `osmID` here. Relations are stored negated so a relation can't
+        // overwrite the node with the same number.
+        let osmID = type == "relation" ? -id : id
+
         return SurveillanceCamera(
-            osmID: id,
+            osmID: osmID,
             latitude: latitude,
             longitude: longitude,
             tags: cameraTags

@@ -74,10 +74,11 @@ attribution above.
 
 **Overpass.**
 
-- Keep queries viewport-bounded with a sensible `[timeout:…]`. Use the CDN
-  tiles for anything wide-area.
-- One request in flight at a time, back off on 429 and 504, and fall back to
-  cached data on failure. `OverpassService` does this.
+- Query by whole-degree grid cell with a sensible `[timeout:…]`, and cache
+  each cell on disk for a day so it is asked for once. Use the CDN tiles for
+  anything wide-area. `OverpassService` does this.
+- POST the query, back off on 429, send one fetch to at most two hosts, and
+  fall back to the cached cell on failure.
 
 **Both.** Send a descriptive User-Agent. The app sends
 `FLCKD/1.0 (iOS; +https://flckd.app)`, which identifies the app and where to

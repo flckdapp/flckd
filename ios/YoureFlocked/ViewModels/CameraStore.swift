@@ -26,8 +26,14 @@ enum AlertMode: String, CaseIterable {
 
 /// Central data store for surveillance cameras.
 ///
-/// Coordinates between the Overpass API (remote) and SwiftData (local cache).
-/// Provides the camera list to views and triggers proximity checks.
+/// Coordinates between the network sources (DeFlock CDN, Overpass) and
+/// SwiftData (local cache). Provides the camera list to views and triggers
+/// proximity checks.
+///
+/// Every network fetch is for whole-degree grid cells, never for a box
+/// around the user. A cell that has been loaded is not asked for again
+/// until it expires, so the request rate while driving is one per cell
+/// boundary crossed, not one per position update.
 @Observable
 final class CameraStore {
 
@@ -37,6 +43,8 @@ final class CameraStore {
     var pendingCameraIDs: Set<Int64> = []
     var isLoading: Bool = false
     var lastError: Error?
+
+    /// The union of the cells the last completed fetch covered.
     var lastFetchBounds: BoundingBox?
 
     var nearbyCameras: [(camera: SurveillanceCamera, distance: CLLocationDistance)] = []
@@ -49,17 +57,34 @@ final class CameraStore {
     /// slider and the seeding below can't drift apart on a typo.
     static let fetchRadiusKey = "fetchRadius"
 
-    /// Radius (km) around user's location to fetch cameras for
+    /// The key Settings' "Show Speed Cameras" toggle writes.
+    static let showSpeedCamerasKey = "showSpeedCameras"
+
+    /// Radius (km) around the user's location the map keeps loaded. Sets how
+    /// far from a cell edge the neighbouring cell is requested too.
     var fetchRadiusKm: Double = 5.0
 
-    /// Minimum time between Overpass API requests (seconds)
-    var minFetchInterval: TimeInterval = 30
+    /// When off, Overpass is never asked. Hiding speed cameras on the map
+    /// used to leave the query running underneath.
+    var speedCamerasEnabled: Bool = true {
+        didSet {
+            if speedCamerasEnabled && !oldValue { coverage.removeAll() }
+        }
+    }
+
+    /// Hard floor between fetches. A bug guard against a runaway caller,
+    /// not the throttle: suppression is by cell coverage.
+    var fetchFloor: TimeInterval = 5
 
     // MARK: - Private
 
-    private let overpassService = OverpassService()
-    private let cdnService = DeFlockCDNService()
+    private let overpassService: OverpassService
+    private let cdnService: DeFlockCDNService
     private var lastFetchTime: Date?
+
+    /// Cells in memory and when they were loaded. A cell fetched within
+    /// `OverpassService.cacheTTL` is covered and is not requested again.
+    private var coverage: [GridCell: Date] = [:]
 
     // MARK: - Data Source Status (for Settings)
 
@@ -83,12 +108,14 @@ final class CameraStore {
     @MainActor
     func clearCDNCache() async {
         await cdnService.clearCache()
+        await overpassService.clearCache()
+        coverage.removeAll()
     }
 
     /// When set, every successful fetch is written through to the SwiftData
     /// cache so the app warm-starts with last-seen cameras even when the
-    /// Overpass API is unreachable at launch. Persistence runs debounced on
-    /// a background context, off the MainActor.
+    /// network is unreachable at launch. Persistence runs debounced on a
+    /// background context, off the MainActor.
     var cacheContainer: ModelContainer?
 
     /// In-flight debounced background persist.
@@ -110,7 +137,13 @@ final class CameraStore {
 
     // MARK: - Lifecycle
 
-    init() {
+    init(
+        overpassService: OverpassService = OverpassService(),
+        cdnService: DeFlockCDNService = DeFlockCDNService()
+    ) {
+        self.overpassService = overpassService
+        self.cdnService = cdnService
+
         // Settings writes the slider through `@AppStorage` and pushes it here
         // on change. Nothing read it back, so every launch reverted to the
         // default while Settings still displayed the stored value: the setting
@@ -118,27 +151,43 @@ final class CameraStore {
         // `double(forKey:)` yields 0 when the key was never written.
         let stored = UserDefaults.standard.double(forKey: Self.fetchRadiusKey)
         if stored > 0 { fetchRadiusKm = stored }
+        if let show = UserDefaults.standard.object(forKey: Self.showSpeedCamerasKey) as? Bool {
+            speedCamerasEnabled = show
+        }
     }
 
     // MARK: - Data Fetching
 
-    /// Fetch cameras around the given coordinate from the Overpass API.
-    /// Results are merged with any existing cameras (deduped by OSM ID).
-    @MainActor
-    func fetchCameras(around coordinate: CLLocationCoordinate2D, radiusKm: Double? = nil) async {
-        let bounds = BoundingBox.around(center: coordinate, radiusKm: radiusKm ?? fetchRadiusKm)
+    /// Which of the given cells still need a fetch. Pure, so the suppression
+    /// rule can be tested without a network.
+    func cellsNeedingFetch(_ cells: [GridCell], now: Date = Date()) -> [GridCell] {
+        cells.filter { cell in
+            guard let loaded = coverage[cell] else { return true }
+            return now.timeIntervalSince(loaded) >= OverpassService.cacheTTL
+        }
+    }
 
-        if let lastFetch = lastFetchTime {
-            let elapsed = Date().timeIntervalSince(lastFetch)
-            // Hard floor: never hit Overpass more than once every few seconds.
-            if elapsed < 5 { return }
-            // Within the normal throttle window, skip only if the last fetch
-            // already covers the requested area. A pan to a new area fetches
-            // immediately.
-            if elapsed < minFetchInterval,
-               let last = lastFetchBounds, last.contains(bounds) {
-                return
-            }
+    /// Fetch the cell the user is in. Used by the proximity engine on every
+    /// location update; a no-op until the user crosses into a new cell.
+    @MainActor
+    func fetchCameras(around coordinate: CLLocationCoordinate2D) async {
+        await fetch(cells: [GridCell(containing: coordinate)])
+    }
+
+    /// Fetch every cell a box intersects. Used by the map for the visible
+    /// region; a box inside one cell asks for that cell only.
+    @MainActor
+    func fetchCameras(covering bounds: BoundingBox) async {
+        await fetch(cells: GridCell.covering(bounds))
+    }
+
+    @MainActor
+    private func fetch(cells: [GridCell]) async {
+        let needed = cellsNeedingFetch(cells)
+        guard !needed.isEmpty else { return }
+
+        if let lastFetch = lastFetchTime, Date().timeIntervalSince(lastFetch) < fetchFloor {
+            return
         }
 
         // A user-driven fetch supersedes any pending backoff retry.
@@ -148,35 +197,59 @@ final class CameraStore {
         lastError = nil
 
         do {
-            let fetched = try await fetchFromBestSource(in: bounds)
+            let fetched = try await fetchFromBestSource(cells: needed)
             mergeCameras(fetched)
-            lastFetchBounds = bounds
-            lastFetchTime = Date()
-            lastFetchDate = Date()
+            let now = Date()
+            for cell in needed { coverage[cell] = now }
+            lastFetchBounds = BoundingBox.union(cells.map(\.bounds))
+            lastFetchTime = now
+            lastFetchDate = now
             retryAttempt = 0
             schedulePersist()
         } catch {
             lastError = error
-            scheduleRetry(around: coordinate, radiusKm: radiusKm)
+            scheduleRetry(cells: cells)
         }
 
         isLoading = false
     }
 
-    /// Fetch cameras using the best available source.
-    ///
-    /// ALPRs come from DeFlock's CDN (hourly bulk snapshots, disk-cached);
-    /// speed cameras come from Overpass. If the CDN fails entirely,
-    /// everything falls back to a single live Overpass query.
+    /// Fetch cameras for every cell a box intersects, using the best
+    /// available source. Does not touch coverage: callers that keep their
+    /// own list (route planning) use this directly.
     @MainActor
     func fetchFromBestSource(in bounds: BoundingBox) async throws -> [SurveillanceCamera] {
+        try await fetchFromBestSource(cells: GridCell.covering(bounds))
+    }
+
+    @MainActor
+    private func fetchFromBestSource(cells: [GridCell]) async throws -> [SurveillanceCamera] {
+        var result: [SurveillanceCamera] = []
+        for cell in cells {
+            result += try await fetchFromBestSource(cell: cell)
+        }
+        return result
+    }
+
+    /// ALPRs come from DeFlock's CDN (hourly bulk snapshots, disk-cached);
+    /// speed cameras come from Overpass. If the CDN fails entirely,
+    /// everything falls back to a single Overpass query for the cell.
+    @MainActor
+    private func fetchFromBestSource(cell: GridCell) async throws -> [SurveillanceCamera] {
         // Hoist the actor references so the async-let child tasks capture
         // only Sendable values, not non-Sendable `self`.
         let cdn = cdnService
         let overpass = overpassService
+        let wantSpeed = speedCamerasEnabled
         do {
-            async let alprTask = cdn.fetchALPRCameras(in: bounds)
-            async let speedTask = overpass.fetchSpeedCameras(in: bounds)
+            guard wantSpeed else {
+                let alprs = try await cdn.fetchALPRCameras(in: cell.bounds)
+                lastALPRSource = .deflockCDN
+                return alprs
+            }
+
+            async let alprTask = cdn.fetchALPRCameras(in: cell.bounds)
+            async let speedTask = overpass.speedCameras(in: cell)
 
             let alprs = try await alprTask
             lastALPRSource = .deflockCDN
@@ -191,54 +264,29 @@ final class CameraStore {
             return alprs
         } catch {
             // CDN down: single combined Overpass query.
-            let fetched = try await overpassService.fetchCameras(in: bounds)
+            let fetched = try await overpass.allCameras(in: cell)
             lastALPRSource = .overpass
             speedCamerasAvailable = true
-            return fetched
+            return wantSpeed ? fetched : fetched.filter { $0.surveillanceType != .speedCamera }
         }
     }
 
     /// Retry a failed fetch with exponential backoff (5s, 10s, 20s), so a
     /// launch during an outage recovers without waiting for the user to pan.
     @MainActor
-    private func scheduleRetry(around coordinate: CLLocationCoordinate2D, radiusKm: Double?) {
+    private func scheduleRetry(cells: [GridCell]) {
         guard retryAttempt < maxRetryAttempts else { return }
         let delay = 5.0 * pow(2.0, Double(retryAttempt))
         retryAttempt += 1
         retryTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(delay))
             guard let self, !Task.isCancelled else { return }
-            // Clear the handle first so fetchCameras' cancel() above
-            // doesn't cancel this already-running task (which would abort
-            // its own URLSession request).
+            // Clear the handle first so fetch's cancel() above doesn't
+            // cancel this already-running task (which would abort its own
+            // URLSession request).
             self.retryTask = nil
-            await self.fetchCameras(around: coordinate, radiusKm: radiusKm)
+            await self.fetch(cells: cells)
         }
-    }
-
-    /// Fetch only ALPR cameras (the primary use case)
-    @MainActor
-    func fetchALPRCameras(around coordinate: CLLocationCoordinate2D) async {
-        if let lastFetch = lastFetchTime,
-           Date().timeIntervalSince(lastFetch) < minFetchInterval {
-            return
-        }
-
-        let bounds = BoundingBox.around(center: coordinate, radiusKm: fetchRadiusKm)
-
-        isLoading = true
-        lastError = nil
-
-        do {
-            let fetched = try await overpassService.fetchALPRCameras(in: bounds)
-            mergeCameras(fetched)
-            lastFetchBounds = bounds
-            lastFetchTime = Date()
-        } catch {
-            lastError = error
-        }
-
-        isLoading = false
     }
 
     // MARK: - Proximity
@@ -352,11 +400,13 @@ final class CameraStore {
         radiusKm: Double,
         context: ModelContext
     ) async throws -> Int {
-        let bounds = BoundingBox.around(center: coordinate, radiusKm: radiusKm)
-        let fetched = try await fetchFromBestSource(in: bounds)
+        let cells = GridCell.covering(BoundingBox.around(center: coordinate, radiusKm: radiusKm))
+        let fetched = try await fetchFromBestSource(cells: cells)
         mergeCameras(fetched)
-        lastFetchBounds = bounds
-        lastFetchTime = Date()
+        let now = Date()
+        for cell in cells { coverage[cell] = now }
+        lastFetchBounds = BoundingBox.union(cells.map(\.bounds))
+        lastFetchTime = now
         cacheContainer = context.container
         schedulePersist()
         return fetched.count

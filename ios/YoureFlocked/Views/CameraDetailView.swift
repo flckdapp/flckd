@@ -102,7 +102,7 @@ struct CameraDetailView: View {
                 label: "Coordinates",
                 value: String(format: "%.5f, %.5f", camera.latitude, camera.longitude)
             )
-            DetailRow(label: "OSM Node ID", value: "\(camera.osmID)")
+            DetailRow(label: camera.osmID < 0 ? "OSM Relation ID" : "OSM Node ID", value: "\(abs(camera.osmID))")
         }
     }
 
@@ -140,7 +140,8 @@ struct CameraDetailView: View {
             Text("Links")
                 .font(.headline)
 
-            if let osmURL = URL(string: "https://www.openstreetmap.org/node/\(camera.osmID)") {
+            let osmPath = camera.osmID < 0 ? "relation/\(-camera.osmID)" : "node/\(camera.osmID)"
+            if let osmURL = URL(string: "https://www.openstreetmap.org/\(osmPath)") {
                 Link(destination: osmURL) {
                     Label("View on OpenStreetMap", systemImage: "globe")
                 }

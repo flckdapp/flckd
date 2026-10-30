@@ -1,6 +1,6 @@
 # Privacy Policy — FLCKD (You're Flocked)
 
-**Last updated:** 2026-09-06
+**Last updated:** 2026-10-29
 
 FLCKD warns you when you're near surveillance cameras. This document
 describes what the code actually does, including the parts that aren't
@@ -19,15 +19,18 @@ Please open an issue.
   advertising.
 - Routing happens on your device. Your start point and destination are never
   sent anywhere. There is no routing server.
-- No location history is written to disk, and none leaves the device.
+- No location history is written to disk, and no position ever leaves the
+  device. Camera data is requested by whole-degree grid cell (about 111 km
+  by 85 km), so the most any camera-data server learns is which cell you
+  are in, and each cell is asked for at most once a day.
 - The routing map packs are static files in a Cloudflare R2 bucket. There is
   no server of mine in the path, so nothing of mine sees or logs the
   request. Cloudflare does see your IP address and which pack you fetched,
   under its own policy.
 
 The app is not fully offline. It still asks DeFlock and OpenStreetMap
-services for camera data and Apple for map imagery, and those requests
-contain location information. The table below says exactly what.
+services for camera data and Apple for map imagery. The camera requests
+name a grid cell, never a position. The table below says exactly what.
 
 ---
 
@@ -62,14 +65,19 @@ to run your own.
 
 | Destination | What it receives | When |
 |---|---|---|
-| **DeFlock CDN**<br>`cdn.deflock.me` | The public camera index, then the 20-degree ALPR data tile or tiles that intersect the area being loaded. A tile name reveals a coarse area, not an exact position. | While the app is open: when you move the map, and as you travel, when a tile is missing or out of date |
-| **OpenStreetMap Overpass**<br>`overpass.deflock.org`, `overpass-api.de`, `overpass.kumi.systems`, `overpass.private.coffee` | A bounding box, for speed-camera data. If the DeFlock CDN is unavailable, the same box is used for ALPR and other camera data too. The box is centred on your position when the data is being loaded for where you are. | While the app is open: when you move the map, and as you travel |
+| **DeFlock CDN**<br>`cdn.deflock.me` | The public camera index, then the 20-degree ALPR data tile or tiles that intersect the grid cell being loaded. A tile name reveals a coarse area, not an exact position. | While the app is open: when a cell is loaded and its tile is missing or out of date |
+| **OpenStreetMap Overpass**<br>`overpass.deflock.org`, then `overpass-api.de` if that fails | One whole-degree grid cell, as four integers, for speed-camera data. If the DeFlock CDN is unavailable, the same cell is asked for ALPR and other camera data too. The cell is fixed to the global degree grid, not to you: every phone in the same cell sends the same bytes. The query is sent in the request body, not the URL. If "Show Speed Cameras" is off and the CDN is up, nothing is sent here. | While the app is open, the first time you are in a cell, or view one on the map, or plan a route through one; then not again for that cell for a day |
 | **Apple (MapKit)** | Map tiles for the area you're viewing. In the route search field, the text you type plus the map region. | While the map or route search is open |
 | **Tile server**<br>default `tiles.flckd.app` (a Cloudflare R2 bucket), configurable | Which region pack you're downloading. Nothing about your position. | Only while a region download is running |
 | **ALPRWatch**<br>`alprwatch.org` | Nothing about you. A static file download. | Only if you switch on "Show Suspected Locations", which is off by default |
 
-Route planning isn't in this table because it doesn't make a network
-request.
+Route planning itself makes no network request: the engine runs on the
+phone. Before it runs, the app loads camera data, through the two camera
+rows above, for every grid cell in the rectangle that has the start and
+destination at opposite corners, plus about 3 km of margin. If the planned
+route goes outside that rectangle, the app also loads the cells around the
+route. Cells loaded in the last day aren't asked for again. Those servers
+learn which cells, never the two points or the roads you'll take.
 
 Every request above also reveals your IP address to that server, as any
 network request does. The app can't prevent that.
@@ -94,21 +102,22 @@ and the choice is yours on every tap.
 
 ### In plain terms
 
-Your trips are private. Your map browsing mostly is, but not entirely.
+Your route is private. Which part of the country you're in is not.
 
 Nobody learns where you're driving, because the route is computed on your
 phone. DeFlock receives requests for the camera-data tiles that cover the
-area being loaded. Overpass receives a bounding box for speed cameras, and
-for all camera types if the DeFlock CDN is down. Apple sees which part of
-the world you're looking at and what you type into the search field.
+grid cell being loaded. Overpass receives the grid cell, for speed cameras,
+and for all camera types if the DeFlock CDN is down. Apple sees which part
+of the world you're looking at and what you type into the search field.
 
 The app has to know about the cameras around you to warn you about them, so
-it loads camera data for where you are and reloads it as you travel, on
-whichever screen you have open. Those requests are centred on your position
-and happen roughly every time you cover half the camera search radius in
-Settings, so on a long drive there are several of them. A bounding box is
-coarser than a position, and the route itself is still never sent anywhere,
-but this is the part of using the app that isn't private.
+it loads camera data for the grid cell you are in, on whichever screen you
+have open, and loads the next cell when you cross into it. On a motorway
+that is about once an hour. A cell is a fixed box about 111 km by 85 km,
+the same for everyone inside it, and once loaded it isn't asked for again
+for a day. So over a long drive those servers could learn the sequence of
+cells you passed through, at roughly one per hour. They cannot learn where
+in a cell you were, which road you took, or where you started or stopped.
 
 It wouldn't be true to say nothing ever leaves your device. This is what
 does.
@@ -215,11 +224,12 @@ your phone. There's no push server.
 ## Reducing your exposure
 
 - Leave Suspected Locations off unless you want it. It's off by default.
-- Know that the speed-camera query goes out as soon as the map has your
-  position, centred on it, with a box at least about 10 km across and wider
-  when you're zoomed out. Panning afterwards sends a new box for the new
-  area; it doesn't unsend the first one. ALPR data comes from DeFlock's
-  20-degree tiles, which reveal only a very coarse area.
+- Know that the speed-camera query goes out as soon as the app has your
+  position, for the whole-degree grid cell you are in, unless that cell was
+  loaded in the last day. Panning the map to a new cell sends that cell; it
+  doesn't unsend the first one. Switching off "Show Speed Cameras" in
+  Settings stops the query entirely. ALPR data comes from DeFlock's
+  20-degree tiles, which reveal an even coarser area.
 - Use a VPN to hide your IP address from the OpenStreetMap servers and from
   whichever tile server you use.
 - Once cameras for an area are cached and the region pack is downloaded,

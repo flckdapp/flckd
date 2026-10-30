@@ -93,16 +93,28 @@ actor DeFlockCDNService {
 
     // MARK: - Init
 
-    init() {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = Self.requestTimeout
-        config.timeoutIntervalForResource = Self.requestTimeout * 4
-        config.httpAdditionalHeaders = ["User-Agent": Self.userAgent]
-        self.session = URLSession(configuration: config)
+    /// - Parameters:
+    ///   - session: Injected by tests to observe requests. Defaults to a
+    ///     session with the app's User-Agent and timeouts.
+    ///   - cacheDirectory: Where tiles live. Defaults to Caches.
+    init(session: URLSession? = nil, cacheDirectory: URL? = nil) {
+        if let session {
+            self.session = session
+        } else {
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = Self.requestTimeout
+            config.timeoutIntervalForResource = Self.requestTimeout * 4
+            config.httpAdditionalHeaders = ["User-Agent": Self.userAgent]
+            self.session = URLSession(configuration: config)
+        }
 
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        self.cacheDirectory = caches.appendingPathComponent("DeFlockCDN", isDirectory: true)
-        try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        if let cacheDirectory {
+            self.cacheDirectory = cacheDirectory
+        } else {
+            let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            self.cacheDirectory = caches.appendingPathComponent("DeFlockCDN", isDirectory: true)
+        }
+        try? FileManager.default.createDirectory(at: self.cacheDirectory, withIntermediateDirectories: true)
     }
 
     // MARK: - Public API

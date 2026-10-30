@@ -123,30 +123,48 @@ Views (SwiftUI) -> ViewModels (@Observable) -> Services -> data (SwiftData + API
 
 ### Cameras: OpenStreetMap, via DeFlock and Overpass
 
+Camera data is fetched by whole-degree grid cell (`GridCell`), never by a
+box around the user. The grid is anchored at the equator and prime
+meridian, so a cell's four corners are integers that are the same for every
+phone inside it, and nothing in a request is derived from a position.
+`CameraStore` keeps a record of which cells it has loaded and asks for a
+cell again only when that record is older than the cache TTL (a day). The
+proximity engine calls the store on every location update; those calls are
+no-ops until the user crosses into a new cell.
+
 ALPR cameras come mainly from DeFlock's hourly, OpenStreetMap-derived
 20-degree tiles. The app reads the public index at
 `https://cdn.deflock.me/regions/index.json`, honours its expiry, and
-downloads only the tiles that intersect the visible map area. Speed cameras
-come from a live Overpass query. If the DeFlock CDN is unavailable, the same
-Overpass query supplies all camera types.
+downloads only the tiles that intersect the cell being loaded. Speed
+cameras come from an Overpass query for the cell, cached on disk per cell.
+If the DeFlock CDN is unavailable, one Overpass query for the cell supplies
+all camera types. If "Show Speed Cameras" is off, Overpass is not queried
+at all while the CDN is up.
 
 The primary Overpass endpoint is
-`https://overpass.deflock.org/api/interpreter`, with `overpass-api.de`,
-`overpass.kumi.systems`, and `overpass.private.coffee` as fallbacks.
+`https://overpass.deflock.org/api/interpreter`, with `overpass-api.de` as
+the fallback. A single fetch is sent to at most two hosts. The query goes
+in a POST body, not the URL.
 
 ```overpassql
 [out:json][timeout:25];
 (
-  node["man_made"="surveillance"]["surveillance:type"~"camera|ALPR"](south,west,north,east);
-  node["highway"="speed_camera"](south,west,north,east);
+  node["highway"="speed_camera"](lat,lon,lat+1,lon+1);
+  node["enforcement"="maxspeed"](lat,lon,lat+1,lon+1);
+  relation["type"="enforcement"](lat,lon,lat+1,lon+1);
 );
-out body;
+out center;
 ```
 
-`CameraStore` starts at most one fetch every five seconds and normally
-reuses a covered area for at least 30 seconds. `OverpassService` backs off
-exponentially on 429 responses and moves through the fallback endpoints when
-a request fails.
+The CDN-down variant adds
+`node["man_made"="surveillance"]["surveillance:type"~"camera|ALPR"]`.
+Relations get a representative point from `out center` and are stored with
+a negated OSM ID so they can't collide with a node of the same number.
+
+`CameraStore` also keeps a five-second floor between fetches as a guard
+against a runaway caller; it is not the throttle. `OverpassService` backs
+off exponentially on 429 responses and moves to the fallback endpoint when
+a request fails, and serves a stale cell from disk if both fail.
 
 Tags parsed:
 
@@ -162,6 +180,7 @@ Tags parsed:
 | `manufacturer` | `Flock Safety`, `Motorola Solutions`, `Genetec`, … | vendor |
 | `operator` | free text | who runs it |
 | `highway` | `speed_camera` | a separate scheme for speed cameras |
+| `type` | `enforcement` | relation scheme for speed and red-light cameras; `enforcement=maxspeed` etc. |
 
 Reference: [OSM wiki](https://wiki.openstreetmap.org/wiki/Tag:man_made=surveillance).
 Licence and attribution obligations: [docs/deflock-data.md](docs/deflock-data.md).
