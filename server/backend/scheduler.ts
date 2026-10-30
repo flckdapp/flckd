@@ -18,13 +18,15 @@ export function startScheduler(deps: {
     busy = true;
     try {
       const effective = effectiveSettings(store.settings(), store.credentials(), config);
-      const cadence = effective.settings.cadence;
+      const { cadence, cameras } = effective.settings;
       store.schedule(cadence);
+      store.scheduleCameras(cameras);
       const kind = isDue(store.nextDue()) ? "build" : isDue(store.camerasNextDue()) ? "cameras" : null;
       if (kind === null) return;
       // Advance first: missed runs coalesce, and a failure cannot create a retry storm.
+      // A build extracts cameras too, so either kind restarts the camera clock.
       if (kind === "build") store.advanceSchedule(cadence);
-      else store.advanceCameraSchedule(cadence);
+      store.advanceCameraSchedule(cameras);
       if (effective.settings.regions.length === 0) return;
       // Cameras attach to a published release; until the first build there is none.
       if (kind === "cameras" && !(await Bun.file(join(config.docroot, "v1", "manifest.json")).exists())) return;

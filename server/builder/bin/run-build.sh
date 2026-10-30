@@ -40,6 +40,7 @@
 #   BUILD_ID        release id                      (default today, UTC)
 #   PBF_NAME        source map file    (default us-latest.osm.pbf)
 #   PBF_URL         where to fetch it  (default Geofabrik us-latest)
+#   SPEED_CAMERAS   set to 0 to publish no speed-camera file (default 1)
 #   SKIP_PBF_UPDATE set to 1 to reuse the PBF on disk
 #   CLIP_SOURCE     set to 0 to always build from the whole source map
 #   REBUILD_GRAPH   set to 1 to rebuild a graph that matches its source
@@ -116,8 +117,10 @@ abort_detail() {
 }
 trap 'status "failed" "$(abort_detail "$LINENO")"' ERR
 
+SPEED_CAMERAS="${SPEED_CAMERAS:-1}"
 if [ "$CAMERAS_ONLY" = 1 ]; then
   log "=== FLCKD speed camera refresh ${BUILD_ID} ==="
+  [ "$SPEED_CAMERAS" = 1 ] || fail "speed cameras are turned off"
   # Before the map update: that can download 12 GB, and without a release
   # there is nothing to attach the camera file to.
   [ -f "$DOCROOT/v1/manifest.json" ] || fail "no published release yet; run a full build first"
@@ -158,9 +161,15 @@ log "source PBF: $(human "$(stat -c %s "$PBF")"), dated ${OSM_DATE}"
 # From the whole source map, never the clipped one: the file is national
 # whichever states this server publishes. First, because it is cheap, so a
 # broken extract fails in minutes rather than after the graph build.
-status "cameras" "speed and red-light cameras from the source map"
 CAMERAS_FILE="${DATA_DIR}/speed-cameras.json"
-python3 "$BIN/extract_cameras.py" --pbf "$PBF" --out "$CAMERAS_FILE" --osm-data-date "$OSM_DATE"
+CAMERA_ARGS=()
+if [ "$SPEED_CAMERAS" = 1 ]; then
+  status "cameras" "speed and red-light cameras from the source map"
+  python3 "$BIN/extract_cameras.py" --pbf "$PBF" --out "$CAMERAS_FILE" --osm-data-date "$OSM_DATE"
+  CAMERA_ARGS=(--cameras "$CAMERAS_FILE")
+else
+  log "speed cameras are turned off; this release has no speed-camera file"
+fi
 
 if [ "$CAMERAS_ONLY" = 1 ]; then
   status "publish" "speed cameras"
@@ -202,7 +211,7 @@ python3 "$BIN/publish.py" \
   --part-bytes "$PART_BYTES" \
   --keep     "$KEEP_RELEASES" \
   --osm-data-date "$OSM_DATE" \
-  --cameras  "$CAMERAS_FILE"
+  ${CAMERA_ARGS[@]+"${CAMERA_ARGS[@]}"}
 STATUS_LOCAL_PUBLISHED=true
 fi
 

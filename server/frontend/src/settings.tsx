@@ -104,15 +104,7 @@ export function SettingsCard({
                   ? `${cadenceLabel} — starts one interval after saving`
                   : `Next build due ${fmtDateTime(state.next_due_at)}`}
             </Text>
-            <Text size="1" color="gray">
-              {form.cadence === "manual"
-                ? "Speed cameras are extracted with each build."
-                : form.cadence === "daily"
-                  ? "Speed cameras are extracted with every daily build."
-                  : state.cameras_next_due_at === null || form.cadence !== state.settings.cadence
-                    ? "Speed cameras refresh daily between builds, starting a day after saving."
-                    : `Speed cameras refresh daily between builds · next ${fmtDateTime(state.cameras_next_due_at)}`}
-            </Text>
+
           </Flex>
 
           <Flex direction="column" gap="2">

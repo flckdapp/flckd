@@ -22,6 +22,7 @@ import { useEvents, useLogBuffer } from "./events";
 import { JobPanel } from "./activity";
 import { ActivitySidebar } from "./sidebar";
 import { BucketCard } from "./bucket";
+import { SpeedCamerasCard } from "./cameras";
 import { SettingsCard } from "./settings";
 import { isLive } from "./jobmeta";
 import { ErrorBanner, Header, Page } from "./shell";
@@ -44,6 +45,7 @@ export function App() {
   const [fatal, setFatal] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "save" | Job["kind"] | "cancel">(null);
+  const [cameraDraft, setCameraDraft] = useState<Settings["cameras"] | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [resyncTick, setResyncTick] = useState(0);
 
@@ -101,16 +103,33 @@ export function App() {
     },
   });
 
+  // The speed-camera panel saves on its own, so it never makes the build
+  // settings dirty and Save never writes a stale copy of it.
   const dirty =
-    form !== null && state !== null && !settingsEqual(form, state.settings);
+    form !== null && state !== null &&
+    !settingsEqual({ ...form, cameras: state.settings.cameras }, state.settings);
 
   function handleError(e: unknown): void {
     setActionError(errText(e));
   }
 
+  async function saveCameras(next: Settings["cameras"]): Promise<void> {
+    if (state === null || busy !== null || cameraDraft !== null) return;
+    setCameraDraft(next);
+    setActionError(null);
+    try {
+      await putSettings({ ...state.settings, cameras: next });
+      await refresh();
+    } catch (e) {
+      handleError(e);
+    } finally {
+      setCameraDraft(null);
+    }
+  }
+
   async function save(): Promise<void> {
     if (form === null || state === null || !dirty || busy !== null) return;
-    const checked = settingsSchema.safeParse(form);
+    const checked = settingsSchema.safeParse({ ...form, cameras: state.settings.cameras });
     if (!checked.success) {
       setActionError(
         `Settings are not valid: ${checked.error.issues[0]?.message ?? "unknown issue"}`,
@@ -210,6 +229,13 @@ export function App() {
             saving={busy === "save"}
             onSave={() => void save()}
           />
+          <SpeedCamerasCard
+            state={state}
+            cameras={cameraDraft ?? state.settings.cameras}
+            saving={cameraDraft !== null}
+            disabled={busy !== null || cameraDraft !== null}
+            onChange={(next) => void saveCameras(next)}
+          />
           <BucketCard
             state={state}
             form={form}
@@ -236,8 +262,8 @@ export function App() {
             <Button
               variant="soft"
               onClick={() => void start("cameras")}
-              disabled={dirty || running || busy !== null || state.settings.regions.length === 0}
-              title="Update the map and republish the national speed-camera file without rebuilding roads"
+              disabled={dirty || running || busy !== null || state.settings.regions.length === 0 || !state.settings.cameras.enabled}
+              title="Update the map and republish the speed-camera file without rebuilding roads"
             >
               {busy === "cameras" ? <Spinner size="1" /> : <Gauge size={13} />}
               Refresh speed cameras

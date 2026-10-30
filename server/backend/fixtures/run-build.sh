@@ -14,4 +14,4 @@ sleep 1
 cat > "$DOCROOT/v1/manifest.json" <<JSON
 {"build_id":"$BUILD_ID","packs":[{"id":"${1:-oklahoma}"}]}
 JSON
-printf 'building %s with %s\n' "${1:-all}" "${S3_SECRET_ACCESS_KEY:-}"
+printf 'building %s with %s cameras=%s\n' "${1:-all}" "${S3_SECRET_ACCESS_KEY:-}" "${SPEED_CAMERAS:-unset}"

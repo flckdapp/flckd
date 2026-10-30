@@ -18,6 +18,7 @@ export function mergeSettings(saved: Settings | null, config: RuntimeConfig): Se
     cadence: config.envSettings.cadence ?? base.cadence,
     threads: config.envSettings.threads ?? base.threads,
     remote: { ...base.remote, ...envRemote },
+    cameras: base.cameras,
   };
 }
 
@@ -93,6 +94,7 @@ export function preserveOverrides(next: Settings, saved: Settings | null, config
       region: fromEnv.remote?.region === undefined ? remote.region : base.remote.region,
       provider: fromEnv.remote?.provider === undefined ? remote.provider : base.remote.provider,
     },
+    cameras: next.cameras,
   };
 }
 

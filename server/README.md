@@ -24,8 +24,10 @@ docker compose up --build --wait
 Open **http://localhost:8642** for the builder. The generated public site
 is served at **http://localhost:8080**. Select regions, save settings, then
 choose **Build now**. Nothing starts downloading road data until you start
-a build or enable a schedule. The public index is available immediately,
-but has no packs until a build succeeds.
+a build or enable a schedule. After the first build, speed cameras refresh
+daily unless you turn that off; see [Speed cameras](#speed-cameras). The
+public index is available immediately, but has no packs until a build
+succeeds.
 
 The first startup downloads the image dependencies. Subsequent startups
 reuse Docker's build cache. `bun run stop` stops the services without
@@ -209,14 +211,18 @@ The file is content-addressed like the packs: unchanged camera data keeps
 its URL, so nobody downloads it twice. It is a few hundred kilobytes, so it
 isn't split into parts.
 
-A missing camera is a silent false negative, so cameras are refreshed more
-often than roads. With a **Weekly** or **Every 30 days** schedule, a
-**speed cameras** job runs every day in between: it applies the day's map
-changes, re-extracts the file and republishes it into the current release,
-without rebuilding the graph. It needs a published release, and it takes
-minutes rather than hours, most of it applying the map changes. With a
-**Daily** schedule every build already does this, and with **Manual**
-nothing runs unattended. **Refresh speed cameras** runs one on demand.
+A missing camera is a silent false negative, so cameras have their own
+schedule in the **Speed cameras** panel, separate from road builds. It is on
+by default and refreshes **Daily**. A refresh applies the latest map
+changes, re-extracts the file and republishes it into the current release
+without rebuilding the graph. It needs a published release, so nothing runs
+until the first build, and it takes minutes rather than hours, most of it
+applying the map changes. Geofabrik publishes those changes once a day, so a
+faster schedule wouldn't find anything new. Every build also extracts the
+file and restarts the camera schedule. **Manual** refreshes only with builds
+and when you choose **Refresh speed cameras**. Turning the panel off
+publishes no camera file with the next release, and the app falls back to
+asking OpenStreetMap's servers, one grid cell at a time.
 
 The file carries OpenStreetMap data, so it is under the ODbL like the
 packs; the public index page shows the attribution.

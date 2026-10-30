@@ -45,7 +45,9 @@ export async function createApp(env: NodeJS.ProcessEnv = process.env): Promise<{
   const runner = new JobRunner(store, config, events);
   const stopScheduler = startScheduler({ config, store, events, regions, runner });
   const deps = { config, store, events, regions, runner, stopScheduler };
-  store.schedule(effectiveSettings(store.settings(), store.credentials(), config).settings.cadence);
+  const initial = effectiveSettings(store.settings(), store.credentials(), config).settings;
+  store.schedule(initial.cadence);
+  store.scheduleCameras(initial.cameras);
   const app = new Hono();
 
   app.onError((error, c) => {
@@ -74,6 +76,7 @@ export async function createApp(env: NodeJS.ProcessEnv = process.env): Promise<{
     rejectOverriddenSettings(next, current, config.overrides);
     store.saveSettings(preserveOverrides(next, store.settings(), config));
     store.schedule(next.cadence);
+    store.scheduleCameras(next.cameras);
     events.state(await buildState(store, config, regions));
     return c.json(await buildState(store, config, regions));
   });
@@ -132,9 +135,12 @@ function startJob(kind: Job["kind"], deps: AppDeps): Job {
   const effective = effectiveSettings(deps.store.settings(), deps.store.credentials(), deps.config);
   validateSettings(effective.settings, deps.regions);
   if (kind === "build" && effective.settings.regions.length === 0) throw new HttpStatusError(422, "Select at least one region");
+  if (kind === "cameras" && !effective.settings.cameras.enabled) throw new HttpStatusError(409, "Speed cameras are turned off");
   if (kind === "publish") ensureRemoteReady(effective);
   if (effective.settings.remote.enabled) ensureRemoteReady(effective);
-  return deps.runner.enqueue({ kind, settings: effective.settings, credentials: effective.credentials });
+  const job = deps.runner.enqueue({ kind, settings: effective.settings, credentials: effective.credentials });
+  if (kind !== "publish") deps.store.advanceCameraSchedule(effective.settings.cameras);
+  return job;
 }
 
 async function requireManifest(docroot: string): Promise<void> {

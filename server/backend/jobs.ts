@@ -153,6 +153,7 @@ export class JobRunner {
       REGION_SET: this.#config.regionSet,
       WWW_DIR: this.#config.siteDir,
       R2_PRUNE: "0",
+      SPEED_CAMERAS: request.settings.cameras.enabled ? "1" : "0",
       PYTHONUNBUFFERED: "1",
     };
     for (const key of ["PBF_URL", "PBF_NAME", "KEEP_RELEASES", "PART_BYTES", "MAX_CACHE_MB", "SKIP_PBF_UPDATE", "SKIP_TIMEZONES", "HOME", "TMPDIR"]) {
