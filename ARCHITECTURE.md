@@ -60,6 +60,7 @@ ios/
   project.yml                       XcodeGen project definition, the source of truth
   Shared/
     SurveillanceActivityAttributes.swift   shared with the widget target
+    ManeuverType.swift                     Valhalla maneuver codes, names and turn icons
   YoureFlocked/
     YoureFlockedApp.swift           entry point
     ContentView.swift               tab navigation
