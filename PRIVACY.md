@@ -351,8 +351,18 @@ grep -rn 'https\?://' --include='*.swift' ios/
 
 Runtime service URLs in the results are covered by the table above or by
 "Links you tap". Documentation and source-reference URLs in comments aren't
-network requests. If you have built into `ios/_dd` as the commands below
-do, add `--exclude-dir=_dd` so the search skips the checked-out packages.
+network requests.
+
+Any build output under `ios/` holds the checked-out packages and will swamp
+that list — a built tree answers with about 1,700 lines instead of 30. Skip
+it with `--exclude-dir`, naming whichever derived-data directory you have
+(`_dd` is what the commands below use, `_build` and `DerivedData` are the
+other usual ones), or search only the files this repository tracks, which
+needs no such care:
+
+```bash
+git ls-files 'ios/**/*.swift' | xargs grep -n 'https\?://'
+```
 
 To confirm routing and guidance specifically never touch the network, the
 routing service, the engine wrapper and the navigation directory should
@@ -380,12 +390,15 @@ grep -rn 'URLSession' ios/_dd/SourcePackages/checkouts/ferrostar/apple/Sources/F
 grep -n 'networkSession' ios/_dd/SourcePackages/checkouts/ferrostar/apple/Sources/FerrostarCore/FerrostarCore.swift
 ```
 
-The first command finds `URLSession` in exactly four places: doc comments,
-a `MockURLSession` class for Ferrostar's own tests, a one-line conformance
-of `URLSession` to `URLRequestLoading`, and `URLSession.shared` as the
-default value of the `networkSession` initialiser parameter. The second
-command shows every use of that parameter: it is stored, and it is called
-once, inside `getRoutes`, under `case let .routeAdapter`. This app passes
+The first command prints eleven lines across three files, and they are four
+kinds of thing: two doc comments; a `MockURLSession` class and its error
+enum, for Ferrostar's own tests; a one-line conformance of `URLSession` to
+`URLRequestLoading`; and `URLSession.shared` as the default value of the
+`networkSession` parameter, which repeats across four convenience
+initialisers. The second command shows every mention of that parameter.
+Most are initialisers handing it along; it is stored once, and the only
+call on it is a single `loadData(with:)` inside `getRoutes`, under
+`case let .routeAdapter`. This app passes
 `NoNetworkRequestLoader` for the parameter, so the default never applies,
 and it builds the core with `customRouteProvider:`, so the `.routeAdapter`
 branch is never entered. Both facts are a few lines of
