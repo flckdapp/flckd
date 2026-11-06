@@ -2,7 +2,6 @@ import XCTest
 import CoreLocation
 @testable import YoureFlocked
 
-/// What actually goes over the wire to Overpass.
 final class OverpassRequestTests: XCTestCase {
 
     private let cell = GridCell(lat: 40, lon: -76)

@@ -2,7 +2,6 @@ import XCTest
 import CoreLocation
 @testable import YoureFlocked
 
-/// The store asks for a cell once and then stays quiet inside it.
 /// All coordinates here are synthetic grid points, not places.
 @MainActor
 final class CameraStoreCoverageTests: XCTestCase {

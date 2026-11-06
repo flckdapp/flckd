@@ -48,7 +48,6 @@ actor OverpassService {
     private static let userAgent = "FLCKD/1.0 (iOS; +https://flckd.app)"
     private static let queryTimeout: TimeInterval = 45 // DeFlock uses 45s
 
-    /// What a cell query asks for.
     enum Kind: String, Sendable {
         /// Speed cameras only. The normal case: ALPRs come from the CDN.
         case speed
@@ -272,7 +271,6 @@ struct GridCell: Hashable, Sendable, Codable {
         self.lon = min(max(lon, -180), 179)
     }
 
-    /// The cell containing a coordinate.
     init(containing coordinate: CLLocationCoordinate2D) {
         self.init(
             lat: Int(coordinate.latitude.rounded(.down)),
@@ -305,7 +303,6 @@ struct GridCell: Hashable, Sendable, Codable {
         "\(lat),\(lon),\(lat + 1),\(lon + 1)"
     }
 
-    /// Filesystem-safe name.
     var key: String {
         "\(lat)_\(lon)"
     }
@@ -326,7 +323,6 @@ struct BoundingBox: Sendable, Equatable {
             && coord.longitude >= west && coord.longitude <= east
     }
 
-    /// The smallest box containing all of the given boxes.
     static func union(_ boxes: [BoundingBox]) -> BoundingBox? {
         guard let first = boxes.first else { return nil }
         return boxes.dropFirst().reduce(first) { acc, box in

@@ -94,7 +94,6 @@ final class OfflineDataUpdater {
         defaults.set(date.timeIntervalSince1970, forKey: Self.lastCheckKey)
     }
 
-    /// Called whenever the app becomes active.
     func checkIfDue(cameraStore: CameraStore, now: Date = Date()) async {
         guard !isUpdating, !manualDownloadActive,
               Self.isDue(lastCheck: lastCheck, now: now) else { return }
