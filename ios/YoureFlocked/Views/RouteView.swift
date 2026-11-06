@@ -606,7 +606,7 @@ struct RouteView: View {
                     ForEach(Array(result.maneuvers.indices), id: \.self) { index in
                         let maneuver = result.maneuvers[index]
                         HStack(alignment: .top, spacing: 16) {
-                            Image(systemName: maneuverIcon(for: maneuver.type))
+                            Image(systemName: ManeuverType(code: maneuver.type).symbolName)
                                 .font(.title2)
                                 .foregroundStyle(.secondary)
                                 .frame(width: 30, alignment: .center)
@@ -971,32 +971,6 @@ struct RouteView: View {
     private func formatTime(_ seconds: Double) -> String {
         let mins = Int(seconds / 60)
         return mins >= 60 ? "\(mins / 60)h \(mins % 60)m" : "\(mins) min"
-    }
-    
-    private func maneuverIcon(for type: Int) -> String {
-        // Valhalla maneuver types to SF Symbols
-        switch type {
-        case 1, 2, 3: return "arrow.up.circle.fill" // Start
-        case 4, 5, 6: return "flag.checkered.circle.fill" // Dest
-        case 7: return "arrow.up" // Continue
-        case 8: return "arrow.turn.up.right" // Slight right
-        case 9: return "arrow.turn.up.right" // Right
-        case 10: return "arrow.turn.right.down" // Sharp right
-        case 11: return "arrow.uturn.right" // U-turn right
-        case 12: return "arrow.uturn.left" // U-turn left
-        case 13: return "arrow.turn.left.down" // Sharp left
-        case 14: return "arrow.turn.up.left" // Left
-        case 15: return "arrow.turn.up.left" // Slight left
-        case 16: return "arrow.triangle.merge" // Ramp straight
-        case 17: return "arrow.turn.up.right" // Ramp right
-        case 18: return "arrow.turn.up.left" // Ramp left
-        case 19: return "arrow.turn.up.right" // Exit right
-        case 20: return "arrow.turn.up.left" // Exit left
-        case 21: return "arrow.up" // Stay straight
-        case 24: return "arrow.triangle.merge" // Merge
-        case 25: return "arrow.triangle.turn.up.right.circle" // Roundabout
-        default: return "arrow.up"
-        }
     }
 }
 
