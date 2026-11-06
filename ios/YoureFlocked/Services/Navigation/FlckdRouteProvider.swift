@@ -67,14 +67,17 @@ final class FlckdRouteProvider: CustomRouteProvider, Sendable {
         self.planned = planned
     }
 
+    /// Reports through `planned` on every exit, including the guard: that
+    /// callback is how the session controller learns a reroute stopped being
+    /// in flight, so a path that threw without reporting would latch it on.
     func getRoutes(userLocation: UserLocation, waypoints: [Waypoint]) async throws -> [Route] {
-        guard let last = waypoints.last else { throw NavigationError.noWaypoints }
-        let origin = userLocation.coordinates.clLocationCoordinate2D
-        let destination = last.coordinate.clLocationCoordinate2D
-        let corridor = Self.corridorBounds(from: origin, to: destination)
-        let corridorCameras = await cameras(corridor)
-
         do {
+            guard let last = waypoints.last else { throw NavigationError.noWaypoints }
+            let origin = userLocation.coordinates.clLocationCoordinate2D
+            let destination = last.coordinate.clLocationCoordinate2D
+            let corridor = Self.corridorBounds(from: origin, to: destination)
+            let corridorCameras = await cameras(corridor)
+
             let plan = try await routing.routeWithProgressiveAvoidance(
                 from: origin,
                 to: destination,
