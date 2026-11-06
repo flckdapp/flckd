@@ -53,6 +53,10 @@ struct ContentView: View {
         TabView(selection: $selectedTab) {
             ForEach(Tab.allCases, id: \.self) { tab in
                 tabContent(for: tab)
+                    // Inside the tab's content, not over the TabView: the tab
+                    // bar is part of the content's safe area, so this lands
+                    // above it instead of across the Route tab.
+                    .safeAreaInset(edge: .bottom, spacing: 0) { navigatingStrip }
                     .tabItem {
                         Label(tab.rawValue, systemImage: tab.icon)
                     }
@@ -73,11 +77,10 @@ struct ContentView: View {
                 || navigationController.isActive
                 || diagnosticsHoldingScreen
         )
-        // Both of these sit above the TabView on purpose. Proximity warning is
-        // what the app is for, so neither the detection nor the banner may
-        // depend on which tab is showing, or on the map having been opened.
+        // This sits above the TabView on purpose. Proximity warning is what
+        // the app is for, so neither the detection nor the banner may depend
+        // on which tab is showing, or on the map having been opened.
         .overlay(alignment: .top) { proximityBanner }
-        .overlay(alignment: .bottom) { navigatingStrip }
         .onChange(of: locationManager.currentLocation) { _, newLocation in
             guard let location = newLocation else { return }
             proximityEngine.handleLocationUpdate(

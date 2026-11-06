@@ -15,6 +15,8 @@ Inspired by [DeFlock](https://deflock.me).
 - Shows cameras on a map: ALPR, speed cameras, and other surveillance
 - Lets you add cameras you find, straight to OpenStreetMap
 - Plans routes that pass fewer cameras, entirely on your phone
+- Gives turn-by-turn directions along that route, with spoken prompts and the
+  next turn on your lock screen, and replans around cameras if you leave it
 
 ## Platforms
 
@@ -33,7 +35,12 @@ Routing runs on your device. You download road data for a region once, and
 after that route planning is a calculation over a file in your phone's
 storage. Your start point and destination are never sent anywhere because
 there's no routing server to send them to. Route planning works in airplane
-mode.
+mode. The engine is Valhalla, compiled in through
+[`valhalla-mobile`](https://github.com/rallista/valhalla-mobile); turn-by-turn
+guidance on top of it is [Ferrostar](https://github.com/stadiamaps/ferrostar),
+also compiled in, and a reroute is the same on-device planner run again. Spoken
+directions use the phone's own text-to-speech. Neither library talks to a
+server in this app.
 
 That road data is downloaded once per region. The default source,
 `tiles.flckd.app`, is a Cloudflare R2 bucket of static files: there's no

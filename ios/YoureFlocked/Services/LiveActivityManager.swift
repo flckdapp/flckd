@@ -43,6 +43,12 @@ final class LiveActivityManager {
     /// carries them for free.
     private var navigationFields: NavigationActivityFields?
 
+    /// Owned here rather than passed with each instruction: Ferrostar stops
+    /// handing over instructions while the driver is completely off the route,
+    /// which is exactly when a reroute runs, so the flag has to be settable
+    /// without one.
+    private var navigationRerouting = false
+
     private var navigationThrottle = NavigationUpdateThrottle()
 
     /// The radius the camera path last asked for, so an activity requested by
@@ -112,16 +118,27 @@ final class LiveActivityManager {
         maneuverCode: Int?,
         instruction: String?,
         distanceToNextTurn: Double?,
-        etaSecondsRemaining: Double?,
-        isRerouting: Bool
+        etaSecondsRemaining: Double?
     ) async {
         let fields = NavigationActivityFields(
             maneuverCode: maneuverCode,
             instruction: instruction,
             distanceToNextTurnMeters: distanceToNextTurn,
             eta: etaSecondsRemaining.map { Date.now.addingTimeInterval($0) },
-            isRerouting: isRerouting
+            isRerouting: navigationRerouting
         )
+        await pushNavigation(fields)
+    }
+
+    /// Shows or hides the reroute spinner on the running Live Activity.
+    func setNavigationRerouting(_ rerouting: Bool) async {
+        navigationRerouting = rerouting
+        guard var fields = navigationFields else { return }
+        fields.isRerouting = rerouting
+        await pushNavigation(fields)
+    }
+
+    private func pushNavigation(_ fields: NavigationActivityFields) async {
         navigationFields = fields
 
         guard let id = currentActivityID else {
@@ -149,6 +166,7 @@ final class LiveActivityManager {
     /// Takes the turn off the Live Activity when guidance stops.
     func clearNavigation() async {
         navigationFields = nil
+        navigationRerouting = false
         navigationThrottle.reset()
 
         guard let id = currentActivityID else { return }
@@ -173,6 +191,7 @@ final class LiveActivityManager {
         isActivityRunning = false
         navigationOwnsActivity = false
         navigationFields = nil
+        navigationRerouting = false
         navigationThrottle.reset()
         lastCameraFields = CameraActivityFields()
 

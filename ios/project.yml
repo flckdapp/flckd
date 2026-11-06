@@ -44,8 +44,6 @@ targets:
         product: Valhalla
       - package: Ferrostar
         product: FerrostarCore
-      - package: Ferrostar
-        product: FerrostarSwiftUI
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.vws.app.flckd
@@ -124,8 +122,9 @@ packages:
     url: https://github.com/rallista/valhalla-mobile.git
     exactVersion: 0.6.3
   # Pinned exactly: the maintainers don't audit the Swift API for breaks
-  # between releases, and only FerrostarCore and FerrostarSwiftUI are linked
-  # so MapLibre stays out of the binary.
+  # between releases. Only FerrostarCore is linked: the app draws its own
+  # driving screen with MapKit, so MapLibre and Ferrostar's views stay out of
+  # the binary.
   Ferrostar:
     url: https://github.com/stadiamaps/ferrostar.git
     exactVersion: 0.59.0

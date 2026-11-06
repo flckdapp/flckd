@@ -239,7 +239,9 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
 
     // MARK: - State Mirroring
 
-    private static var navigationConfig: SwiftNavigationControllerConfig {
+    /// Internal rather than private so the behaviour tests drive the real core
+    /// with exactly this configuration.
+    nonisolated static var navigationConfig: SwiftNavigationControllerConfig {
         SwiftNavigationControllerConfig(
             waypointAdvance: .waypointWithinRange(100),
             stepAdvanceCondition: stepAdvanceDistanceEntryAndExit(
@@ -338,9 +340,19 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         case .failure:
             // Guidance carries on along the old route. Ferrostar asks again
             // after its 5 s / 50 m throttle.
-            isRerouting = false
+            setRerouting(false)
             rerouteFailed = true
         }
+    }
+
+    /// The lock screen is told as well: Ferrostar hands the widget provider no
+    /// instruction while the driver is completely off the route, so the
+    /// provider alone could never show the spinner.
+    private func setRerouting(_ rerouting: Bool) {
+        guard isRerouting != rerouting else { return }
+        isRerouting = rerouting
+        let liveActivityManager = liveActivityManager
+        Task { await liveActivityManager.setNavigationRerouting(rerouting) }
     }
 
     // MARK: - FerrostarCoreDelegate
@@ -363,16 +375,30 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
             )
             if distance <= Self.arrivalRadiusMeters { return .doNothing }
         }
-        isRerouting = true
+        setRerouting(true)
         rerouteFailed = false
         return .getNewRoutes(waypoints: waypoints)
     }
 
-    func core(_ core: FerrostarCore, loadedAlternateRoutes routes: [Route]) {
-        defer { isRerouting = false }
-        guard isActive, let route = routes.first else { return }
+    /// Unlike every other callback, Ferrostar makes this one from its reroute
+    /// task, off the main queue. The `@preconcurrency` witness would trap on
+    /// arrival, so it is non-isolated and hops by hand.
+    nonisolated func core(_ core: FerrostarCore, loadedAlternateRoutes routes: [Route]) {
+        let coreID = ObjectIdentifier(core)
+        Task { @MainActor [weak self] in
+            self?.acceptReroute(routes, from: coreID)
+        }
+    }
+
+    private func acceptReroute(_ routes: [Route], from coreID: ObjectIdentifier) {
+        defer { setRerouting(false) }
+        guard isActive, let core, ObjectIdentifier(core) == coreID, let route = routes.first else { return }
         do {
+            // The summary's distance is planned length less what remains, so
+            // switching routes has to bank the part already driven first.
+            let remaining = state?.currentProgress?.distanceRemaining ?? plannedDistanceMeters
             try core.startNavigation(route: route)
+            plannedDistanceMeters = max(0, plannedDistanceMeters - remaining) + route.distance
             currentRoute = route
             rerouteCount += 1
         } catch {

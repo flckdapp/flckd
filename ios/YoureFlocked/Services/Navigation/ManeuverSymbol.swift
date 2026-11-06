@@ -39,10 +39,10 @@ extension ManeuverType {
     /// pointing the wrong way, and the banner text beside it still names the
     /// street.
     ///
-    /// Valhalla's own OSRM serialiser collapses its ramp and exit maneuvers
-    /// into `on ramp` and `off ramp`, so that distinction cannot be recovered
-    /// here. The ramp cases stand in for both; they draw the same symbol as the
-    /// exit cases and differ only in `displayLabel`.
+    /// Valhalla's own OSRM serialiser writes its exit maneuvers as `off ramp`
+    /// and its ramp maneuvers as `on ramp`, and its stay-left/right maneuvers
+    /// as `fork`, so those come back as the exit and stay cases. Ramps and
+    /// exits draw the same symbol either way; only `displayLabel` differs.
     init(
         osrmType: FerrostarCoreFFI.ManeuverType?,
         modifier: FerrostarCoreFFI.ManeuverModifier?,
@@ -88,19 +88,29 @@ extension ManeuverType {
             case nil: self = .merge
             }
 
-        case .onRamp, .offRamp:
+        case .onRamp:
             switch hand {
             case .right: self = .rampRight
             case .left: self = .rampLeft
             case nil: self = .rampStraight
             }
 
-        case .fork:
-            // Keeping left or right at a fork is a lane choice, not a turn, so
-            // it gets the gentlest arrow that states the side.
+        case .offRamp:
             switch hand {
-            case .right: self = .slightRight
-            case .left: self = .slightLeft
+            case .right: self = .exitRight
+            case .left: self = .exitLeft
+            // Valhalla has no sideless exit. "Take the ramp" is the honest
+            // reading of an off-ramp whose side the response did not state.
+            case nil: self = .rampStraight
+            }
+
+        case .fork:
+            // Keeping left or right at a fork is a lane choice, not a turn. The
+            // stay cases draw the gentlest arrow that states the side and are
+            // labelled "Keep right" rather than "Slight right".
+            switch hand {
+            case .right: self = .stayRight
+            case .left: self = .stayLeft
             case nil: self = .stayStraight
             }
 

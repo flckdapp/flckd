@@ -52,11 +52,16 @@ struct NavigationBannerView: View {
             .padding(.vertical, 12)
         }
         .frame(maxWidth: .infinity)
+        // The accent bar is a shape with only its width fixed, so without
+        // this the card takes whatever height the safe-area inset proposes,
+        // which on a phone is the whole screen above the progress bar.
+        .fixedSize(horizontal: false, vertical: true)
         .background(.thickMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityText)
+        .accessibilityIdentifier("navigation-banner")
         // Nothing here is tappable, so the map underneath keeps the gesture.
         .allowsHitTesting(false)
     }
@@ -91,11 +96,14 @@ struct NavigationBannerView: View {
 
     // MARK: - Content
 
+    /// The same table the Live Activity draws from, so the arrow above the
+    /// windscreen and the one on the lock screen can't disagree.
     private var maneuverType: ManeuverType? {
         guard let content = instruction?.primaryContent else { return nil }
-        return FerrostarManeuver.appManeuver(
-            type: content.maneuverType,
-            modifier: content.maneuverModifier
+        return ManeuverType(
+            osrmType: content.maneuverType,
+            modifier: content.maneuverModifier,
+            roundaboutExitDegrees: content.roundaboutExitDegrees
         )
     }
 

@@ -121,9 +121,12 @@ final class ManeuverSymbolMappingTests: XCTestCase {
         XCTAssertEqual(mapping(.turn, .straight), .continue)
     }
 
+    /// Valhalla serialises its exit maneuvers as `off ramp`, so an off-ramp is
+    /// an exit in the app's vocabulary; a sideless one falls back to the ramp.
     func testRampsAndExitsKeepTheirSide() {
-        XCTAssertEqual(mapping(.offRamp, .slightRight), .rampRight)
-        XCTAssertEqual(mapping(.offRamp, .slightLeft), .rampLeft)
+        XCTAssertEqual(mapping(.offRamp, .slightRight), .exitRight)
+        XCTAssertEqual(mapping(.offRamp, .slightLeft), .exitLeft)
+        XCTAssertEqual(mapping(.offRamp, nil), .rampStraight)
         XCTAssertEqual(mapping(.onRamp, .right), .rampRight)
         XCTAssertEqual(mapping(.onRamp, .left), .rampLeft)
         XCTAssertEqual(mapping(.onRamp, .straight), .rampStraight)
@@ -143,9 +146,10 @@ final class ManeuverSymbolMappingTests: XCTestCase {
         XCTAssertEqual(mapping(.merge, .slightRight), .mergeRight)
         XCTAssertEqual(mapping(.merge, .slightLeft), .mergeLeft)
 
-        XCTAssertEqual(mapping(.fork, .right), .slightRight)
-        XCTAssertEqual(mapping(.fork, .left), .slightLeft)
+        XCTAssertEqual(mapping(.fork, .right), .stayRight)
+        XCTAssertEqual(mapping(.fork, .left), .stayLeft)
         XCTAssertEqual(mapping(.fork, .straight), .stayStraight)
+        XCTAssertEqual(mapping(.fork, nil), .stayStraight)
 
         XCTAssertEqual(mapping(.endOfRoad, .right), .right)
         XCTAssertEqual(mapping(.endOfRoad, .left), .left)

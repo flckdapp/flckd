@@ -12,12 +12,14 @@ main decisions were made the way they were.
 
 **You're Flocked** warns you when you're near ALPR (automated licence plate
 reader) cameras and other surveillance devices. Camera locations come from
-OpenStreetMap. The app does four things:
+OpenStreetMap. The app does five things:
 
 - warns you when you enter a camera's detection zone
 - shows surveillance cameras on a live map
 - lets you add cameras you find to OpenStreetMap
 - plans routes that pass fewer cameras, on the device
+- gives turn-by-turn directions along that route, and replans around cameras
+  if you leave it
 
 iOS ships first (SwiftUI, MapKit, CoreLocation, SwiftData, iOS 17+, Swift 6).
 Android is planned but not started.
@@ -60,6 +62,7 @@ ios/
   project.yml                       XcodeGen project definition, the source of truth
   Shared/
     SurveillanceActivityAttributes.swift   shared with the widget target
+    LiveActivityContent.swift              composes the camera and turn halves of its payload
     ManeuverType.swift                     Valhalla maneuver codes, names and turn icons
   YoureFlocked/
     YoureFlockedApp.swift           entry point
@@ -78,8 +81,14 @@ ios/
       SettingsView.swift            settings
       ProximityBannerView.swift     the in-app proximity warning
       OfflineUpdateBanner.swift     "update available" / "updated" notice
-      SplashView.swift              launch screen
-      RoutingDebugOverlay.swift     debug only: the routing latency HUD
+      SplashView.swift                launch screen
+      RoutingDebugOverlay.swift       debug only: the routing latency HUD
+      Navigation/
+        NavigationView.swift          the driving screen: map, turn card, controls, arrival card
+        NavigationBannerView.swift    the turn card
+        NavigationStatusChips.swift   rerouting, rerouted and reroute-failed notices
+        TripSummaryView.swift         the arrival card
+        NavigationFormat.swift        distance, duration and arrival-time text
     ViewModels/
       MapViewModel.swift            map state, filtering, proximity coordination
       CameraStore.swift             central data store
@@ -95,7 +104,14 @@ ios/
       OfflineDataUpdater.swift      daily update check for packs and the camera file
       USStateBounds.swift           rough region boxes for preflight UX
       SuspectedLocationService.swift  optional CSV download
-      LiveActivityManager.swift     Live Activity on the lock screen
+      LiveActivityManager.swift     Live Activity on the lock screen: camera warning and next turn
+      Navigation/
+        NavigationSessionController.swift   one FerrostarCore per trip; state, voice, reroutes, summary
+        FlckdRouteProvider.swift            Ferrostar's route provider, over the on-device planner
+        NavigationLocationAdapter.swift     feeds Ferrostar from the app's one LocationManager
+        FlckdNavigationWidgetProvider.swift Ferrostar's widget hook, onto the shared Live Activity
+        ManeuverSymbol.swift                OSRM type and modifier to the app's ManeuverType
+        NoNetworkRequestLoader.swift        the request loader Ferrostar is given; always throws
       RoutePlanMetrics.swift        debug only: one timed record per plan
       RoutingMetricsStore.swift     debug only: session stats and JSON export
       RerouteProbe.swift            debug only: repeated planning while driving
@@ -280,6 +296,89 @@ trade how many cameras are fenced against how large each fence is.
 Engine configuration, storage rules, and threading are in
 [docs/on-device-routing.md](docs/on-device-routing.md).
 
+### Turn-by-turn navigation
+
+Guidance runs on [Ferrostar](https://github.com/stadiamaps/ferrostar)
+0.59.0 (BSD-3-Clause), pinned exactly: a Rust core that snaps the car to the
+route, advances steps, detects deviation and times the prompts, behind a thin
+Swift layer. The app links `FerrostarCore` only. Ferrostar's map views are
+built on MapLibre; SPM resolves those packages but nothing links them, and
+the driving screen is drawn with MapKit like every other screen.
+
+The flow, start to finish:
+
+1. The route planner's `routeWithProgressiveAvoidance` returns a
+   `RoutePlan`: the chosen `ValhallaRoute`, the exact request JSON that
+   produced it, and its index among that request's candidates.
+2. "Start navigation" hands the plan to `NavigationSessionController`. It
+   re-issues the same request to the same engine with `format: osrm`,
+   `banner_instructions`, `voice_instructions` and `shape_format: polyline6`
+   (`ValhallaRoutingService.navigationResponse(for:)`), parses the answer
+   with Ferrostar's OSRM parser (`FlckdRouteProvider.routes(fromOSRM:)`), and
+   picks the candidate at the plan's index after checking its length
+   (`select(_:for:)`).
+3. A fresh `FerrostarCore` is built for the trip with the app's
+   `NavigationLocationAdapter`, `FlckdRouteProvider`,
+   `NoNetworkRequestLoader` and `FlckdNavigationWidgetProvider`, and
+   `startNavigation(route:)` is called. The controller mirrors Ferrostar's
+   published state onto an observable property; `NavigationView` draws the
+   banner, the remaining geometry and the progress bar from it, Ferrostar's
+   `SpokenInstructionObserver` speaks, and the widget provider pushes the
+   next turn into `LiveActivityManager`.
+4. On deviation Ferrostar asks the delegate; the controller answers
+   `.getNewRoutes` unless the car is within 100 m of the destination.
+   `FlckdRouteProvider.getRoutes` runs the progressive-avoidance planner
+   from the current position and heading, at the avoidance level the trip
+   started with, against the cameras `CameraStore` holds for the corridor
+   plus the ones the preview was planned against, then re-issues the winner
+   as OSRM. The screen shows "Rerouting…", then "New route avoids N of M
+   cameras"; the lock screen shows the spinner too.
+5. On `.complete` the controller builds the trip summary, shows the arrival
+   card, and tears the session down: Live Activity turn cleared, location
+   manager back to its idle distance filter and auto-pause, engine
+   keep-alive released. The same teardown runs on End and on a failed start.
+
+Decisions:
+
+- **Ferrostar rather than guidance written here.** Snapping, step advance
+  on looping detours, deviation with accuracy gating and prompt timing are
+  where a navigation stack spends its bugs. Ferrostar's core is the one
+  place those are being fixed with other people's drives, and the same Rust
+  runs on Android, so the port keeps the hard half. The risk it carries,
+  step skipping on hairpins, is exercised in
+  `NavigationRerouteBehaviourTests` on synthetic detour geometry.
+- **One Live Activity, not two.** Ferrostar's own activity attributes are
+  internal, and a second activity would compete with the camera warning for
+  the lock screen. The app's `ContentState` carries both halves, composed
+  from both sources on every update so neither blanks the other, and the
+  turn half is optional so a payload written before turns existed still
+  decodes.
+- **The preview stays in Valhalla's native format; the OSRM response is
+  re-issued for the chosen request.** The planner's scoring parses the
+  native response and that is well tested. Replanning at start could
+  legitimately return a different route from the one the user agreed to, so
+  start re-runs the exact winning request in OSRM format instead. Valhalla
+  is deterministic, so the candidate order holds; the length check makes a
+  mismatch degrade to the primary route rather than navigate an alternate
+  the user never saw.
+- **Ferrostar owns the audio session.** It ducks other audio per utterance
+  and releases afterwards, which is what a navigation app wants; two owners
+  of one session fight.
+- **Drive simulation is debug-only.** A `Simulate drive` toggle under the
+  route card replays the route through Ferrostar's
+  `SimulatedLocationProvider` at 4x. It lives behind `#if DEBUG` with the
+  rest of the diagnostics.
+- **Thresholds.** Step advance: within 30 m of the end of a step, then 5 m
+  past it, with fixes worse than 32 m ignored. Arrival: within 30 m.
+  Deviation: a fix within 25 m accuracy more than 50 m from every remaining
+  step. Reroute throttle: Ferrostar's 5 s and 50 m. They are in one place,
+  `NavigationSessionController.navigationConfig`, and the behaviour tests
+  use that same value.
+- **The reroute callback hops.** Ferrostar calls
+  `loadedAlternateRoutes` from its reroute task, off the main queue, unlike
+  its other delegate calls. The controller's witness is non-isolated and
+  hops to the main actor itself.
+
 ### Routing diagnostics are debug-only, and enforced
 
 Four files measure how long route planning takes: a per-plan record, a store
@@ -325,7 +424,9 @@ so the tracked project carries no Team ID.
 
 To test proximity alerts without driving around, use Xcode's
 **Debug → Simulate Location**. Location simulation is already enabled in the
-scheme. Don't commit GPX files or coordinates that correspond to real
+scheme. To test turn-by-turn without driving, Debug builds have a
+**Simulate drive** toggle under the route card that replays the planned
+route. Don't commit GPX files or coordinates that correspond to real
 places; see [AGENTS.md](AGENTS.md).
 
 ---
@@ -348,13 +449,14 @@ places; see [AGENTS.md](AGENTS.md).
   map, offered as an "in field of view" alert mode, and used as wedge-shaped
   exclusion zones when routing
 - Live Activity on the lock screen
+- Turn-by-turn guidance on the on-device engine: banner, spoken prompts, the
+  next turn on the lock screen, camera-avoiding reroutes, an arrival summary
 
 **Next**
 
 - Verify the SwiftData cache under real use; it's wired up, not proven
 - Measure real pack sizes with a full server build
 - App icon and launch screen polish
-- Turn-by-turn guidance on top of the on-device engine
 - CarPlay
 
 **Later**

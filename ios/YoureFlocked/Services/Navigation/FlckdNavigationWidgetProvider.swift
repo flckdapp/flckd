@@ -41,17 +41,12 @@ final class FlckdNavigationWidgetProvider: WidgetProviding {
         let durationRemaining = tripProgress.durationRemaining
         let manager = liveActivityManager
 
-        // `isRerouting` stays false: this protocol is handed an instruction and
-        // a progress, and nothing else. `NavigationSessionController` is what
-        // knows a reroute is in flight, and feeding that in means a call from
-        // there, which is outside this change.
         Task { @MainActor in
             await manager.updateNavigation(
                 maneuverCode: maneuver.rawValue,
                 instruction: instruction,
                 distanceToNextTurn: distanceToNextTurn,
-                etaSecondsRemaining: durationRemaining,
-                isRerouting: false
+                etaSecondsRemaining: durationRemaining
             )
         }
     }
