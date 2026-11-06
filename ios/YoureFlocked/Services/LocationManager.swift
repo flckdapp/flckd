@@ -23,14 +23,35 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
     var alertRadius: CLLocationDistance = 200
     var distanceFilter: CLLocationDistance = 25
 
+    /// Mirrors the `CLLocationManager` setting of the same name, which is
+    /// write-only from outside, so navigation mode can be seen to have
+    /// taken effect.
+    private(set) var pausesLocationUpdatesAutomatically: Bool = true
+
+    /// Distance filter while a guidance session is running. Turn-by-turn needs
+    /// finer updates than proximity alerting does, and iOS must not pause them
+    /// when the car stops at a light.
+    static let navigationDistanceFilter: CLLocationDistance = 10
+    static let idleDistanceFilter: CLLocationDistance = 25
+
     // MARK: - Callbacks
 
     var onProximityEnter: ((SurveillanceCamera, CLLocationDistance) -> Void)?
+
+    /// Set by the guidance session's location adapter. Kept out of observation
+    /// because assigning a closure is not a state change any view should
+    /// re-render for.
+    @ObservationIgnored var navigationSink: ((CLLocation) -> Void)?
+    @ObservationIgnored var headingSink: ((CLHeading) -> Void)?
 
     // MARK: - Private
 
     private let manager = CLLocationManager()
     private var hasRequestedAlways: Bool = false
+
+    /// Whether some screen asked for heading updates, so leaving navigation
+    /// mode doesn't switch off the compass the map is still using.
+    private var headingRequested: Bool = false
 
     override init() {
         super.init()
@@ -82,13 +103,35 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
         isLocationPaused = false
     }
 
+    // MARK: - Navigation Mode
+
+    /// Tightens location delivery for turn-by-turn guidance and restores the
+    /// proximity-alerting defaults afterwards.
+    ///
+    /// Deliberately does not start or stop the shared `CLLocationManager`:
+    /// proximity warning is the app's primary job and must keep running
+    /// whether or not a route is being navigated.
+    func setNavigationMode(_ active: Bool) {
+        distanceFilter = active ? Self.navigationDistanceFilter : Self.idleDistanceFilter
+        manager.distanceFilter = distanceFilter
+        pausesLocationUpdatesAutomatically = !active
+        manager.pausesLocationUpdatesAutomatically = pausesLocationUpdatesAutomatically
+        if active {
+            manager.startUpdatingHeading()
+        } else if !headingRequested {
+            manager.stopUpdatingHeading()
+        }
+    }
+
     // MARK: - Heading (independent of tracking)
 
     func startHeading() {
+        headingRequested = true
         manager.startUpdatingHeading()
     }
 
     func stopHeading() {
+        headingRequested = false
         manager.stopUpdatingHeading()
         heading = nil
     }
@@ -111,8 +154,7 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
-        currentLocation = location
-        locationError = nil
+        ingest(location)
 
         // iOS auto-pauses fine GPS when the user is stationary
         // (pausesLocationUpdatesAutomatically) and never restarts it on its
@@ -127,7 +169,21 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+        ingest(newHeading)
+    }
+
+    /// The state update half of the delegate callbacks, separated from the
+    /// `CLLocationManager` bookkeeping so a test can feed a fix in without
+    /// Core Location running.
+    func ingest(_ location: CLLocation) {
+        currentLocation = location
+        locationError = nil
+        navigationSink?(location)
+    }
+
+    func ingest(_ newHeading: CLHeading) {
         heading = newHeading
+        headingSink?(newHeading)
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {

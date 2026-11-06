@@ -6,6 +6,7 @@ struct ContentView: View {
     @Environment(NotificationManager.self) private var notificationManager
     @Environment(LiveActivityManager.self) private var liveActivityManager
     @Environment(ProximityAlertEngine.self) private var proximityEngine
+    @Environment(NavigationSessionController.self) private var navigationController
     @Environment(OfflineDataUpdater.self) private var offlineUpdater
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: Tab = .map
@@ -52,6 +53,10 @@ struct ContentView: View {
         TabView(selection: $selectedTab) {
             ForEach(Tab.allCases, id: \.self) { tab in
                 tabContent(for: tab)
+                    // Inside the tab's content, not over the TabView: the tab
+                    // bar is part of the content's safe area, so this lands
+                    // above it instead of across the Route tab.
+                    .safeAreaInset(edge: .bottom, spacing: 0) { navigatingStrip }
                     .tabItem {
                         Label(tab.rawValue, systemImage: tab.icon)
                     }
@@ -63,10 +68,18 @@ struct ContentView: View {
         // pay a cold rebuild and the drive would measure cold starts instead
         // of reroutes. One flag, one owner: fold the probe into the same
         // condition rather than applying a second modifier that fights it.
-        .keepScreenAwake((keepScreenAwake && selectedTab.watchedWhileDriving) || diagnosticsHoldingScreen)
-        // Both of these sit above the TabView on purpose. Proximity warning is
-        // what the app is for, so neither the detection nor the banner may
-        // depend on which tab is showing, or on the map having been opened.
+        //
+        // Guidance overrides the setting and the tab: a driver following
+        // turn-by-turn directions is looking at the screen, and a blacked-out
+        // one means a missed turn.
+        .keepScreenAwake(
+            (keepScreenAwake && selectedTab.watchedWhileDriving)
+                || navigationController.isActive
+                || diagnosticsHoldingScreen
+        )
+        // This sits above the TabView on purpose. Proximity warning is what
+        // the app is for, so neither the detection nor the banner may depend
+        // on which tab is showing, or on the map having been opened.
         .overlay(alignment: .top) { proximityBanner }
         .onChange(of: locationManager.currentLocation) { _, newLocation in
             guard let location = newLocation else { return }
@@ -125,6 +138,35 @@ struct ContentView: View {
         .animation(.easeOut(duration: 0.25), value: offlineUpdater.notice)
     }
 
+    /// The driving screen lives in the Route tab, so wandering off it looks
+    /// like guidance stopped. This is the way back.
+    @ViewBuilder
+    private var navigatingStrip: some View {
+        if navigationController.isActive, selectedTab != .route {
+            Button {
+                selectedTab = .route
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "location.north.fill")
+                        .font(.caption.weight(.bold))
+                    Text("Navigating")
+                        .font(.subheadline.weight(.semibold))
+                    Text("\u{00B7} tap to return")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(.regularMaterial, in: Capsule())
+                .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, 8)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .accessibilityLabel("Return to navigation")
+        }
+    }
+
     @ViewBuilder
     private func tabContent(for tab: Tab) -> some View {
         switch tab {
@@ -159,11 +201,23 @@ struct ContentView: View {
 }
 
 #Preview {
+    let locationManager = LocationManager()
+    let cameraStore = CameraStore()
+    let liveActivityManager = LiveActivityManager()
+    let proximityEngine = ProximityAlertEngine()
+
     ContentView()
-        .environment(LocationManager())
-        .environment(CameraStore())
+        .environment(locationManager)
+        .environment(cameraStore)
         .environment(NotificationManager())
-        .environment(LiveActivityManager())
-        .environment(ProximityAlertEngine())
+        .environment(liveActivityManager)
+        .environment(proximityEngine)
+        .environment(NavigationSessionController(
+            locationManager: locationManager,
+            cameraStore: cameraStore,
+            proximityEngine: proximityEngine,
+            liveActivityManager: liveActivityManager,
+            routingService: ValhallaRoutingService()
+        ))
         .environment(OfflineDataUpdater())
 }

@@ -1,4 +1,5 @@
 import Foundation
+import os
 import UIKit
 import Valhalla
 import ValhallaConfigModels
@@ -14,12 +15,27 @@ final class LocalValhallaEngine: @unchecked Sendable {
     private var engine: Valhalla?          // touched only on `queue`
     private var loadedRegion: URL?         // touched only on `queue`
 
+    private let keepAlive = OSAllocatedUnfairLock(initialState: false)
+
+    /// When true, backgrounding does not tear the engine down. A guidance
+    /// session reroutes with the screen off, and a rebuild costs an mmap plus
+    /// an index parse, which is far too slow for a moving car. The
+    /// memory-warning teardown still applies: the system asking for memory
+    /// outranks reroute latency, and the engine rebuilds lazily.
+    var keepAliveInBackground: Bool {
+        get { keepAlive.withLock { $0 } }
+        set { keepAlive.withLock { $0 = newValue } }
+    }
+
     private init() {
         let center = NotificationCenter.default
         center.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil, queue: nil
-        ) { [weak self] _ in self?.shutdown() }
+        ) { [weak self] _ in
+            guard let self, !self.keepAliveInBackground else { return }
+            self.shutdown()
+        }
         center.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification,
             object: nil, queue: nil

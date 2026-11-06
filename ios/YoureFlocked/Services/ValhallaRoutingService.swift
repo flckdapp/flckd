@@ -55,6 +55,11 @@ actor ValhallaRoutingService {
     /// choice and the card's "Cameras" stat always agree.
     static let scoringRadiusMeters: Double = 35
 
+    /// Half-width of the box around the straight start-to-end line that
+    /// cameras are considered from. Guidance reroutes fetch their camera set
+    /// for the same corridor, so the constant is shared rather than repeated.
+    static let corridorBufferKm: Double = 5.0
+
     /// Caps on the greedy re-fencing pass that runs after an endpoint had to
     /// be unfenced (see `routeWithProgressiveAvoidance`). Each refinement is
     /// one more engine call, so both a per-rung and a whole-request budget
@@ -115,17 +120,22 @@ actor ValhallaRoutingService {
         return bestCandidate(candidates, scoredAgainst: scoringCameras ?? cameras, level: level, useFOV: useFOV)
     }
 
+    /// `heading` is the direction of travel at `start`, in degrees clockwise
+    /// from north. Supplying it on a reroute makes Loki snap the origin to the
+    /// road the car is actually on rather than the nearest edge, which would
+    /// otherwise open the route with a U-turn across the carriageway.
     func routeWithProgressiveAvoidance(
         from start: CLLocationCoordinate2D,
         to end: CLLocationCoordinate2D,
         cameras: [SurveillanceCamera],
         useFOV: Bool = false,
         costing: String = "auto",
-        level: AvoidanceLevel = .balanced
-    ) async throws -> (route: ValhallaRoute, avoidedCount: Int, totalCount: Int) {
+        level: AvoidanceLevel = .balanced,
+        heading: Double? = nil
+    ) async throws -> RoutePlan {
         try await planProgressiveAvoidance(
             from: start, to: end, cameras: cameras,
-            useFOV: useFOV, costing: costing, level: level
+            useFOV: useFOV, costing: costing, level: level, heading: heading
         )
     }
 
@@ -141,9 +151,10 @@ actor ValhallaRoutingService {
         useFOV: Bool = false,
         costing: String = "auto",
         level: AvoidanceLevel = .balanced,
+        heading: Double? = nil,
         trigger: RoutePlanSample.Trigger = .initial,
         speedMps: Double? = nil
-    ) async throws -> (route: ValhallaRoute, avoidedCount: Int, totalCount: Int) {
+    ) async throws -> RoutePlan {
         let watch = Stopwatch()
         let metrics = RoutePlanAccumulator()
         activeMetrics = metrics
@@ -179,7 +190,7 @@ actor ValhallaRoutingService {
         do {
             let result = try await planProgressiveAvoidance(
                 from: start, to: end, cameras: cameras,
-                useFOV: useFOV, costing: costing, level: level
+                useFOV: useFOV, costing: costing, level: level, heading: heading
             )
             await publish(
                 route: result.route,
@@ -200,9 +211,10 @@ actor ValhallaRoutingService {
         cameras: [SurveillanceCamera],
         useFOV: Bool,
         costing: String,
-        level: AvoidanceLevel
-    ) async throws -> (route: ValhallaRoute, avoidedCount: Int, totalCount: Int) {
-        let corridorCameras = camerasInCorridor(from: start, to: end, cameras: cameras, bufferKm: 5.0)
+        level: AvoidanceLevel,
+        heading: Double?
+    ) async throws -> RoutePlan {
+        let corridorCameras = camerasInCorridor(from: start, to: end, cameras: cameras, bufferKm: Self.corridorBufferKm)
 
         let relevantCameras: [SurveillanceCamera]
         if useFOV {
@@ -277,21 +289,24 @@ actor ValhallaRoutingService {
         // avoidance can never do worse than doing nothing. All candidates are
         // scored with the same fixed yardstick; the winner has the fewest
         // cameras that can actually see it, tie-broken by fastest travel time.
-        var pool: [(route: ValhallaRoute, exposure: Int)] = []
-        func admit(_ routes: [ValhallaRoute], tag: String) {
+        // Each entry keeps the request that produced it and its position in
+        // that request's candidate list, so guidance can re-issue the winning
+        // request in OSRM format and find the same route again.
+        var pool: [(route: ValhallaRoute, exposure: Int, requestJSON: Data, candidateIndex: Int)] = []
+        func admit(_ attempt: (routes: [ValhallaRoute], requestJSON: Data), tag: String) {
             #if DEBUG
             let scoringWatch = Stopwatch()
-            defer { activeMetrics?.addScoring(scoringWatch.elapsedMs, candidates: routes.count) }
+            defer { activeMetrics?.addScoring(scoringWatch.elapsedMs, candidates: attempt.routes.count) }
             #endif
-            for candidate in routes {
+            for (index, candidate) in attempt.routes.enumerated() {
                 let exposed = exposedCameraIDs(route: candidate, cameras: corridorCameras, radiusMeters: Self.scoringRadiusMeters, useFOV: useFOV)
-                pool.append((candidate, exposed.count))
+                pool.append((candidate, exposed.count, attempt.requestJSON, index))
                 Self.log.info("plan \(tag, privacy: .public): \(Int(candidate.timeSeconds))s \(candidate.distanceKm, format: .fixed(precision: 1))km exposure=\(exposed.count) ids=\(exposed.sorted().map(String.init).joined(separator: ","), privacy: .public)")
             }
         }
         Self.log.info("plan start level=\(level.label, privacy: .public) corridor=\(corridorCameras.count) fenced=\(capped.count)")
 
-        if let baseline = try? await routeCandidates(from: start, to: end, avoiding: [], useFOV: useFOV, costing: costing, level: level, radiusOverride: nil) {
+        if let baseline = try? await routeCandidates(from: start, to: end, avoiding: [], useFOV: useFOV, costing: costing, level: level, radiusOverride: nil, heading: heading) {
             admit(baseline, tag: "baseline")
         }
 
@@ -303,9 +318,9 @@ actor ValhallaRoutingService {
                 let ringIDs = Set(ring.map(\.id))
                 let subset = capped.filter { !ringIDs.contains($0.id) }
                 if subset.isEmpty { break }
-                let routes: [ValhallaRoute]
+                let attempt: (routes: [ValhallaRoute], requestJSON: Data)
                 do {
-                    routes = try await routeCandidates(from: start, to: end, avoiding: subset, useFOV: useFOV, costing: costing, level: level, radiusOverride: radius, snapRadiusMeters: snap)
+                    attempt = try await routeCandidates(from: start, to: end, avoiding: subset, useFOV: useFOV, costing: costing, level: level, radiusOverride: radius, snapRadiusMeters: snap, heading: heading)
                 } catch RoutingError.noRouteFound {
                     Self.log.info("plan r=\(Int(radius)) unfence=\(Int(unfence)) snap=\(Int(snap)) fenced=\(subset.count): no route")
                     continue // still encircled; relax further
@@ -313,7 +328,7 @@ actor ValhallaRoutingService {
                     Self.log.error("plan r=\(Int(radius)) unfence=\(Int(unfence)) snap=\(Int(snap)): \(error.localizedDescription, privacy: .public)")
                     break rungLoop // engine-level failure; stop probing
                 }
-                admit(routes, tag: "r=\(Int(radius)) unfence=\(Int(unfence)) snap=\(Int(snap)) fenced=\(subset.count)")
+                admit(attempt, tag: "r=\(Int(radius)) unfence=\(Int(unfence)) snap=\(Int(snap)) fenced=\(subset.count)")
 
                 // Greedy re-fencing. The ring unfence made the request
                 // feasible by dropping every camera near an endpoint, which
@@ -328,7 +343,7 @@ actor ValhallaRoutingService {
                 if !ring.isEmpty {
                     var unfenced = Dictionary(ring.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
                     var locked = Set<Int64>()
-                    var primary = routes[0]
+                    var primary = attempt.routes[0]
                     var rungCalls = 0
                     while rungCalls < Self.maxRefinementCallsPerRung, refinementBudget > 0 {
                         let hits = exposedCameraIDs(route: primary, cameras: Array(unfenced.values), radiusMeters: Self.scoringRadiusMeters, useFOV: useFOV)
@@ -340,10 +355,10 @@ actor ValhallaRoutingService {
                         rungCalls += 1
                         refinementBudget -= 1
                         do {
-                            let refined = try await routeCandidates(from: start, to: end, avoiding: trial, useFOV: useFOV, costing: costing, level: level, radiusOverride: radius, snapRadiusMeters: snap, isRefinement: true)
+                            let refined = try await routeCandidates(from: start, to: end, avoiding: trial, useFOV: useFOV, costing: costing, level: level, radiusOverride: radius, snapRadiusMeters: snap, heading: heading, isRefinement: true)
                             unfenced.removeValue(forKey: target.id)
                             admit(refined, tag: "r=\(Int(radius)) unfence=\(Int(unfence)) snap=\(Int(snap)) refenced=\(target.id)")
-                            primary = refined[0]
+                            primary = refined.routes[0]
                         } catch RoutingError.noRouteFound {
                             locked.insert(target.id) // unavoidable at this radius
                             Self.log.info("plan r=\(Int(radius)) refence \(target.id): no route, camera unavoidable")
@@ -361,18 +376,32 @@ actor ValhallaRoutingService {
             return a.route.timeSeconds < b.route.timeSeconds
         }) else {
             // Nothing routable at all: surface the plain attempt's error.
-            let route = try await route(from: start, to: end, avoiding: [], costing: costing)
+            let attempt = try await routeCandidates(from: start, to: end, avoiding: [], useFOV: useFOV, costing: costing, level: level, radiusOverride: nil, heading: heading)
+            guard let route = attempt.routes.first else { throw RoutingError.noRouteFound }
             let onRoute = exposureCount(route: route, cameras: corridorCameras, radiusMeters: Self.scoringRadiusMeters, useFOV: useFOV)
-            return (route: route, avoidedCount: totalCount - onRoute, totalCount: totalCount)
+            return RoutePlan(
+                route: route,
+                avoidedCount: totalCount - onRoute,
+                totalCount: totalCount,
+                requestJSON: attempt.requestJSON,
+                candidateIndex: 0
+            )
         }
 
         Self.log.info("plan winner: \(Int(best.route.timeSeconds))s exposure=\(best.exposure) of \(totalCount) corridor cameras")
-        return (route: best.route, avoidedCount: totalCount - best.exposure, totalCount: totalCount)
+        return RoutePlan(
+            route: best.route,
+            avoidedCount: totalCount - best.exposure,
+            totalCount: totalCount,
+            requestJSON: best.requestJSON,
+            candidateIndex: best.candidateIndex
+        )
     }
 
     /// Runs one routing request and returns every candidate (primary plus
-    /// alternates) without picking a winner. The progressive-avoidance loop
-    /// accumulates these into a shared pool and scores them itself.
+    /// alternates) without picking a winner, along with the exact request that
+    /// produced them. The progressive-avoidance loop accumulates these into a
+    /// shared pool and scores them itself.
     private func routeCandidates(
         from start: CLLocationCoordinate2D,
         to end: CLLocationCoordinate2D,
@@ -382,12 +411,13 @@ actor ValhallaRoutingService {
         level: AvoidanceLevel,
         radiusOverride: Double?,
         snapRadiusMeters: Double = 0,
+        heading: Double? = nil,
         isRefinement: Bool = false
-    ) async throws -> [ValhallaRoute] {
+    ) async throws -> (routes: [ValhallaRoute], requestJSON: Data) {
         guard LocalValhallaEngine.shared.hasRegion else {
             throw RoutingError.engineUnavailable
         }
-        let request = buildRequest(from: start, to: end, avoiding: cameras, useFOV: useFOV, costing: costing, level: level, radiusOverride: radiusOverride, snapRadiusMeters: snapRadiusMeters)
+        let request = buildRequest(from: start, to: end, avoiding: cameras, useFOV: useFOV, costing: costing, level: level, radiusOverride: radiusOverride, snapRadiusMeters: snapRadiusMeters, heading: heading)
         let jsonData = try JSONSerialization.data(withJSONObject: request)
         guard let json = String(data: jsonData, encoding: .utf8) else {
             throw RoutingError.invalidResponse
@@ -403,7 +433,7 @@ actor ValhallaRoutingService {
         do {
             let (data, timing) = try await LocalValhallaEngine.shared.routeTimed(rawRequest: json, region: region)
             activeMetrics?.addEngineCall(timing, isRefinement: isRefinement)
-            return try parseCandidates(data)
+            return (try parseCandidates(data), jsonData)
         } catch {
             // A rejected rung still burned engine time, and the no-route rungs
             // are the expensive ones. Dropping them would flatter the totals.
@@ -415,8 +445,51 @@ actor ValhallaRoutingService {
         }
         #else
         let data = try await LocalValhallaEngine.shared.route(rawRequest: json, region: region)
-        return try parseCandidates(data)
+        return (try parseCandidates(data), jsonData)
         #endif
+    }
+
+    /// Re-issues the request that produced `plan` in OSRM format, with the
+    /// banner and voice instructions a guidance session needs.
+    ///
+    /// Valhalla is deterministic, so the same request yields the same ordered
+    /// candidate list: `routes[plan.candidateIndex]` is the route the user
+    /// previewed. Nothing leaves the device; this is the same on-device engine
+    /// call the preview made, asked for in a different response format.
+    func navigationResponse(for plan: RoutePlan, useMetric: Bool) async throws -> Data {
+        guard LocalValhallaEngine.shared.hasRegion else {
+            throw RoutingError.engineUnavailable
+        }
+        let request = try Self.navigationRequest(from: plan.requestJSON, useMetric: useMetric)
+        guard let json = String(data: request, encoding: .utf8) else {
+            throw RoutingError.invalidResponse
+        }
+        let endpoints = [plan.route.coordinates.first, plan.route.coordinates.last].compactMap { $0 }
+        let region = RegionStore.bestAvailableRegion(containing: endpoints)
+        return try await LocalValhallaEngine.shared.route(rawRequest: json, region: region)
+    }
+
+    /// Turns a planning request into the guidance equivalent.
+    ///
+    /// `units` moves to the top level and `directions_options` is dropped:
+    /// Valhalla copies the deprecated nested keys up with RapidJSON's
+    /// `AddMember`, which appends rather than replaces, so a request carrying
+    /// both would leave which `units` wins to member order.
+    ///
+    /// Spoken and banner distances follow the user's unit setting, which is why
+    /// the preview request keeps kilometres: `ValhallaRoute.distanceKm` parsing
+    /// depends on it.
+    static func navigationRequest(from requestJSON: Data, useMetric: Bool) throws -> Data {
+        guard var request = try JSONSerialization.jsonObject(with: requestJSON) as? [String: Any] else {
+            throw RoutingError.invalidResponse
+        }
+        request["format"] = "osrm"
+        request["banner_instructions"] = true
+        request["voice_instructions"] = true
+        request["shape_format"] = "polyline6"
+        request.removeValue(forKey: "directions_options")
+        request["units"] = useMetric ? "kilometers" : "miles"
+        return try JSONSerialization.data(withJSONObject: request)
     }
 
     #if DEBUG
@@ -466,13 +539,17 @@ actor ValhallaRoutingService {
         costing: String,
         level: AvoidanceLevel = .balanced,
         radiusOverride: Double? = nil,
-        snapRadiusMeters: Double = 0
+        snapRadiusMeters: Double = 0,
+        heading: Double? = nil
     ) -> [String: Any] {
         let radius = radiusOverride ?? level.radiusMeters
         var locations: [[String: Any]] = [
             ["lat": start.latitude, "lon": start.longitude, "type": "break"],
             ["lat": end.latitude, "lon": end.longitude, "type": "break"],
         ]
+        if let heading {
+            locations[0]["heading"] = heading
+        }
         if snapRadiusMeters > 0 {
             // Every edge within this distance is an endpoint candidate; see
             // `endpointSnapRadiiMeters`. Valhalla still prefers the nearest
@@ -738,11 +815,23 @@ actor ValhallaRoutingService {
 
 // MARK: - Response Models
 
-struct ValhallaRoute {
+struct ValhallaRoute: Sendable {
     let coordinates: [CLLocationCoordinate2D]
     let distanceKm: Double
     let timeSeconds: Double
     let maneuvers: [ValhallaManeuver]
+}
+
+/// A chosen route plus everything needed to ask the engine for it again in a
+/// different response format. `requestJSON` is the final rung of the
+/// progressive-avoidance loop, the request that actually produced `route`, and
+/// `candidateIndex` is that route's position in the order [trip, alternates].
+struct RoutePlan: Sendable {
+    let route: ValhallaRoute
+    let avoidedCount: Int
+    let totalCount: Int
+    let requestJSON: Data
+    let candidateIndex: Int
 }
 
 struct ValhallaManeuver {

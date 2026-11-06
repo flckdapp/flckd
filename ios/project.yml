@@ -42,6 +42,8 @@ targets:
       - target: YoureFlockedWidgets
       - package: ValhallaMobile
         product: Valhalla
+      - package: Ferrostar
+        product: FerrostarCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.vws.app.flckd
@@ -113,9 +115,19 @@ targets:
         CODE_SIGN_IDENTITY: "Apple Development"
 
 packages:
+  # Pinned exactly: 0.6.4 moves the embedded engine from Valhalla 3.6.3 to
+  # 3.9.1, and tiles are memory-mapped, so the builder and the engine have to
+  # stay on the same version. `from:` let a fresh checkout resolve 0.6.4.
   ValhallaMobile:
     url: https://github.com/rallista/valhalla-mobile.git
-    from: 0.6.3
+    exactVersion: 0.6.3
+  # Pinned exactly: the maintainers don't audit the Swift API for breaks
+  # between releases. Only FerrostarCore is linked: the app draws its own
+  # driving screen with MapKit, so MapLibre and Ferrostar's views stay out of
+  # the binary.
+  Ferrostar:
+    url: https://github.com/stadiamaps/ferrostar.git
+    exactVersion: 0.59.0
 
 schemes:
   YoureFlocked:

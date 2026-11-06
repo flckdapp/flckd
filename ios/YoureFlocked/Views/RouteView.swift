@@ -7,6 +7,7 @@ import os
 struct RouteView: View {
     @Environment(CameraStore.self) private var cameraStore
     @Environment(LocationManager.self) private var locationManager
+    @Environment(NavigationSessionController.self) private var navigationController
 
     private let overpassService = OverpassService()
     private let valhallaService = ValhallaRoutingService()
@@ -17,6 +18,16 @@ struct RouteView: View {
     @FocusState private var searchFocused: Bool
     @State private var selectedPlace: MKMapItem?
     @State private var routeResult: RouteResult?
+    /// The plan behind `routeResult`, kept because starting guidance re-issues
+    /// the exact request that produced the previewed route rather than
+    /// planning again: a fresh plan could legitimately return a different
+    /// route from the one the user agreed to.
+    @State private var routePlan: RoutePlan?
+    /// Whether the user has asked to start guidance for the current plan. The
+    /// controller keeps `startError` until the next `start`, so without this
+    /// the error from an abandoned attempt would reappear under the next
+    /// route.
+    @State private var startAttempted = false
     @State private var routeCameras: [SurveillanceCamera] = []
     // Avoidance aggressiveness (slider in the result card). Persisted so the
     // preference sticks across launches. Raw value of AvoidanceLevel.
@@ -46,6 +57,23 @@ struct RouteView: View {
     private let searchSubject = PassthroughSubject<String, Never>()
 
     var body: some View {
+        ZStack {
+            planner
+
+            if navigationController.isActive || navigationController.tripSummary != nil {
+                NavigationView(cameras: routeCameras)
+            }
+        }
+        .onChange(of: navigationController.isActive) { _, active in
+            guard active else { return }
+            // The results panel is a sheet, so it would sit above the driving
+            // screen, and the driving screen replaces everything in it.
+            searchFocused = false
+            isSheetPresented = false
+        }
+    }
+
+    private var planner: some View {
         Map(position: $cameraPosition) {
             UserAnnotation()
 
@@ -79,7 +107,7 @@ struct RouteView: View {
         .overlay(alignment: .bottom) {
             // Swiping the panel away keeps the route; this pill floats above
             // the tab bar and brings the panel back in one tap.
-            if let result = routeResult, !isSheetPresented {
+            if let result = routeResult, !isSheetPresented, !navigationController.isActive {
                 Button {
                     isSheetPresented = true
                     sheetDetent = .fraction(0.25)
@@ -584,18 +612,7 @@ struct RouteView: View {
                         }
                     }
 
-                    Button {
-                        openInAppleMaps()
-                    } label: {
-                        HStack {
-                            Text("Open in Apple Maps")
-                            Image(systemName: "arrow.up.right.circle.fill")
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color(red: 0.0, green: 0.7, blue: 0.65))
+                    navigationActions
                 }
                 .padding(20)
                 
@@ -639,6 +656,87 @@ struct RouteView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(value).font(.headline).foregroundStyle(color)
             Text(label).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Navigation
+
+    @ViewBuilder
+    private var navigationActions: some View {
+        VStack(spacing: 10) {
+            Button {
+                startNavigation()
+            } label: {
+                HStack(spacing: 8) {
+                    if navigationController.isStarting {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                        Text("Starting navigation\u{2026}")
+                    } else {
+                        Image(systemName: "location.north.fill")
+                        Text("Start navigation")
+                    }
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Color(red: 0.0, green: 0.7, blue: 0.65))
+            .disabled(navigationController.isStarting || routePlan == nil)
+            .accessibilityIdentifier("start-navigation")
+
+            if startAttempted, !navigationController.isStarting,
+               let error = navigationController.startError {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(error.localizedDescription)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Button {
+                openInAppleMaps()
+            } label: {
+                HStack {
+                    Text("Open in Apple Maps")
+                    Image(systemName: "arrow.up.right.circle.fill")
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
+            }
+            .buttonStyle(.bordered)
+
+            #if DEBUG
+            Toggle("Simulate drive", isOn: Bindable(navigationController).simulateDrive)
+                .font(.footnote)
+                .tint(Color(red: 0.0, green: 0.7, blue: 0.65))
+            #endif
+        }
+    }
+
+    private func startNavigation() {
+        guard let plan = routePlan,
+              let place = selectedPlace,
+              let coordinate = place.placemark.location?.coordinate else { return }
+
+        startAttempted = true
+        let destination = NavigationSessionController.Destination(
+            name: place.name ?? "Destination",
+            coordinate: coordinate
+        )
+        let cameras = routeCameras
+        Task {
+            await navigationController.start(
+                plan: plan,
+                destination: destination,
+                routeCameras: cameras
+            )
         }
     }
 
@@ -735,6 +833,8 @@ struct RouteView: View {
         isCalculating = true
         routeError = nil
         routeResult = nil
+        routePlan = nil
+        startAttempted = false
         routeCameras = []
         sheetDetent = .fraction(0.25)
 
@@ -831,6 +931,7 @@ struct RouteView: View {
                 avoidanceInfo: avoidanceInfo,
                 maneuvers: result.route.maneuvers
             )
+            routePlan = result
 
             zoomToRoute(result.route.coordinates)
 
@@ -880,6 +981,8 @@ struct RouteView: View {
         searchCompleter.results = []
         selectedPlace = nil
         routeResult = nil
+        routePlan = nil
+        startAttempted = false
         routeCameras = []
         routeError = nil
         routeErrorNeedsRegion = false

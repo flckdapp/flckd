@@ -1,6 +1,6 @@
 # Privacy Policy — FLCKD (You're Flocked)
 
-**Last updated:** 2026-10-30
+**Last updated:** 2026-11-06
 
 FLCKD warns you when you're near surveillance cameras. This document
 describes what the code actually does, including the parts that aren't
@@ -19,6 +19,9 @@ Please open an issue.
   advertising.
 - Routing happens on your device. Your start point and destination are never
   sent anywhere. There is no routing server.
+- Turn-by-turn directions happen on your device too. Spoken prompts come
+  from the phone's own text-to-speech, and a reroute is the same on-device
+  planner run again. Nothing about a trip is sent or kept.
 - No location history is written to disk, and no position ever leaves the
   device. Speed and red-light cameras come from one national file that is
   downloaded with your routing region and is the same for everyone. Other
@@ -53,14 +56,68 @@ exists.
 
 The routing engine is
 [`valhalla-mobile`](https://github.com/rallista/valhalla-mobile) (MIT),
-compiled into the app. It's the one piece of third-party code in the
-binary. It has no analytics and makes no network calls of its own: its
-tile-download setting is left empty, and the engine skips its HTTP fetcher
-when that value is empty.
+compiled into the app. It has no analytics and makes no network calls of its
+own: its tile-download setting is left empty, and the engine skips its HTTP
+fetcher when that value is empty.
+
+Turn-by-turn guidance is
+[Ferrostar](https://github.com/stadiamaps/ferrostar) 0.59.0 (BSD-3-Clause),
+a navigation core written in Rust behind a thin Swift layer, also compiled
+into the app. It never plans a route itself. The app hands it a route from
+the on-device engine, and when you leave that route Ferrostar asks the app's
+own route provider for a new one, which runs the same on-device planner
+again. Ferrostar's only network code is an adapter for hosted routing APIs,
+and this app never constructs one. To make that a fact about the code rather
+than about the call graph, the app gives Ferrostar a request loader that
+always throws (`NoNetworkRequestLoader`): if guidance ever acquired a network
+path, it would fail loudly instead of quietly contacting a server.
+
+Those two libraries are the third-party code in the binary. Swift Package
+Manager also resolves three packages that Ferrostar's map-view products
+depend on, `maplibre/swiftui-dsl`, `maplibre-gl-native-distribution` and
+`swift-syntax`, because a package's dependencies resolve as a set. The app
+links only the `FerrostarCore` product, so none of the three is in the app
+and no MapLibre code is present.
 
 The map data comes from a tile server. See
 [About the tile server](#about-the-tile-server) for what it learns and how
 to run your own.
+
+---
+
+## Turn-by-turn guidance
+
+Starting navigation hands the route you previewed to Ferrostar, on the
+phone. It reads your position from the same location manager the proximity
+alerts use, snaps it to the route, decides when you've reached a turn, and
+decides when you've left the route. None of that leaves the device.
+
+**Reroutes.** If you leave the route, the app plans a new one the way it
+planned the first: the progressive-avoidance planner runs on the device
+against the downloaded pack, from where you are to the same destination,
+with the cameras it knows about for that corridor. Camera data for the
+corridor comes through the same tile and grid-cell requests described below,
+never through a request built around your position.
+
+**Spoken directions.** Each prompt is text Ferrostar derives from the route
+("Turn right onto Second Street") and hands to `AVSpeechSynthesizer`, Apple's
+text-to-speech, which speaks it on the device with the system voices. The
+app sends that text nowhere. Voice guidance can be switched off in Settings
+or muted during a trip.
+
+**The lock screen.** While you're navigating, the app's Live Activity shows
+the next turn above the camera warning. The whole payload is: the number of
+cameras nearby, the distance and bearing to the nearest one and its type,
+whether tracking is on, the next maneuver as a small integer, the
+instruction text already spoken aloud, the distance to that turn, the
+arrival time, and whether a reroute is in progress. No coordinate is in it.
+The activity is requested without a push token, so the app updates it
+itself rather than through Apple's push service, and it ends with the trip.
+
+**The arrival card.** When you arrive, the app shows how long the trip took,
+how far it was, how many cameras you passed and how many reroutes happened.
+Those numbers are held in memory while the card is on screen and discarded
+when you dismiss it. Nothing is written down.
 
 ---
 
@@ -70,7 +127,7 @@ to run your own.
 |---|---|---|
 | **DeFlock CDN**<br>`cdn.deflock.me` | The public camera index, then the 20-degree ALPR data tile or tiles that intersect the grid cell being loaded. A tile name reveals a coarse area, not an exact position. | While the app is open: when a cell is loaded and its tile is missing or out of date |
 | **OpenStreetMap Overpass**<br>`overpass.deflock.org`, then `overpass-api.de` if that fails | A fallback only. One whole-degree grid cell, as four integers: for speed cameras until you have downloaded a routing region, and for every camera type while the DeFlock CDN is unavailable. The cell is fixed to the global degree grid, not to you: every phone in the same cell sends the same bytes. The query is sent in the request body, not the URL. | Only in those two cases, the first time you are in a cell, view one on the map, or plan a route through one; then not again for that cell for a day. Never if you have a region and DeFlock is up |
-| **Apple (MapKit)** | Map tiles for the area you're viewing. In the route search field, the text you type plus the map region. | While the map or route search is open |
+| **Apple (MapKit)** | Map tiles for the area you're viewing. In the route search field, the text you type plus the map region. | While the map, the route search or the navigation screen is open |
 | **Tile server**<br>default `tiles.flckd.app` (a Cloudflare R2 bucket), configurable | The catalog, which region pack you're downloading, and the national speed-camera file, which is the same for everyone. Nothing about your position. | When you open Offline Routing in Settings, and while a region download is running. Once you have downloaded a region, also once a day when the app opens, to check for updates; with "Update Automatically" on (the default), newer regions download on Wi-Fi and a newer speed-camera file on any network |
 | **ALPRWatch**<br>`alprwatch.org` | Nothing about you. A static file download. | Only if you switch on "Show Suspected Locations", which is off by default |
 
@@ -210,11 +267,12 @@ registries; it does not send mobile-app traffic to those registries.
   not you.
 - The speed-camera file downloaded with them. It describes cameras, not you.
 - Cached camera records (SwiftData). These describe cameras, not you.
-- Your settings (alert radius, filters, map preferences) in standard iOS
-  preferences storage.
+- Your settings (alert radius, filters, map preferences, voice guidance) in
+  standard iOS preferences storage.
 
-That's all. There's no location log, no visit history, and no route
-history. Uninstalling the app removes all of it.
+That's all. There's no location log, no visit history, no route history and
+no trip history: the arrival card's numbers live in memory until you dismiss
+it. Uninstalling the app removes all of it.
 
 ---
 
@@ -228,6 +286,11 @@ positions on your device. That comparison never leaves the phone.
 The app asks for background location so it can warn you before you pass a
 camera rather than after. If you grant "While Using" instead, the map and
 route planner still work, but background alerts won't.
+
+Turn-by-turn guidance reads the same stream. While a trip is running the
+app asks for a fix every 10 m instead of every 25 m and stops iOS from
+pausing updates at a standstill; when the trip ends, by arrival or by
+tapping End, it puts both settings back.
 
 **Notifications.** Used only to deliver proximity alerts, sent locally by
 your phone. There's no push server.
@@ -274,6 +337,7 @@ ios/YoureFlocked/Services/DeFlockCDNService.swift        bulk ALPR camera data
 ios/YoureFlocked/Services/TilePackService.swift          region pack and speed-camera file downloads
 ios/YoureFlocked/Services/ValhallaRoutingService.swift   route planning
 ios/YoureFlocked/Services/LocalValhallaEngine.swift      the on-device engine
+ios/YoureFlocked/Services/Navigation/                    turn-by-turn guidance over that engine
 ios/YoureFlocked/Services/SuspectedLocationService.swift optional CSV download
 ios/YoureFlocked/Services/LocationManager.swift          on-device location handling
 ```
@@ -289,17 +353,56 @@ Runtime service URLs in the results are covered by the table above or by
 "Links you tap". Documentation and source-reference URLs in comments aren't
 network requests.
 
-To confirm routing specifically never touches the network, the routing
-service and the engine wrapper should contain no `URLSession`, no
-`URLRequest`, and no endpoint constant:
+Any build output under `ios/` holds the checked-out packages and will swamp
+that list — a built tree answers with about 1,700 lines instead of 30. Skip
+it with `--exclude-dir`, naming whichever derived-data directory you have
+(`_dd` is what the commands below use, `_build` and `DerivedData` are the
+other usual ones), or search only the files this repository tracks, which
+needs no such care:
 
 ```bash
-grep -nE 'URLSession|URLRequest|https?://' \
-  ios/YoureFlocked/Services/ValhallaRoutingService.swift \
-  ios/YoureFlocked/Services/LocalValhallaEngine.swift
+git ls-files 'ios/**/*.swift' | xargs grep -n 'https\?://'
 ```
 
-That should print nothing.
+To confirm routing and guidance specifically never touch the network, the
+routing service, the engine wrapper and the navigation directory should
+contain no `URLSession`, no `URLRequest`, and no endpoint constant:
+
+```bash
+grep -rnE 'URLSession|URLRequest|https?://' \
+  ios/YoureFlocked/Services/ValhallaRoutingService.swift \
+  ios/YoureFlocked/Services/LocalValhallaEngine.swift \
+  ios/YoureFlocked/Services/Navigation/
+```
+
+That prints three lines, all in `NoNetworkRequestLoader.swift`: the name of
+the Ferrostar protocol it adopts, `URLRequestLoading`, a doc comment naming
+it, and the signature of its one method, which takes a `URLRequest` and
+throws without reading it. Nothing else in those files mentions the network.
+
+Ferrostar itself is open source and is checked out into your build
+directory, so its network code can be read too. Once the project has built
+(`-derivedDataPath _dd` below is what this repository's build commands use;
+Xcode's own DerivedData works the same way):
+
+```bash
+grep -rn 'URLSession' ios/_dd/SourcePackages/checkouts/ferrostar/apple/Sources/FerrostarCore/
+grep -n 'networkSession' ios/_dd/SourcePackages/checkouts/ferrostar/apple/Sources/FerrostarCore/FerrostarCore.swift
+```
+
+The first command prints eleven lines across three files, and they are four
+kinds of thing: two doc comments; a `MockURLSession` class and its error
+enum, for Ferrostar's own tests; a one-line conformance of `URLSession` to
+`URLRequestLoading`; and `URLSession.shared` as the default value of the
+`networkSession` parameter, which repeats across four convenience
+initialisers. The second command shows every mention of that parameter.
+Most are initialisers handing it along; it is stored once, and the only
+call on it is a single `loadData(with:)` inside `getRoutes`, under
+`case let .routeAdapter`. This app passes
+`NoNetworkRequestLoader` for the parameter, so the default never applies,
+and it builds the core with `customRouteProvider:`, so the `.routeAdapter`
+branch is never entered. Both facts are a few lines of
+`NavigationSessionController.swift`.
 
 ---
 
