@@ -77,6 +77,7 @@ struct ContentView: View {
         // what the app is for, so neither the detection nor the banner may
         // depend on which tab is showing, or on the map having been opened.
         .overlay(alignment: .top) { proximityBanner }
+        .overlay(alignment: .bottom) { navigatingStrip }
         .onChange(of: locationManager.currentLocation) { _, newLocation in
             guard let location = newLocation else { return }
             proximityEngine.handleLocationUpdate(
@@ -132,6 +133,35 @@ struct ContentView: View {
         }
         .animation(.easeOut(duration: 0.25), value: proximityEngine.activeAlert != nil)
         .animation(.easeOut(duration: 0.25), value: offlineUpdater.notice)
+    }
+
+    /// The driving screen lives in the Route tab, so wandering off it looks
+    /// like guidance stopped. This is the way back.
+    @ViewBuilder
+    private var navigatingStrip: some View {
+        if navigationController.isActive, selectedTab != .route {
+            Button {
+                selectedTab = .route
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "location.north.fill")
+                        .font(.caption.weight(.bold))
+                    Text("Navigating")
+                        .font(.subheadline.weight(.semibold))
+                    Text("\u{00B7} tap to return")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(.regularMaterial, in: Capsule())
+                .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, 8)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .accessibilityLabel("Return to navigation")
+        }
     }
 
     @ViewBuilder
