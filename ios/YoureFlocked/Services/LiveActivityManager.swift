@@ -5,6 +5,11 @@ import Observation
 /// Duration after which a Live Activity's content is considered stale.
 private let liveActivityStaleDuration: TimeInterval = 300
 
+/// Used only when guidance needs an activity before the camera path ever asked
+/// for one and the setting has never been written. Matches `LocationManager`'s
+/// own default, which the slider in Settings starts at.
+private let fallbackAlertRadius: Double = 200
+
 /// Manages the lifecycle of the surveillance-tracking Live Activity.
 ///
 /// `ActivityKit.Activity` is not `Sendable`, and its `request`, `update`, and
@@ -12,6 +17,11 @@ private let liveActivityStaleDuration: TimeInterval = 300
 /// boundary. This main-actor class therefore stores only the activity id (a
 /// `String`), and every ActivityKit object is confined to the `nonisolated`
 /// helpers in the extension below.
+///
+/// One activity carries both the camera warning and the next turn. The two
+/// halves are held separately and every payload is composed from both, because
+/// `ContentState` is replaced wholesale: pushing only what just changed would
+/// blank the other half.
 @MainActor
 @Observable
 final class LiveActivityManager {
@@ -22,6 +32,27 @@ final class LiveActivityManager {
     /// Identifier of the activity this manager owns, if any.
     private var currentActivityID: String?
 
+    /// The camera numbers from the last proximity update. Kept even with no
+    /// activity on screen, so one requested later opens with what the app
+    /// already knows rather than with zeros.
+    private var lastCameraFields = CameraActivityFields()
+
+    /// The guidance numbers from the last Ferrostar instruction, `nil` when no
+    /// trip is running. Always the newest known values, including the ones the
+    /// throttle decided not to spend a push on: a camera update that follows
+    /// carries them for free.
+    private var navigationFields: NavigationActivityFields?
+
+    private var navigationThrottle = NavigationUpdateThrottle()
+
+    /// The radius the camera path last asked for, so an activity requested by
+    /// guidance describes the same detection zone.
+    private var lastAlertRadius: Double?
+
+    /// True while the activity on screen exists only because guidance asked for
+    /// one. It ends with the trip; an activity the camera path owns does not.
+    private var navigationOwnsActivity = false
+
     /// Whether the user has Live Activities enabled for this app.
     var isSupported: Bool {
         ActivityAuthorizationInfo().areActivitiesEnabled
@@ -31,12 +62,23 @@ final class LiveActivityManager {
 
     /// Starts a Live Activity, unless one is already running or the feature is off.
     func startActivity(alertRadius: Double) {
+        lastAlertRadius = alertRadius
+
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-        guard currentActivityID == nil else { return }
-        guard let id = Self.requestActivity(alertRadius: alertRadius) else { return }
+        guard currentActivityID == nil else {
+            // Guidance got there first. Tracking now wants this activity too,
+            // so the end of the trip must not take it away.
+            navigationOwnsActivity = false
+            return
+        }
+        guard let id = Self.requestActivity(
+            alertRadius: alertRadius,
+            initialState: composedState()
+        ) else { return }
 
         currentActivityID = id
         isActivityRunning = true
+        navigationOwnsActivity = false
     }
 
     /// Pushes new proximity data to the running Live Activity.
@@ -47,16 +89,78 @@ final class LiveActivityManager {
         nearestCameraType: String,
         isTracking: Bool
     ) async {
-        guard let id = currentActivityID else { return }
-
-        await Self.updateActivity(
-            id: id,
+        lastCameraFields = CameraActivityFields(
             nearbyCameraCount: nearbyCameraCount,
-            nearestDistance: nearestDistance,
-            nearestBearing: nearestBearing,
+            nearestCameraDistance: nearestDistance,
+            nearestCameraBearing: nearestBearing,
             nearestCameraType: nearestCameraType,
             isTracking: isTracking
         )
+
+        guard let id = currentActivityID else { return }
+
+        await Self.updateActivity(id: id, state: composedState())
+    }
+
+    /// Pushes the next turn to the running Live Activity, starting one if
+    /// guidance is the first thing to want it.
+    ///
+    /// Distances are in metres and `etaSecondsRemaining` is the trip duration
+    /// left, which is turned into an arrival time here: the payload stores a
+    /// date so the lock screen stays truthful between updates.
+    func updateNavigation(
+        maneuverCode: Int?,
+        instruction: String?,
+        distanceToNextTurn: Double?,
+        etaSecondsRemaining: Double?,
+        isRerouting: Bool
+    ) async {
+        let fields = NavigationActivityFields(
+            maneuverCode: maneuverCode,
+            instruction: instruction,
+            distanceToNextTurnMeters: distanceToNextTurn,
+            eta: etaSecondsRemaining.map { Date.now.addingTimeInterval($0) },
+            isRerouting: isRerouting
+        )
+        navigationFields = fields
+
+        guard let id = currentActivityID else {
+            // A trip can run with camera tracking switched off, in which case
+            // nobody has requested an activity yet. The turn is worth a lock
+            // screen on its own, and the camera row comes along with it.
+            guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+            guard let id = Self.requestActivity(
+                alertRadius: lastAlertRadius ?? Self.storedAlertRadius(),
+                initialState: composedState()
+            ) else { return }
+
+            currentActivityID = id
+            isActivityRunning = true
+            navigationOwnsActivity = true
+            navigationThrottle.recordPush(of: fields)
+            return
+        }
+
+        guard navigationThrottle.shouldPush(fields) else { return }
+
+        await Self.updateActivity(id: id, state: composedState())
+    }
+
+    /// Takes the turn off the Live Activity when guidance stops.
+    func clearNavigation() async {
+        navigationFields = nil
+        navigationThrottle.reset()
+
+        guard let id = currentActivityID else { return }
+
+        guard !navigationOwnsActivity else {
+            // Nothing else asked for this activity, so it goes with the trip
+            // instead of sitting on the lock screen until it goes stale.
+            await endActivity()
+            return
+        }
+
+        await Self.updateActivity(id: id, state: composedState())
     }
 
     /// Ends the Live Activity owned by this manager.
@@ -67,8 +171,28 @@ final class LiveActivityManager {
         // activity twice, then perform the ActivityKit work off the main actor.
         currentActivityID = nil
         isActivityRunning = false
+        navigationOwnsActivity = false
+        navigationFields = nil
+        navigationThrottle.reset()
+        lastCameraFields = CameraActivityFields()
 
         await Self.endActivity(id: id)
+    }
+
+    // MARK: - Content
+
+    private func composedState() -> SurveillanceActivityAttributes.ContentState {
+        LiveActivityContent.compose(camera: lastCameraFields, navigation: navigationFields)
+    }
+
+    /// The alert radius as the user last left it, read from the key Settings'
+    /// slider writes. Only consulted when guidance needs an activity in a
+    /// session where tracking never started.
+    private static func storedAlertRadius(
+        _ defaults: UserDefaults = .standard
+    ) -> Double {
+        let stored = defaults.double(forKey: LocationManager.alertRadiusKey)
+        return stored > 0 ? stored : fallbackAlertRadius
     }
 }
 
@@ -79,15 +203,11 @@ final class LiveActivityManager {
 extension LiveActivityManager {
 
     /// Requests a new Live Activity and returns its id, or `nil` on failure.
-    nonisolated static func requestActivity(alertRadius: Double) -> String? {
+    nonisolated static func requestActivity(
+        alertRadius: Double,
+        initialState: SurveillanceActivityAttributes.ContentState
+    ) -> String? {
         let attributes = SurveillanceActivityAttributes(alertRadius: alertRadius)
-        let initialState = SurveillanceActivityAttributes.ContentState(
-            nearbyCameraCount: 0,
-            nearestCameraDistance: -1,
-            nearestCameraBearing: 0,
-            nearestCameraType: "",
-            isTracking: true
-        )
 
         do {
             let content = ActivityContent(
@@ -109,21 +229,10 @@ extension LiveActivityManager {
     /// Updates the activity with the given id, if it still exists.
     nonisolated static func updateActivity(
         id: String,
-        nearbyCameraCount: Int,
-        nearestDistance: Double,
-        nearestBearing: Double,
-        nearestCameraType: String,
-        isTracking: Bool
+        state: SurveillanceActivityAttributes.ContentState
     ) async {
         guard let activity = activity(withID: id) else { return }
 
-        let state = SurveillanceActivityAttributes.ContentState(
-            nearbyCameraCount: nearbyCameraCount,
-            nearestCameraDistance: nearestDistance,
-            nearestCameraBearing: nearestBearing,
-            nearestCameraType: nearestCameraType,
-            isTracking: isTracking
-        )
         let content = ActivityContent(
             state: state,
             staleDate: Date.now.addingTimeInterval(liveActivityStaleDuration)
@@ -135,12 +244,9 @@ extension LiveActivityManager {
     nonisolated static func endActivity(id: String) async {
         guard let activity = activity(withID: id) else { return }
 
-        let finalState = SurveillanceActivityAttributes.ContentState(
-            nearbyCameraCount: 0,
-            nearestCameraDistance: -1,
-            nearestCameraBearing: 0,
-            nearestCameraType: "",
-            isTracking: false
+        let finalState = LiveActivityContent.compose(
+            camera: CameraActivityFields(isTracking: false),
+            navigation: nil
         )
         let content = ActivityContent(state: finalState, staleDate: nil)
         await activity.end(content, dismissalPolicy: .immediate)
