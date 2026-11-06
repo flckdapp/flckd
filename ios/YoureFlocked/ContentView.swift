@@ -6,6 +6,7 @@ struct ContentView: View {
     @Environment(NotificationManager.self) private var notificationManager
     @Environment(LiveActivityManager.self) private var liveActivityManager
     @Environment(ProximityAlertEngine.self) private var proximityEngine
+    @Environment(NavigationSessionController.self) private var navigationController
     @Environment(OfflineDataUpdater.self) private var offlineUpdater
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: Tab = .map
@@ -63,7 +64,15 @@ struct ContentView: View {
         // pay a cold rebuild and the drive would measure cold starts instead
         // of reroutes. One flag, one owner: fold the probe into the same
         // condition rather than applying a second modifier that fights it.
-        .keepScreenAwake((keepScreenAwake && selectedTab.watchedWhileDriving) || diagnosticsHoldingScreen)
+        //
+        // Guidance overrides the setting and the tab: a driver following
+        // turn-by-turn directions is looking at the screen, and a blacked-out
+        // one means a missed turn.
+        .keepScreenAwake(
+            (keepScreenAwake && selectedTab.watchedWhileDriving)
+                || navigationController.isActive
+                || diagnosticsHoldingScreen
+        )
         // Both of these sit above the TabView on purpose. Proximity warning is
         // what the app is for, so neither the detection nor the banner may
         // depend on which tab is showing, or on the map having been opened.
@@ -159,11 +168,23 @@ struct ContentView: View {
 }
 
 #Preview {
+    let locationManager = LocationManager()
+    let cameraStore = CameraStore()
+    let liveActivityManager = LiveActivityManager()
+    let proximityEngine = ProximityAlertEngine()
+
     ContentView()
-        .environment(LocationManager())
-        .environment(CameraStore())
+        .environment(locationManager)
+        .environment(cameraStore)
         .environment(NotificationManager())
-        .environment(LiveActivityManager())
-        .environment(ProximityAlertEngine())
+        .environment(liveActivityManager)
+        .environment(proximityEngine)
+        .environment(NavigationSessionController(
+            locationManager: locationManager,
+            cameraStore: cameraStore,
+            proximityEngine: proximityEngine,
+            liveActivityManager: liveActivityManager,
+            routingService: ValhallaRoutingService()
+        ))
         .environment(OfflineDataUpdater())
 }
