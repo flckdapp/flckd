@@ -118,6 +118,7 @@ ios/
         VoicePCM.swift                     silence trimming, fixed gaps and click-free fades
         GuidancePromptSelector.swift       pure maneuver, distance and lane clip selection
         GuidancePromptSchedule.swift       pure per-step continue, countdown and speed-scaled final triggers
+        DebugDriveSimulation.swift          debug only: uniform path samples, simulated speed and clock
         CameraPromptSelector.swift         pure camera type, clip and preference gating
         RouteSignals.swift                 optional on-device trace_attributes and signal-to-turn mapping
       RoutePlanMetrics.swift        debug only: one timed record per plan
@@ -490,10 +491,16 @@ Decisions:
   Interruptions and unplugged outputs stop speech instead of resuming an old
   instruction. Background audio is declared for locked-screen prompts; no
   silence is played to keep the app running.
-- **Drive simulation is debug-only.** A `Simulate drive` toggle under the
-  route card replays the route through Ferrostar's
-  `SimulatedLocationProvider` at 4x. It lives behind `#if DEBUG` with the
-  rest of the diagnostics.
+- **Drive simulation is debug-only.** `Simulate drive` under the route card has
+  15/25/35/45/55/70 mph Speed presets and a 1x/2x/4x/8x Time multiplier, persisted
+  only in Debug and applied on the next Start. At 1x a fix arrives each second;
+  the distance per simulated second is mph converted to m/s. Ferrostar's provider
+  only densifies geometry, advances one vertex per tick, and supplies no speed,
+  so `DebugDriveLocationProvider` first makes uniform path-distance samples and
+  wraps the provider. It stamps configured speed and timestamps advancing by
+  path travel time, retaining its forward course. A time multiplier compresses
+  wall time without multiplying speed or the simulated clock. All controls,
+  settings keys and implementation live inside `#if DEBUG`; Release has none.
 - **Thresholds.** Step advance: within 30 m of the end of a step, then 5 m
   past it, with fixes worse than 32 m ignored. Arrival: within 30 m.
   Deviation: a fix within 25 m accuracy more than 50 m from every remaining

@@ -49,6 +49,8 @@ struct RouteView: View {
     @AppStorage(DistanceUnits.storageKey) private var useMetric: Bool = false
     #if DEBUG
     @AppStorage("showRoutingSpikeOverlay") private var showRoutingSpikeOverlay: Bool = false
+    @AppStorage(DebugDriveSimulationSettings.speedKey) private var simulatedSpeed = 35
+    @AppStorage(DebugDriveSimulationSettings.timeKey) private var simulatedTime = 1
     #endif
     @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
 
@@ -716,6 +718,23 @@ struct RouteView: View {
             Toggle("Simulate drive", isOn: Bindable(navigationController).simulateDrive)
                 .font(.footnote)
                 .tint(Color(red: 0.0, green: 0.7, blue: 0.65))
+            HStack {
+                Picker("Speed", selection: $simulatedSpeed) {
+                    ForEach(DebugDriveSimulationSettings.speeds, id: \.self) { speed in
+                        Text("\(speed) mph").tag(speed)
+                    }
+                }
+                Picker("Time", selection: $simulatedTime) {
+                    ForEach(DebugDriveSimulationSettings.multipliers, id: \.self) { multiplier in
+                        Text("\(multiplier)x").tag(multiplier)
+                    }
+                }
+            }
+            .font(.footnote)
+            .disabled(!navigationController.simulateDrive)
+            Text("Simulation changes apply on next Start.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             #endif
         }
     }

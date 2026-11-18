@@ -156,10 +156,7 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
             let locationProvider: LocationProviding
             #if DEBUG
             if simulateDrive {
-                let simulated = SimulatedLocationProvider()
-                simulated.warpFactor = 4
-                try simulated.setSimulatedRoute(route)
-                locationProvider = simulated
+                locationProvider = try DebugDriveLocationProvider(route: route, settings: .fromDefaults())
             } else {
                 locationProvider = locationAdapter
             }
