@@ -82,14 +82,20 @@ struct DebugDriveSpeedStamp {
 @MainActor
 final class DebugDriveLocationProvider: @preconcurrency LocationProviding, LocationManagingDelegate {
     weak var delegate: LocationManagingDelegate?
-    private let provider: SimulatedLocationProvider
+    private var provider: SimulatedLocationProvider
     private var stamp: DebugDriveSpeedStamp
+    private weak var locationManager: LocationManager?
+    private var sourceToken: UUID?
+    private var updating = false
+    private let settings: DebugDriveSimulationSettings
     private(set) var lastLocation: UserLocation?
     var lastHeading: Heading? { provider.lastHeading }
     var authorizationStatus: CLAuthorizationStatus { provider.authorizationStatus }
 
-    init(route: Route, settings: DebugDriveSimulationSettings) throws {
+    init(route: Route, settings: DebugDriveSimulationSettings, locationManager: LocationManager? = nil) throws {
         provider = SimulatedLocationProvider()
+        self.settings = settings
+        self.locationManager = locationManager
         stamp = DebugDriveSpeedStamp(metersPerSecond: settings.metersPerSecond)
         var sampledRoute = route
         sampledRoute.geometry = settings.sampled(route.geometry)
@@ -100,20 +106,58 @@ final class DebugDriveLocationProvider: @preconcurrency LocationProviding, Locat
     }
 
     func startUpdating() {
-        if let lastLocation { delegate?.locationManager(self, didUpdateLocations: [lastLocation]) }
+        if updating { stopUpdating() }
+        updating = true
+        provider.delegate = self
+        sourceToken = locationManager?.beginSimulatedSource()
+        if let lastLocation {
+            publishToSharedLocation(lastLocation)
+            delegate?.locationManager(self, didUpdateLocations: [lastLocation])
+        }
         provider.startUpdating()
     }
 
-    func stopUpdating() { provider.stopUpdating() }
-
-    nonisolated func locationManager(_ manager: LocationProviding, didUpdateLocations locations: [UserLocation]) {
-        Task { @MainActor [weak self] in self?.receive(locations) }
+    func stopUpdating() {
+        updating = false
+        provider.stopUpdating()
+        provider.delegate = nil
+        if let sourceToken { locationManager?.endSimulatedSource(sourceToken) }
+        sourceToken = nil
     }
 
-    private func receive(_ locations: [UserLocation]) {
+    func replaceRoute(_ route: Route) throws {
+        stopUpdating()
+        provider.delegate = nil
+        provider = SimulatedLocationProvider()
+        provider.warpFactor = settings.warpFactor
+        stamp = DebugDriveSpeedStamp(metersPerSecond: settings.metersPerSecond)
+        var sampledRoute = route
+        sampledRoute.geometry = settings.sampled(route.geometry)
+        try provider.setSimulatedRoute(sampledRoute, resampleDistance: .greatestFiniteMagnitude)
+        lastLocation = provider.lastLocation.flatMap { stamp.stamp($0) }
+        provider.delegate = self
+    }
+
+    private func publishToSharedLocation(_ location: UserLocation) {
+        guard let sourceToken else { return }
+        let fix = CLLocation(coordinate: location.coordinates.clLocationCoordinate2D, altitude: 0,
+                             horizontalAccuracy: location.horizontalAccuracy, verticalAccuracy: -1,
+                             course: location.courseOverGround.map { Double($0.degrees) } ?? -1,
+                             speed: location.speed?.value ?? -1, timestamp: location.timestamp)
+        locationManager?.ingestSimulated(fix, token: sourceToken)
+    }
+
+    nonisolated func locationManager(_ manager: LocationProviding, didUpdateLocations locations: [UserLocation]) {
+        let sourceID = ObjectIdentifier(manager)
+        Task { @MainActor [weak self] in self?.receive(locations, from: sourceID) }
+    }
+
+    private func receive(_ locations: [UserLocation], from sourceID: ObjectIdentifier) {
+        guard updating, sourceID == ObjectIdentifier(provider) else { return }
         let stamped = locations.compactMap { stamp.stamp($0) }
         guard let latest = stamped.last else { return }
         lastLocation = latest
+        publishToSharedLocation(latest)
         delegate?.locationManager(self, didUpdateLocations: stamped)
     }
 

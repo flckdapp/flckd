@@ -92,6 +92,7 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
     /// real fixes, so step advance and deviation can be exercised on
     /// camera-avoiding geometry without driving. Debug builds only.
     var simulateDrive = false
+    @ObservationIgnored private var simulatedProvider: DebugDriveLocationProvider?
     #endif
 
     init(
@@ -156,7 +157,9 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
             let locationProvider: LocationProviding
             #if DEBUG
             if simulateDrive {
-                locationProvider = try DebugDriveLocationProvider(route: route, settings: .fromDefaults())
+                let simulated = try DebugDriveLocationProvider(route: route, settings: .fromDefaults(), locationManager: locationManager)
+                simulatedProvider = simulated
+                locationProvider = simulated
             } else {
                 locationProvider = locationAdapter
             }
@@ -218,6 +221,10 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         promptSchedule.reset()
         if !preserveArrivalPrompt { VoicePromptPlayer.shared.cancel(.guidance) }
         core?.stopNavigation()
+        #if DEBUG
+        simulatedProvider?.stopUpdating()
+        simulatedProvider = nil
+        #endif
         cancellables.removeAll()
         core = nil
         // `stopNavigation()` calls the adapter for us, but a failed start may
@@ -496,6 +503,9 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
             // switching routes has to bank the part already driven first.
             let remaining = state?.currentProgress?.distanceRemaining ?? plannedDistanceMeters
             VoicePromptPlayer.shared.cancel(.guidance)
+            #if DEBUG
+            try simulatedProvider?.replaceRoute(route)
+            #endif
             try core.startNavigation(route: route)
             plannedDistanceMeters = max(0, plannedDistanceMeters - remaining) + route.distance
             currentRoute = route

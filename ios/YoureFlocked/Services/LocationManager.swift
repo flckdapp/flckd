@@ -44,6 +44,34 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
     @ObservationIgnored var navigationSink: ((CLLocation) -> Void)?
     @ObservationIgnored var headingSink: ((CLHeading) -> Void)?
 
+    #if DEBUG
+    @ObservationIgnored private var debugSource = DebugLocationSource<CLLocation>()
+    @ObservationIgnored private var latestRealHeading: CLHeading?
+    private(set) var simulatedSourceActive = false
+
+    func beginSimulatedSource() -> UUID {
+        let token = debugSource.begin()
+        simulatedSourceActive = true
+        heading = nil
+        return token
+    }
+
+    func ingestSimulated(_ location: CLLocation, token: UUID) {
+        guard let selected = debugSource.simulated(location, token: token) else { return }
+        currentLocation = selected
+        locationError = nil
+        // The simulation wrapper delivers directly to Ferrostar. Never echo
+        // this fix through navigationSink and create a second guidance update.
+    }
+
+    func endSimulatedSource(_ token: UUID) {
+        guard debugSource.token == token else { return }
+        currentLocation = debugSource.end(token)
+        heading = latestRealHeading
+        simulatedSourceActive = false
+    }
+    #endif
+
     // MARK: - Private
 
     private let manager = CLLocationManager()
@@ -176,17 +204,27 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
     /// `CLLocationManager` bookkeeping so a test can feed a fix in without
     /// Core Location running.
     func ingest(_ location: CLLocation) {
+        #if DEBUG
+        guard let location = debugSource.real(location) else { return }
+        #endif
         currentLocation = location
         locationError = nil
         navigationSink?(location)
     }
 
     func ingest(_ newHeading: CLHeading) {
+        #if DEBUG
+        latestRealHeading = newHeading
+        guard debugSource.token == nil else { return }
+        #endif
         heading = newHeading
         headingSink?(newHeading)
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        #if DEBUG
+        guard debugSource.token == nil else { return }
+        #endif
         // CLError.denied covers both app-level denial and the system-wide
         // Location Services toggle being off, so map both to servicesDisabled.
         if (error as? CLError)?.code == .denied {
