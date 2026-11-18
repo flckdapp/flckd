@@ -1,6 +1,6 @@
 # Privacy Policy — FLCKD (You're Flocked)
 
-**Last updated:** 2026-11-06
+**Last updated:** 2026-11-17
 
 FLCKD warns you when you're near surveillance cameras. This document
 describes what the code actually does, including the parts that aren't
@@ -86,6 +86,11 @@ to run your own.
 ---
 
 ## Turn-by-turn guidance
+
+The app bundles recorded generic voice prompts generated during development
+with ElevenLabs (Eric and Matilda). Only generic phrases were sent to that
+service, never user, location or route data. The development tools live in
+`scripts/voice-prompts/`; they do not run in the app.
 
 Starting navigation hands the route you previewed to Ferrostar, on the
 phone. It reads your position from the same location manager the proximity

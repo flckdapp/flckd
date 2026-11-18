@@ -35,9 +35,12 @@ targets:
     platform: iOS
     sources:
       - path: YoureFlocked
+        excludes:
+          - Resources/VoicePrompts
       - path: Shared
-    resources:
-      - path: YoureFlocked/Resources
+      - path: YoureFlocked/Resources/VoicePrompts
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: YoureFlockedWidgets
       - package: ValhallaMobile

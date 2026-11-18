@@ -1,0 +1,87 @@
+{
+  "_note": "Generic guidance phrases only. Never add a street, place or route-derived text here: every line is sent to ElevenLabs.",
+  "actions": {
+    "turn_left": "turn left",
+    "turn_right": "turn right",
+    "slight_left": "bear left",
+    "slight_right": "bear right",
+    "sharp_left": "make a sharp left",
+    "sharp_right": "make a sharp right",
+    "uturn": "make a U-turn",
+    "keep_left": "keep left",
+    "keep_right": "keep right",
+    "keep_straight": "keep straight",
+    "exit_left": "take the exit on the left",
+    "exit_right": "take the exit on the right",
+    "ramp_left": "take the ramp on the left",
+    "ramp_right": "take the ramp on the right",
+    "merge_left": "merge left",
+    "merge_right": "merge right",
+    "end_left": "at the end of the road, turn left",
+    "end_right": "at the end of the road, turn right",
+    "roundabout_1": "at the roundabout, take the first exit",
+    "roundabout_2": "at the roundabout, take the second exit",
+    "roundabout_3": "at the roundabout, take the third exit",
+    "roundabout_4": "at the roundabout, take the fourth exit",
+    "continue": "continue straight"
+  },
+  "distances_imperial": {
+    "500ft": "In 500 feet",
+    "1000ft": "In 1,000 feet",
+    "quarter_mi": "In a quarter mile",
+    "half_mi": "In half a mile",
+    "1mi": "In 1 mile",
+    "2mi": "In 2 miles"
+  },
+  "lanes": {
+    "lane_left": "Use the left lane",
+    "lane_left2": "Use the left two lanes",
+    "lane_right": "Use the right lane",
+    "lane_right2": "Use the right two lanes",
+    "lane_middle": "Use the middle lane"
+  },
+  "signals": {
+    "at_light": "At the light,",
+    "at_next_light": "At the next light,",
+    "after_light": "After the light,",
+    "at_second_light": "At the second light,"
+  },
+  "standalone": {
+    "arrive": "You have arrived.",
+    "arrive_left": "Your destination is on the left.",
+    "arrive_right": "Your destination is on the right.",
+    "depart": "Head to the route.",
+    "then": "then",
+    "rerouting": "Rerouting.",
+    "new_route": "Found a new route that avoids cameras.",
+    "continue_long": "Continue on this road."
+  },
+  "cameras": {
+    "types": {
+      "flock": "Flock camera",
+      "camera": "surveillance camera",
+      "speed": "speed camera",
+      "gunshot": "gunshot detector"
+    },
+    "where": {
+      "ahead": "{T} ahead.",
+      "right": "{T} on your right.",
+      "left": "{T} on your left.",
+      "nearby": "{T} nearby."
+    },
+    "distance": {
+      "500ft": "{T} in 500 feet.",
+      "1000ft": "{T} in 1,000 feet.",
+      "quarter_mi": "{T} in a quarter mile."
+    },
+    "passing": "Passing a {T} now.",
+    "in_view": "You're in view of a {T}.",
+    "standalone": {
+      "cameras_ahead_2": "Two cameras ahead.",
+      "cameras_ahead_3": "Three cameras ahead.",
+      "cameras_ahead_many": "Several cameras ahead.",
+      "clear": "No cameras ahead."
+    },
+    "_types_note": "flock: manufacturer or brand tag names Flock Safety. camera: every other plate reader and surveillance camera."
+  }
+}
