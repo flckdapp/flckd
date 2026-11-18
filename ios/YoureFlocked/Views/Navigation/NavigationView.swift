@@ -17,6 +17,8 @@ struct NavigationSnapshot {
     /// Qualified because MapKit's SwiftUI layer has a `UserLocation` too.
     var userLocation: FerrostarCoreFFI.UserLocation?
     var remainingGeometry: [CLLocationCoordinate2D] = []
+    var motionGeometry: [CLLocationCoordinate2D] = []
+    var isOnRoute = true
     var destinationName: String = "Destination"
     var destinationCoordinate: CLLocationCoordinate2D?
     var cameras: [SurveillanceCamera] = []
@@ -93,6 +95,8 @@ struct NavigationView: View {
             progress: state?.currentProgress,
             userLocation: state?.preferredUserLocation,
             remainingGeometry: remainingGeometry,
+            motionGeometry: motionGeometry,
+            isOnRoute: state?.currentDeviation == .noDeviation,
             destinationName: navigationController.destination?.name ?? "Destination",
             destinationCoordinate: navigationController.destination?.coordinate,
             cameras: cameras,
@@ -113,6 +117,15 @@ struct NavigationView: View {
             return steps.flatMap(\.geometry).map(\.clLocationCoordinate2D)
         }
         return navigationController.currentRoute?.geometry.map(\.clLocationCoordinate2D) ?? []
+    }
+
+    private var motionGeometry: [CLLocationCoordinate2D] {
+        guard let route = navigationController.currentRoute, let remaining = navigationController.state?.remainingSteps else { return [] }
+        let current = max(0, route.steps.count - remaining.count)
+        // Include the just-completed step for the presentation buffer without
+        // letting an earlier crossing of a looping route win projection.
+        return route.steps[max(0, current - 1)..<min(route.steps.count, current + 2)]
+            .flatMap(\.geometry).map(\.clLocationCoordinate2D)
     }
 
     private var status: NavigationStatus {
@@ -158,14 +171,7 @@ struct NavigationDrivingView: View {
 
     @AppStorage(DistanceUnits.storageKey) private var useMetric: Bool = false
 
-    @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var isFollowing = true
-    @State private var rotation = MapRotationModel()
-
-    /// Close enough to read the next junction, far enough to see the turn
-    /// after it.
-    private static let followDistance: CLLocationDistance = 600
-    private static let followPitch: Double = 45
 
     /// The proximity banner's height plus its own top padding and a gap.
     /// `ContentView` draws that banner above the tab view, and issue #15 asks
@@ -183,68 +189,7 @@ struct NavigationDrivingView: View {
     // MARK: - Map
 
     private var map: some View {
-        Map(position: $cameraPosition) {
-            if snapshot.remainingGeometry.count > 1 {
-                MapPolyline(coordinates: snapshot.remainingGeometry)
-                    .stroke(.white, lineWidth: 10)
-                MapPolyline(coordinates: snapshot.remainingGeometry)
-                    .stroke(NavigationPalette.accent, lineWidth: 7)
-            }
-
-            ForEach(snapshot.cameras) { camera in
-                Annotation(camera.displayName, coordinate: camera.coordinate) {
-                    CameraMarkerView(camera: camera, rotation: rotation)
-                }
-                .annotationTitles(.hidden)
-            }
-
-            if let coordinate = snapshot.destinationCoordinate {
-                Marker(snapshot.destinationName, coordinate: coordinate)
-                    .tint(NavigationPalette.accent)
-            }
-
-            if let location = snapshot.userLocation {
-                Annotation("You", coordinate: location.coordinates.clLocationCoordinate2D) {
-                    NavigationPuck(course: courseDegrees(of: location), rotation: rotation)
-                }
-                .annotationTitles(.hidden)
-            }
-        }
-        // Points of interest are what the driver does not need, and camera
-        // names would crowd the one thing that matters next to them.
-        .mapStyle(.standard(pointsOfInterest: .excludingAll))
-        .mapControls { MapCompass() }
-        .onMapCameraChange(frequency: .continuous) { context in
-            // Annotations stay screen-aligned while the map rotates, so the
-            // puck needs the live heading to point the right way in the world.
-            rotation.heading = context.camera.heading
-        }
-        .onChange(of: cameraPosition.positionedByUser) { _, byUser in
-            if byUser { isFollowing = false }
-        }
-        .onChange(of: snapshot.userLocation?.timestamp, initial: true) { _, _ in
-            followUser()
-        }
-    }
-
-    private func courseDegrees(of location: FerrostarCoreFFI.UserLocation) -> Double? {
-        location.courseOverGround.map { Double($0.degrees) }
-    }
-
-    private func followUser() {
-        guard isFollowing, let location = snapshot.userLocation else { return }
-        let camera = MapCamera(
-            centerCoordinate: location.coordinates.clLocationCoordinate2D,
-            distance: Self.followDistance,
-            // Keeping the heading the map already has beats snapping to north
-            // when a fix arrives without a course, which happens at a
-            // standstill.
-            heading: courseDegrees(of: location) ?? rotation.heading,
-            pitch: Self.followPitch
-        )
-        withAnimation(.easeOut(duration: 0.45)) {
-            cameraPosition = .camera(camera)
-        }
+        NavigationMotionMap(snapshot: snapshot, following: $isFollowing)
     }
 
     // MARK: - Chrome
@@ -279,7 +224,6 @@ struct NavigationDrivingView: View {
     private var recenterButton: some View {
         Button {
             isFollowing = true
-            followUser()
         } label: {
             Label("Re-center", systemImage: "location.fill")
                 .font(.subheadline.weight(.semibold))
@@ -356,38 +300,6 @@ struct NavigationDrivingView: View {
         let distance = format.distance(progress.distanceRemaining)
         let arrival = format.arrival(in: progress.durationRemaining)
         return "\(distance) \u{00B7} arrives \(arrival)"
-    }
-}
-
-// MARK: - User Puck
-
-/// The car, drawn at the snapped position so it sits on the road rather than
-/// wherever the last fix landed.
-private struct NavigationPuck: View {
-
-    let course: Double?
-    let rotation: MapRotationModel
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(.white)
-                .frame(width: 34, height: 34)
-                .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
-
-            Circle()
-                .fill(NavigationPalette.accent)
-                .frame(width: 27, height: 27)
-
-            Image(systemName: "location.north.fill")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.white)
-                // The same correction the field-of-view cones apply: an
-                // annotation does not rotate with the map, so a world
-                // direction has to lose the map's own heading.
-                .rotationEffect(.degrees((course ?? rotation.heading) - rotation.heading))
-        }
-        .animation(.easeInOut(duration: 0.2), value: course)
     }
 }
 

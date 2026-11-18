@@ -60,7 +60,7 @@ struct RouteView: View {
 
     var body: some View {
         ZStack {
-            planner
+            if !navigationController.isActive { planner }
 
             if navigationController.isActive || navigationController.tripSummary != nil {
                 NavigationView(cameras: routeCameras)

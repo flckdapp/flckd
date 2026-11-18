@@ -90,6 +90,7 @@ ios/
         NavigationStatusChips.swift   rerouting, rerouted and reroute-failed notices
         TripSummaryView.swift         the arrival card
         NavigationFormat.swift        distance, duration and arrival-time text
+        NavigationMotionMap.swift     retained MapKit map, display-linked puck and follow camera
     ViewModels/
       MapViewModel.swift            map state, filtering, proximity coordination
       CameraStore.swift             central data store
@@ -118,6 +119,7 @@ ios/
         VoicePCM.swift                     silence trimming, fixed gaps and click-free fades
         GuidancePromptSelector.swift       pure maneuver, distance and lane clip selection
         GuidancePromptSchedule.swift       pure per-step continue, countdown and speed-scaled final triggers
+        NavigationMotion.swift             pure path interpolation, fix intervals and speed-smoothed camera distance
         DebugDriveSimulation.swift          debug only: uniform path samples, simulated speed and clock
         CameraPromptSelector.swift         pure camera type, clip and preference gating
         RouteSignals.swift                 optional on-device trace_attributes and signal-to-turn mapping
@@ -454,8 +456,44 @@ is no additional route or position storage.
 
 Decisions:
 
+- **Driving motion uses a one-fix presentation buffer, not repeated ease-outs.**
+  MapKit's system user following has no public hook for substituting Ferrostar's
+  snapped position; SwiftUI's user-location camera exposes heading and fallback,
+  not a controllable follow distance/pitch. It therefore cannot satisfy snapped
+  guidance and speed-based zoom. Independent linear camera/puck animations still
+  cut corners and hand off unpredictably when fixes arrive early. Instead a
+  retained `MKMapView` updates its existing puck coordinate and non-animated
+  camera at up to 20 fps, interpolating along the route between fixes, or along
+  raw fixes off route. It deliberately displays roughly one fix behind rather
+  than predicting movement beyond GPS. Monotonic arrival intervals, clamped to
+  0.1-5 s, determine duration (slow movement may take several seconds to cross
+  the location manager's 10 m distance filter); a gap over ten seconds restarts
+  instead of sweeping across it. Heading takes the shortest arc through north. Route overlays and
+  camera annotations update only with their data, never on each display tick.
+  Warning views are limited to a 5 km margin, reconciled each kilometre, and
+  the covered planner map is removed while driving instead of rendering twice.
+  Panning/zooming disables follow; Re-center resumes it. The same Release-safe
+  path handles real location updates and does not depend on debug simulation.
+- **The driving zoom opens gradually with speed.** Distance stays at 450 m
+  through 20 mph, then follows `450 + 1250 * ((mph - 20) / 50)^2`, capped at
+  1700 m at 70 mph. This gives about 563 m at 35 mph and 763 m at 45 mph while
+  leaving room to read highway junctions. Speed has a three-second exponential
+  filter, a 70 m zoom-target dead band and a further 2.5-second distance ease;
+  negative/nonfinite speeds are ignored. Pitch stays 45 degrees so speed changes
+  do not tilt the map as well. Zoom state continues settling while follow is
+  off but never overrides the user's camera until Re-center.
+
+  Simulator validation uses system CoreLocation scenarios with the debug route
+  simulator off, so it exercises the production adapter. On the iOS 18.2
+  simulator, 35 one-second process CPU samples during Freeway Drive averaged
+  23.99% for regular following and 22.45% for the driving screen after removing
+  the covered planner map and using the 20 fps cap. City Run averaged 23.53%
+  regular and 18.58% driving in the same sampling window. These are simulator-process
+  numbers, not device battery or GPU measurements. Videos and scenario route
+  fixtures stay local because they contain real map locations.
+
 - **Ferrostar rather than guidance written here.** Snapping, step advance
-  on looping detours, deviation with accuracy gating and prompt timing are
+  on looping detours and deviation with accuracy gating are
   where a navigation stack spends its bugs. Ferrostar's core is the one
   place those are being fixed with other people's drives, and the same Rust
   runs on Android, so the port keeps the hard half. The risk it carries,
