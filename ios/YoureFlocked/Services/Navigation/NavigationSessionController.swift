@@ -190,6 +190,8 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
             statsAtStart = proximityEngine.tripStats
             self.destination = destination
             currentRoute = route
+            proximityEngine.setSpeechRoute(route.geometry.map(\.clLocationCoordinate2D),
+                                           cameras: cameraStore.cameras)
             isActive = true
             isStarting = false
             VoicePromptPlayer.shared.updateContext(voiceContext)
@@ -221,6 +223,7 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         promptSchedule.reset()
         if !preserveArrivalPrompt { VoicePromptPlayer.shared.cancel(.guidance) }
         core?.stopNavigation()
+        proximityEngine.setSpeechRoute(nil)
         #if DEBUG
         simulatedProvider?.stopUpdating()
         simulatedProvider = nil
@@ -301,6 +304,15 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
 
     private func apply(_ newState: NavigationState?) {
         state = newState
+        if let progress = newState?.currentProgress, let route = currentRoute,
+           let steps = newState?.remainingSteps {
+            let completed = max(0, route.steps.count - steps.count)
+            let toManeuver = route.steps.prefix(completed + 1).reduce(0.0) {
+                $0 + (RouteSignals.cumulative($1.geometry).last ?? 0)
+            }
+            proximityEngine.updateSpeechProgress(traveled: toManeuver - progress.distanceToNextManeuver,
+                                                 onRoute: newState?.currentDeviation == .noDeviation)
+        }
         if let newState { speakInstruction(from: newState) }
         guard let newState, case .complete = newState.tripState else { return }
         finish()
@@ -509,6 +521,8 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
             try core.startNavigation(route: route)
             plannedDistanceMeters = max(0, plannedDistanceMeters - remaining) + route.distance
             currentRoute = route
+            proximityEngine.setSpeechRoute(route.geometry.map(\.clLocationCoordinate2D),
+                                           cameras: cameraStore.cameras)
             promptSchedule.reset()
             rerouteCount += 1
             speak(["new_route"], kind: .rerouting)

@@ -121,6 +121,7 @@ ios/
         GuidancePromptSchedule.swift       pure per-step continue, countdown and speed-scaled final triggers
         NavigationMotion.swift             pure path interpolation, fix intervals and speed-smoothed camera distance
         DebugDriveSimulation.swift          debug only: uniform path samples, simulated speed and clock
+        CameraExposure.swift                shared route distance geometry and speech-only observability predicate
         CameraPromptSelector.swift         pure camera type, clip and preference gating
         RouteSignals.swift                 optional on-device trace_attributes and signal-to-turn mapping
       RoutePlanMetrics.swift        debug only: one timed record per plan
@@ -420,10 +421,43 @@ lies ahead before the turn. Missing data, errors and results older than five
 seconds silently leave ordinary prompts. Results are discarded on route
 replacement or teardown; neither geometry nor positions are written down.
 
-Spoken camera warnings hook the existing proximity engine's entry and 60 m
-escalation events; they do not run another detector. Speech's escalation
-one-shot is independent of the haptics toggle. Banners, notifications, haptics,
-cooldowns and trip tally retain their existing behavior. ALPR manufacturer or
+Spoken camera warnings have their own eligibility and cooldown path, independent
+of which nearest camera the banner shows. `CameraObservability` is the pure,
+reusable visibility predicate; planner scoring and speech share its extracted
+point-to-segment geometry and the planner's 35 m scoring radius. Speech adds a
+conservative watched-road test, without changing route-planning decisions.
+
+For directed cameras, the vehicle/route must be within 35 m, inside the model's
+existing view wedge (35 degree half-angle by default, explicit ranges and
+multiple directions honored), and traveling within that angle of the watched
+road axis, in either direction. A route must contain at least 10 m of such
+exposure. This rejects a perpendicular underpass even if it intersects the
+camera's point. For cameras without a usable direction, speech requires a
+5-25 m shoulder-like offset over at least 30 m of path. The 5 m exclusion rejects
+ambiguous centerline crossings, but deliberately misses undirected overhead
+cameras. Exposure windows are sampled at 2.5 m with one sample of length
+tolerance so sparse and dense geometry agree.
+
+At start and every accepted reroute the active route's exposure windows are
+computed off the main actor, replaced rather than accumulated, and updated if
+the camera set changes. Entries speak only for windows ahead within the alert
+radius, while the camera is also within that radius of the vehicle. Passing
+requires the vehicle to be inside the actual window and wedge at 35 m (25 m for
+undirected cameras), not the banner's old 60 m escalation. Outside navigation,
+the same predicate uses up to 16 recent fixes over 15 seconds, at least 10 m
+of movement, a valid course agreeing with the track, and current in-view range.
+The undirected 30 m stretch still applies. Only eligible, enabled device types
+contribute to the two/three/several prompt. Missing/stale direction, poor fixes
+or unbuilt route exposure fail silent. Track and windows stay in memory only.
+
+This is geometry, not proof of optical line of sight: OSM camera tags contain no
+reliable road association/elevation. Parallel roads, mis-tagged directions and
+occlusion can still be wrong; genuinely undirected cameras may be missed. The
+predicate remains separate so it can later be reused for other alert surfaces.
+Banner, haptic, notification and Live Activity camera fields remain governed by
+the existing Alert mode in exactly the same way during and outside navigation;
+they do not use the speech predicate. Trip tally retains its existing behavior.
+ALPR manufacturer or
 brand tags containing "flock" select Flock recordings; other ALPRs and cameras,
 speed cameras and gunshot detectors each have their own clips. Unknown devices
 and guards stay silent. Rear entry alerts are silent; field-of-view alerts and

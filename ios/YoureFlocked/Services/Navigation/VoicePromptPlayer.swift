@@ -19,6 +19,7 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
     private var sessionActive = false
     private var fallbackToken: (utterance: ObjectIdentifier, generation: Int)?
     private var context = VoicePlaybackContext()
+    private var cameraEligibility = CameraSpeechEligibility()
     private let sampleRate = 44_100.0
 
     private override init() {
@@ -45,6 +46,7 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
     func enqueue(_ utterance: VoiceUtterance) {
         queue.async {
             guard VoiceSettings.fromDefaults().allows(utterance, context: self.context) else { return }
+            guard self.cameraEligibility.allows(utterance) else { return }
             if utterance.kind == .preview {
                 self.prompts.remove(.sample)
                 if self.active?.kind == .preview {
@@ -66,6 +68,14 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
 
     func settingsDidChange() {
         queue.async { self.applyPermissions() }
+    }
+
+    func updateCameraEligibility(_ eligibility: CameraSpeechEligibility) {
+        queue.async {
+            self.cameraEligibility = eligibility
+            self.prompts.removeInvalidCameras(eligibility)
+            self.playNext()
+        }
     }
 
     private func applyPermissions() {
@@ -108,6 +118,7 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
     private func playNext() {
         guard active == nil else { return }
         prompts.removeDisallowed(settings: .fromDefaults(), context: context)
+        prompts.removeInvalidCameras(cameraEligibility)
         guard let utterance = prompts.next(now: ProcessInfo.processInfo.systemUptime) else {
             releaseSession()
             return

@@ -10,6 +10,8 @@ struct VoiceUtterance: Equatable, Sendable {
     var priority: Priority = .guidance
     var kind: VoicePromptKind = .directions
     var createdAt: TimeInterval
+    var cameraTargets = Set<Int64>()
+    var cameraRequiresView = false
 
     static func preview(voice: PromptVoice, now: TimeInterval, units: DistanceUnits = .imperial) -> Self {
         Self(clips: [units == .metric ? "200m.turn_right" : "500ft.turn_right", "lane_right", "cam.flock.ahead"], voice: voice,
@@ -41,6 +43,10 @@ struct VoicePromptQueue {
 
     mutating func removeDisallowed(settings: VoiceSettings, context: VoicePlaybackContext) {
         pending.removeAll { !settings.allows($0, context: context) }
+    }
+
+    mutating func removeInvalidCameras(_ eligibility: CameraSpeechEligibility) {
+        pending.removeAll { !eligibility.allows($0) }
     }
 }
 

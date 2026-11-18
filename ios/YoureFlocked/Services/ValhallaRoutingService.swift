@@ -53,7 +53,7 @@ actor ValhallaRoutingService {
     /// A fixed yardstick keeps camera counts comparable across slider levels.
     /// 35 m matches RouteView's cameraBufferMeters so the engine's candidate
     /// choice and the card's "Cameras" stat always agree.
-    static let scoringRadiusMeters: Double = 35
+    static let scoringRadiusMeters = CameraExposureGeometry.radiusMeters
 
     /// Half-width of the box around the straight start-to-end line that
     /// cameras are considered from. Guidance reroutes fetch their camera set
@@ -700,37 +700,16 @@ actor ValhallaRoutingService {
     private func exposedCameraIDs(route: ValhallaRoute, cameras: [SurveillanceCamera], radiusMeters: Double, useFOV: Bool = false) -> Set<Int64> {
         let shape = route.coordinates
         guard shape.count >= 2 else { return [] }
-        let midLat = shape[shape.count / 2].latitude
-        let mPerDegLat = 111_320.0
-        let mPerDegLon = 111_320.0 * cos(midLat * .pi / 180)
-        var exposed = Set<Int64>()
-        for camera in cameras {
-            let px = camera.longitude * mPerDegLon
-            let py = camera.latitude * mPerDegLat
-            var hit = false
-            for i in 0..<(shape.count - 1) {
-                let ax = shape[i].longitude * mPerDegLon
-                let ay = shape[i].latitude * mPerDegLat
-                let bx = shape[i + 1].longitude * mPerDegLon
-                let by = shape[i + 1].latitude * mPerDegLat
-                let dx = bx - ax, dy = by - ay
-                let lenSq = dx * dx + dy * dy
-                let t = lenSq > 0 ? max(0, min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq)) : 0
-                let cx = ax + t * dx, cy = ay + t * dy
-                let distSq = (px - cx) * (px - cx) + (py - cy) * (py - cy)
-                if distSq <= radiusMeters * radiusMeters {
-                    if useFOV {
-                        let nearest = CLLocationCoordinate2D(latitude: cy / mPerDegLat, longitude: cx / mPerDegLon)
-                        if camera.isInFieldOfView(from: nearest) { hit = true; break }
-                    } else {
-                        hit = true
-                        break
-                    }
-                }
+        let referenceLatitude = shape[shape.count / 2].latitude
+        return Set(cameras.compactMap { camera in
+            for (a, b) in zip(shape, shape.dropFirst()) {
+                let projection = CameraExposureGeometry.project(camera.coordinate, onto: a, b,
+                                                               referenceLatitude: referenceLatitude)
+                if projection.distance <= radiusMeters,
+                   !useFOV || camera.isInFieldOfView(from: projection.coordinate) { return camera.id }
             }
-            if hit { exposed.insert(camera.id) }
-        }
-        return exposed
+            return nil
+        })
     }
 
     private func parseTrip(_ trip: [String: Any]) -> ValhallaRoute {
