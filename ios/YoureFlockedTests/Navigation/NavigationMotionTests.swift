@@ -12,12 +12,12 @@ final class NavigationMotionTests: XCTestCase {
         motion.receive(.init(coordinate: a, heading: 0), at: 0, route: [], onRoute: false)
         motion.receive(.init(coordinate: b, heading: 90), at: 1, route: [], onRoute: false)
         XCTAssertEqual(motion.interval, 1)
-        let middle = try XCTUnwrap(motion.sample(at: 1.5))
-        XCTAssertEqual(middle.coordinate.longitude, 0.0005, accuracy: 0.00001)
-        XCTAssertEqual(middle.heading, 45)
+        let middle = try XCTUnwrap(motion.sample(at: 2))
+        XCTAssertEqual(middle.coordinate.longitude, 0.000375, accuracy: 0.00001)
+        XCTAssertEqual(middle.heading, 33.75, accuracy: 0.001)
         let before = try XCTUnwrap(motion.sample(at: 1.75))
         motion.receive(.init(coordinate: c, heading: 90), at: 1.75, route: [], onRoute: false)
-        XCTAssertEqual(motion.interval, 0.75)
+        XCTAssertEqual(motion.interval, 0.95, accuracy: 0.001)
         XCTAssertEqual(try XCTUnwrap(motion.sample(at: 1.75)).coordinate.longitude,
                        before.coordinate.longitude)
         motion.receive(.init(coordinate: a, heading: 0), at: 20, route: [], onRoute: false)
@@ -28,10 +28,10 @@ final class NavigationMotionTests: XCTestCase {
         var motion = NavigationMotion()
         motion.receive(.init(coordinate: a, heading: 90), at: 0, route: [a, b, c], onRoute: true)
         motion.receive(.init(coordinate: c, heading: 0), at: 1, route: [a, b, c], onRoute: true)
-        let middle = try XCTUnwrap(motion.sample(at: 1.5))
-        XCTAssertEqual(middle.coordinate.longitude, b.longitude, accuracy: 0.00001)
+        let middle = try XCTUnwrap(motion.sample(at: 2))
+        XCTAssertGreaterThan(middle.coordinate.longitude, 0.0007)
         XCTAssertEqual(middle.coordinate.latitude, b.latitude, accuracy: 0.00001)
-        XCTAssertEqual(try XCTUnwrap(motion.sample(at: 2)).coordinate.latitude, c.latitude, accuracy: 0.00001)
+        XCTAssertEqual(try XCTUnwrap(motion.sample(at: 3)).coordinate.latitude, c.latitude, accuracy: 0.00001)
     }
 
     func testHeadingTakesShortestArcAcrossNorth() {
@@ -44,9 +44,9 @@ final class NavigationMotionTests: XCTestCase {
         var motion = NavigationMotion()
         motion.receive(.init(coordinate: a, heading: 90), at: 0, route: [a, b, c], onRoute: false)
         motion.receive(.init(coordinate: c, heading: 90), at: 1, route: [a, b, c], onRoute: false)
-        let middle = try XCTUnwrap(motion.sample(at: 1.5))
-        XCTAssertEqual(middle.coordinate.latitude, 0.0005, accuracy: 0.00001)
-        XCTAssertEqual(middle.coordinate.longitude, 0.0005, accuracy: 0.00001)
+        let middle = try XCTUnwrap(motion.sample(at: 2))
+        XCTAssertEqual(middle.coordinate.latitude, 0.000375, accuracy: 0.00001)
+        XCTAssertEqual(middle.coordinate.longitude, 0.000375, accuracy: 0.00001)
         motion.receive(.init(coordinate: c, heading: 90), at: 1.01, route: [a, b, c], onRoute: false)
         XCTAssertEqual(motion.interval, 1)
     }
@@ -126,5 +126,31 @@ final class NavigationMotionTests: XCTestCase {
             last = current
         }
         XCTAssertGreaterThan(last, 1500)
+    }
+
+    func testJitteredFixDeliveryDoesNotStopOrSpikeSteadyMotion() throws {
+        let arrivals = [0.0, 1.08, 1.95, 3.08, 3.96, 5.09, 5.95, 7.08, 7.96, 9.08, 9.95, 11.08]
+        var motion = NavigationMotion()
+        var fix = 0
+        var positions: [Double] = []
+        for frame in 0...690 {
+            let now = Double(frame) / 60
+            if fix < arrivals.count, now >= arrivals[fix] {
+                // Equally spaced source fixes at 31 m/s, delivered early/late.
+                let point = CLLocationCoordinate2D(latitude: 0, longitude: Double(fix) * 31 / 111_319.49)
+                motion.receive(.init(coordinate: point, heading: 90), at: arrivals[fix], route: [], onRoute: false)
+                fix += 1
+            }
+            let pose = try XCTUnwrap(motion.sample(at: now))
+            positions.append(pose.coordinate.longitude * 111_319.49)
+        }
+        let speeds = zip(positions, positions.dropFirst()).map { ($1 - $0) * 60 }
+        for speed in speeds.dropFirst(240) {
+            XCTAssertGreaterThan(speed, 15, "delivery jitter must not stop presentation between fixes")
+            XCTAssertLessThan(speed, 40, "delivery jitter must not create a catch-up burst")
+        }
+        for (a, b) in zip(speeds.dropFirst(240), speeds.dropFirst(241)) {
+            XCTAssertLessThan(abs(b - a) * 60, 15, "velocity must hand off continuously")
+        }
     }
 }

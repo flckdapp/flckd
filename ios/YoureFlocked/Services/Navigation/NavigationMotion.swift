@@ -2,7 +2,7 @@ import CoreLocation
 import Foundation
 import MapKit
 
-/// A one-fix presentation buffer. Arrival intervals use a monotonic wall clock,
+/// A delivery-jitter presentation buffer. Intervals use a monotonic wall clock,
 /// not GPS timestamps (which may be warped by a development provider).
 struct NavigationMotion {
     struct Pose {
@@ -18,15 +18,25 @@ struct NavigationMotion {
     private var path: [CLLocationCoordinate2D] = []
     private var lengths: [Double] = []
     private var onRoute = true
+    private var duration: TimeInterval = 2
+    private var initialRate = 1.0
+    private var endingRate = 1.0
+    private var pathLength = 0.0
 
     mutating func receive(_ pose: Pose, at now: TimeInterval,
                           route: [CLLocationCoordinate2D], onRoute: Bool) {
         let presented = sample(at: now) ?? pose
+        let priorVelocity = velocity(at: now)
         if let previousArrival {
             let observed = now - previousArrival
             // Ignore duplicate deliveries, and restart cleanly after stale GPS.
             if observed <= 0.04 { return }
-            interval = min(5, max(0.1, observed))
+            let measured = min(5, max(0.1, observed))
+            if abs(measured - interval) > interval * 0.6 {
+                interval = measured
+            } else {
+                interval += (measured - interval) * 0.2
+            }
         }
         let stale = previousArrival.map { now - $0 > 10 } ?? true
         previousArrival = now
@@ -46,16 +56,37 @@ struct NavigationMotion {
         }
         lengths = [0]
         for (a, b) in zip(path, path.dropFirst()) { lengths.append((lengths.last ?? 0) + Self.distance(a, b)) }
+        pathLength = lengths.last ?? 0
+        // A delivery-jitter reserve avoids reaching the fix and stopping
+        // before the next callback. Match velocity at handoff with a monotone
+        // Hermite segment instead of restarting an ease or changing slope.
+        duration = interval * 2
+        let average = pathLength / duration
+        initialRate = average > 0 ? min(2, max(0, priorVelocity / average)) : 0
+        endingRate = 1
     }
 
     func sample(at now: TimeInterval) -> Pose? {
         guard let start, let target else { return nil }
-        let fraction = min(1, max(0, (now - startedAt) / interval))
+        let t = min(1, max(0, (now - startedAt) / duration))
+        let fraction = progress(t)
         return Pose(coordinate: Self.point(on: path, lengths: lengths, fraction: fraction) ?? target.coordinate,
                     heading: Self.heading(from: start.heading, to: target.heading, fraction: fraction))
     }
 
-    func isMoving(at now: TimeInterval) -> Bool { target != nil && now < startedAt + interval }
+    func isMoving(at now: TimeInterval) -> Bool { target != nil && now < startedAt + duration }
+
+    private func progress(_ t: Double) -> Double {
+        let t2 = t * t, t3 = t2 * t
+        return (t3 - 2 * t2 + t) * initialRate + (-2 * t3 + 3 * t2) + (t3 - t2) * endingRate
+    }
+
+    private func velocity(at now: TimeInterval) -> Double {
+        guard now < startedAt + duration else { return 0 }
+        let t = min(1, max(0, (now - startedAt) / duration))
+        let derivative = (3 * t * t - 4 * t + 1) * initialRate + (-6 * t * t + 6 * t) + (3 * t * t - 2 * t) * endingRate
+        return max(0, derivative * pathLength / duration)
+    }
 
     static func heading(from: Double, to: Double, fraction: Double) -> Double {
         let delta = (to - from + 540).truncatingRemainder(dividingBy: 360) - 180

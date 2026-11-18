@@ -456,19 +456,25 @@ is no additional route or position storage.
 
 Decisions:
 
-- **Driving motion uses a one-fix presentation buffer, not repeated ease-outs.**
+- **Driving motion buffers delivery jitter instead of restarting ease-outs.**
   MapKit's system user following has no public hook for substituting Ferrostar's
   snapped position; SwiftUI's user-location camera exposes heading and fallback,
   not a controllable follow distance/pitch. It therefore cannot satisfy snapped
   guidance and speed-based zoom. Independent linear camera/puck animations still
   cut corners and hand off unpredictably when fixes arrive early. Instead a
-  retained `MKMapView` updates its existing puck coordinate and non-animated
-  camera at up to 20 fps, interpolating along the route between fixes, or along
-  raw fixes off route. It deliberately displays roughly one fix behind rather
-  than predicting movement beyond GPS. Monotonic arrival intervals, clamped to
+  retained `MKMapView` drives a non-animated camera from one interpolated pose
+  each display tick. The puck is a screen overlay anchored to the camera center
+  while following; when panned, that same overlay is projected through the map.
+  This avoids MapKit's asynchronous annotation layout shaking the puck against
+  the map. The display link requests the display's full refresh range, including
+  ProMotion, rather than the former 20 fps cap; iOS chooses the actual rate.
+  Path interpolation follows the route, or raw fixes off route. It buffers about
+  two fix intervals rather than predicting beyond GPS. Monotonic arrival intervals, clamped to
   0.1-5 s, determine duration (slow movement may take several seconds to cross
   the location manager's 10 m distance filter); a gap over ten seconds restarts
-  instead of sweeping across it. Heading takes the shortest arc through north. Route overlays and
+  instead of sweeping across it. Small arrival changes are filtered, and a
+  monotone cubic segment preserves velocity at handoff instead of stopping or
+  jumping in speed. Heading takes the shortest arc through north. Route overlays and
   camera annotations update only with their data, never on each display tick.
   Warning views are limited to a 5 km margin, reconciled each kilometre, and
   the covered planner map is removed while driving instead of rendering twice.
@@ -491,6 +497,22 @@ Decisions:
   regular and 18.58% driving in the same sampling window. These are simulator-process
   numbers, not device battery or GPU measurements. Videos and scenario route
   fixtures stay local because they contain real map locations.
+
+  A close-zoom follow-up found up to 3.17 points of vertical annotation motion
+  in a constant-speed debug replay and 2.33 points on system location playback:
+  MapKit's annotation layout and camera rendering were out of phase even though
+  one callback supplied both coordinates. The screen-anchored overlay removes
+  that path; measured follow-position variation is now zero at 15/35/70 mph.
+  The former 20 fps cap also moved the ground about 1.6 m per tick at 70 mph.
+  Native-rate requests measured about 16.65 ms median on a 60 Hz simulator;
+  ProMotion is enabled with `CADisableMinimumFrameDurationOnPhone`, but iOS
+  controls the actual rate under thermal/power/display constraints. The cost is
+  explicit: close-zoom app CPU rose from roughly 18-23% to 27-29% in the same
+  instrumented simulator windows. No lower frame cap is silently substituted.
+  Delivery jitter is separately filtered, with about two intervals of buffering
+  and velocity-matched monotone cubic handoffs. This trades additional display
+  latency for steadier motion; route progress and prompt timing still use the
+  newest fix and are not delayed by presentation.
 
 - **Ferrostar rather than guidance written here.** Snapping, step advance
   on looping detours and deviation with accuracy gating are

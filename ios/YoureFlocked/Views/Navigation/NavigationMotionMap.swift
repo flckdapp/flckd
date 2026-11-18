@@ -17,6 +17,7 @@ struct NavigationMotionMap: UIViewRepresentable {
         map.showsCompass = true
         context.coordinator.map = map
         map.addAnnotation(context.coordinator.puck)
+        context.coordinator.installFollowingPuck(on: map)
         context.coordinator.start()
         return map
     }
@@ -56,12 +57,14 @@ struct NavigationMotionMap: UIViewRepresentable {
         private var cameraUpdate = false
         private var sceneObserver: NSObjectProtocol?
         private var foregroundObserver: NSObjectProtocol?
+        private let followingPuck = NavigationPuckView()
 
         init(_ parent: NavigationMotionMap) { self.parent = parent; super.init(); puck.title = "You" }
 
         func start() {
             let link = CADisplayLink(target: self, selector: #selector(frame))
-            link.preferredFrameRateRange = CAFrameRateRange(minimum: 15, maximum: 20, preferred: 20)
+            let maximum = Float(map?.window?.windowScene?.screen.maximumFramesPerSecond ?? 120)
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: maximum, preferred: maximum)
             link.add(to: .main, forMode: .common)
             self.link = link
             sceneObserver = NotificationCenter.default.addObserver(
@@ -74,6 +77,18 @@ struct NavigationMotionMap: UIViewRepresentable {
             ) { [weak self] _ in
                 MainActor.assumeIsolated { self?.link?.isPaused = false }
             }
+        }
+
+        func installFollowingPuck(on map: MKMapView) {
+            followingPuck.translatesAutoresizingMaskIntoConstraints = false
+            followingPuck.isUserInteractionEnabled = false
+            map.addSubview(followingPuck)
+            NSLayoutConstraint.activate([
+                followingPuck.centerXAnchor.constraint(equalTo: map.centerXAnchor),
+                followingPuck.centerYAnchor.constraint(equalTo: map.centerYAnchor),
+                followingPuck.widthAnchor.constraint(equalToConstant: 34),
+                followingPuck.heightAnchor.constraint(equalToConstant: 34),
+            ])
         }
 
         func stop() {
@@ -138,7 +153,6 @@ struct NavigationMotionMap: UIViewRepresentable {
             motion.receive(.init(coordinate: location.coordinates.clLocationCoordinate2D, heading: course),
                            at: CACurrentMediaTime(), route: renderRoute.isEmpty ? geometry : renderRoute, onRoute: snapshot.isOnRoute)
             ready = true
-            frame()
         }
 
         private func sameGeometry(_ a: [CLLocationCoordinate2D], _ b: [CLLocationCoordinate2D]) -> Bool {
@@ -156,14 +170,18 @@ struct NavigationMotionMap: UIViewRepresentable {
             wasFollowing = parent.following
             heading = pose.heading
             UIView.performWithoutAnimation {
-                puck.coordinate = pose.coordinate
+                followingPuck.isHidden = false
+                map.view(for: puck)?.isHidden = true
+                // Following uses a screen-anchored puck. MapKit lays out
+                // annotations separately from camera rendering, so moving both
+                // coordinates on one callback still permits a screen-space hop.
                 if parent.following {
                     cameraUpdate = true
                     let camera = MKMapCamera(lookingAtCenter: pose.coordinate, fromDistance: distance, pitch: 45, heading: pose.heading)
                     map.setCamera(camera, animated: false)
                     cameraUpdate = false
                 }
-                map.view(for: puck)?.transform = CGAffineTransform(rotationAngle: (pose.heading - map.camera.heading) * .pi / 180)
+                positionPuck(pose, on: map)
                 if !lastMapHeading.isFinite || abs(map.camera.heading - lastMapHeading) > 0.2 {
                     lastMapHeading = map.camera.heading
                     for host in cameraHosts.values where host.view.window != nil {
@@ -186,23 +204,29 @@ struct NavigationMotionMap: UIViewRepresentable {
             if !parent.following {
                 lastMapHeading = .nan
                 if let pose = motion.sample(at: CACurrentMediaTime()) {
-                    mapView.view(for: puck)?.transform = CGAffineTransform(rotationAngle: (pose.heading - mapView.camera.heading) * .pi / 180)
+                    positionPuck(pose, on: mapView)
                 }
+            }
+        }
+
+        private func positionPuck(_ pose: NavigationMotion.Pose, on map: MKMapView) {
+            if parent.following {
+                followingPuck.transform = .identity
+            } else {
+                let point = map.convert(pose.coordinate, toPointTo: map)
+                followingPuck.transform = CGAffineTransform(
+                    translationX: point.x - map.bounds.midX, y: point.y - map.bounds.midY
+                ).rotated(by: (pose.heading - map.camera.heading) * .pi / 180)
             }
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
             if annotation === puck {
                 let view = MKAnnotationView(annotation: annotation, reuseIdentifier: "navigation-puck")
-                view.frame = CGRect(x: 0, y: 0, width: 34, height: 34)
-                view.backgroundColor = .white; view.layer.cornerRadius = 17
-                view.layer.shadowOpacity = 0.25; view.layer.shadowRadius = 3; view.layer.shadowOffset = CGSize(width: 0, height: 1)
-                let inner = UIView(frame: CGRect(x: 3.5, y: 3.5, width: 27, height: 27))
-                inner.backgroundColor = UIColor(NavigationPalette.accent); inner.layer.cornerRadius = 13.5
-                view.addSubview(inner)
-                let icon = UIImageView(image: UIImage(systemName: "location.north.fill"))
-                icon.tintColor = .white; icon.frame = CGRect(x: 10, y: 10, width: 14, height: 14)
-                view.addSubview(icon); view.accessibilityLabel = "Your position"
+                let artwork = NavigationPuckView(frame: CGRect(x: 0, y: 0, width: 34, height: 34))
+                view.frame = artwork.frame
+                view.addSubview(artwork)
+                view.isHidden = true
                 return view
             }
             if let camera = cameraModels[ObjectIdentifier(annotation)] {
@@ -228,4 +252,26 @@ struct NavigationMotionMap: UIViewRepresentable {
             return renderer
         }
     }
+}
+
+private final class NavigationPuckView: UIView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .white
+        layer.cornerRadius = 17
+        layer.shadowOpacity = 0.25
+        layer.shadowRadius = 3
+        layer.shadowOffset = CGSize(width: 0, height: 1)
+        let inner = UIView(frame: CGRect(x: 3.5, y: 3.5, width: 27, height: 27))
+        inner.backgroundColor = UIColor(NavigationPalette.accent)
+        inner.layer.cornerRadius = 13.5
+        addSubview(inner)
+        let icon = UIImageView(image: UIImage(systemName: "location.north.fill"))
+        icon.tintColor = .white
+        icon.frame = CGRect(x: 10, y: 10, width: 14, height: 14)
+        addSubview(icon)
+        accessibilityLabel = "Your position"
+    }
+
+    required init?(coder: NSCoder) { nil }
 }
