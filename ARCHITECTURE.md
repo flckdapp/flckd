@@ -258,6 +258,14 @@ the address is a setting.
 
 ### Proximity uses distance, not geofencing
 
+When no location fix is available, the map's user-follow camera falls back to a
+fixed world rectangle, not automatic annotation framing. Its annotation set is
+culled and clustered by viewport; using that changing set to reframe the viewport
+creates an update loop on iOS 18.2 that can monopolize the main actor. A fixed
+fallback also keeps the unit-test host responsive without suppressing the real
+map or changing test timeouts. Once a location is available, user-follow tracking
+still takes over normally.
+
 iOS allows only 20 monitored regions at a time. A city block can have more
 cameras than that, so system geofencing can't do the job.
 
