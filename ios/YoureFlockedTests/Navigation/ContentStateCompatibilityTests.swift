@@ -40,6 +40,8 @@ final class ContentStateCompatibilityTests: XCTestCase {
         XCTAssertNil(state.eta)
         XCTAssertNil(state.isRerouting)
         XCTAssertFalse(state.hasNavigation)
+        XCTAssertNil(state.distanceUnits)
+        XCTAssertEqual(state.resolvedDistanceUnits, .imperial)
     }
 
     /// Explicit nulls decode too. ActivityKit's own encoder omits them, but the
@@ -158,5 +160,22 @@ final class ContentStateCompatibilityTests: XCTestCase {
         state.distanceToNextTurnMeters = 400
 
         XCTAssertFalse(state.hasNavigation)
+    }
+
+    func testOptionalUnitsRoundTripAndNullDefaultsToImperial() throws {
+        for units in DistanceUnits.allCases {
+            var state = try JSONDecoder().decode(SurveillanceActivityAttributes.ContentState.self,
+                                                from: Data(payloadBeforeTurnsExisted.utf8))
+            state.distanceUnits = units
+            let decoded = try JSONDecoder().decode(SurveillanceActivityAttributes.ContentState.self,
+                                                  from: JSONEncoder().encode(state))
+            XCTAssertEqual(decoded.resolvedDistanceUnits, units)
+            XCTAssertEqual(decoded.distanceUnits, units)
+        }
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(payloadBeforeTurnsExisted.utf8)) as? [String: Any])
+        object["distanceUnits"] = NSNull()
+        let state = try JSONDecoder().decode(SurveillanceActivityAttributes.ContentState.self,
+                                            from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertEqual(state.resolvedDistanceUnits, .imperial)
     }
 }

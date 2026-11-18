@@ -353,7 +353,7 @@ final class ProximityAlertEngine {
               let key = CameraPromptSelector.select(
                 camera: alert.camera, direction: alert.relativeDirection, distance: alert.distance,
                 nearbyCount: alert.nearbyCount, event: event, inFieldOfView: inFieldOfView,
-                settings: .fromDefaults(), context: context
+                settings: .fromDefaults(), context: context, units: .selected()
               ), let type = CameraPromptSelector.type(for: alert.camera) else { return }
         VoicePromptPlayer.shared.enqueue(VoiceUtterance(
             clips: [key], voice: .selected, priority: .camera, kind: .camera(type),

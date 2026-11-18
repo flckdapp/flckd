@@ -319,8 +319,9 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         // the step's stored banner still describes the same upcoming maneuver.
         let banner = visual ?? step.visualInstructions.first
         let speed = user.speed?.value ?? (step.duration > 0 ? step.distance / step.duration : 13.4)
+        let units = DistanceUnits.selected()
         guard let prompt = promptSchedule.update(
-            step: completed, length: step.distance, remaining: progress.distanceToNextManeuver, speed: speed
+            step: completed, length: step.distance, remaining: progress.distanceToNextManeuver, speed: speed, units: units
         ) else { return }
         if case let .continueRoad(key) = prompt {
             speak([key])
@@ -350,7 +351,7 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
             roundaboutExit: next?.roundaboutExitNumber,
             laneInfo: banner?.subContent?.laneInfo, signal: signal,
             lanesEnabled: settings.allows(.lane, context: voiceContext),
-            trafficLightsEnabled: settings.allows(.trafficLight, context: voiceContext), isApproach: approach
+            trafficLightsEnabled: settings.allows(.trafficLight, context: voiceContext), isApproach: approach, units: units
         )
         if clips.first?.hasPrefix("arrive") == true { announcedArrival = true }
         speak(clips, fallback: spoken?.text ?? banner?.primaryContent.text ?? next?.instruction ?? step.instruction)
@@ -373,7 +374,7 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
     func playVoiceSample(_ voice: PromptVoice) {
         guard !isActive, !isStarting,
               VoiceSettings.fromDefaults().allows(.preview, context: voiceContext) else { return }
-        VoicePromptPlayer.shared.enqueue(.preview(voice: voice, now: ProcessInfo.processInfo.systemUptime))
+        VoicePromptPlayer.shared.enqueue(.preview(voice: voice, now: ProcessInfo.processInfo.systemUptime, units: .selected()))
     }
 
     /// Builds the summary, then stops immediately: a reroute that completes

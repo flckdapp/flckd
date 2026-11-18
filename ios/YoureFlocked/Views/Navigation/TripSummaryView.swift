@@ -11,7 +11,7 @@ struct TripSummaryView: View {
     let summary: NavigationSessionController.TripSummary
     let onDone: () -> Void
 
-    @AppStorage("useMetric") private var useMetric: Bool = false
+    @AppStorage(DistanceUnits.storageKey) private var useMetric: Bool = false
 
     private var format: NavigationFormat { NavigationFormat(useMetric: useMetric) }
 

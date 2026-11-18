@@ -46,7 +46,7 @@ struct RouteView: View {
     @State private var sheetDetent: PresentationDetent = .fraction(0.25)
     @State private var isSheetPresented = false
     
-    @AppStorage("useMetric") private var useMetric: Bool = false
+    @AppStorage(DistanceUnits.storageKey) private var useMetric: Bool = false
     #if DEBUG
     @AppStorage("showRoutingSpikeOverlay") private var showRoutingSpikeOverlay: Bool = false
     #endif

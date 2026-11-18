@@ -64,6 +64,7 @@ ios/
     SurveillanceActivityAttributes.swift   shared with the widget target
     LiveActivityContent.swift              composes the camera and turn halves of its payload
     ManeuverType.swift                     Valhalla maneuver codes, names and turn icons
+    DistanceUnits.swift                    imperial default, shared preference key and formatter units
   YoureFlocked/
     YoureFlockedApp.swift           entry point
     ContentView.swift               tab navigation
@@ -373,12 +374,25 @@ one "Continue on this road for..." prompt rounded to a quarter mile, up to ten
 miles. Under an eighth of a mile it is omitted; over ten miles it uses the
 generic recording. It is also omitted unless at least twelve seconds remain
 before the first countdown, so short city steps do not get back-to-back prompts.
-The countdown uses 2 miles, 1 mile, half a mile and a quarter mile, only where
+The imperial countdown uses 2 miles, 1 mile, half a mile and a quarter mile, only where
 shorter than the step; sub-quarter-mile steps use 500 feet if there is room.
 Final prompts fire six seconds ahead at current speed, clamped to 30-150 m.
 An approach less than two seconds ahead of final is skipped. Missing speed uses
-the route step's estimated speed. All recordings remain imperial even when the
-display is metric. No metric recordings are synthesized or downloaded.
+the route step's estimated speed. Imperial is the default, and metric is opt-in
+through the single `DistanceUnits.storageKey` preference. Metric uses 2 km, 1 km,
+500 m and 200 m, with 100 m for short steps; continue recordings round to half a
+kilometer from 0.5 through 15 km, then use the generic clip. The speed-timed final
+and minimum prompt gaps are shared. Changing units mid-step does not replay past
+thresholds or the continue prompt. Pending speech in the previous units is
+cancelled. Traffic-light and lane clips are unit-free and shared. Camera distance
+clips use 200/300/400 m in metric, versus the existing imperial forms.
+
+Both voices bundle 435 generic recordings, including 157 metric clips each
+(115 approaches, 30 continue distances and 12 camera distances). No voice audio
+is synthesized or downloaded at runtime. The lock screen receives the app's
+unit choice as an optional Live Activity payload field; absent means imperial,
+including for payloads written by older builds. Both turn and camera distances
+use explicit formatter units, never the device region. No App Group is needed.
 
 Valhalla puts the upcoming maneuver in the current step's banner;
 the step's own maneuver is the one at its start. The selector therefore uses

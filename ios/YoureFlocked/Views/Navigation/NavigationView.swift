@@ -156,7 +156,7 @@ struct NavigationDrivingView: View {
     let onToggleMute: () -> Void
     let onEnd: () -> Void
 
-    @AppStorage("useMetric") private var useMetric: Bool = false
+    @AppStorage(DistanceUnits.storageKey) private var useMetric: Bool = false
 
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var isFollowing = true

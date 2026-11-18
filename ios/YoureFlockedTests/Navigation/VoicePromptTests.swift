@@ -288,7 +288,7 @@ final class VoicePromptTests: XCTestCase {
             let directory = try XCTUnwrap(voice.url(for: "turn_left")).deletingLastPathComponent()
             let urls = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
                 .filter { $0.pathExtension == "m4a" }
-            XCTAssertEqual(urls.count, 278)
+            XCTAssertEqual(urls.count, 435)
             for url in urls {
                 let file = try AVAudioFile(forReading: url)
                 XCTAssertEqual(file.processingFormat.sampleRate, 44_100)

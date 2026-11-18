@@ -102,7 +102,7 @@ final class GuidancePromptScheduleTests: XCTestCase {
         XCTAssertEqual(GuidancePromptSchedule.continueKey(miles: 2.4), "continue_mi.2_50")
         XCTAssertEqual(GuidancePromptSchedule.continueKey(miles: 9.9), "continue_mi.10_00")
         XCTAssertEqual(GuidancePromptSchedule.continueKey(miles: 10.2), "continue_long")
-        XCTAssertEqual(GuidancePromptSchedule.continueKeys.count, 40)
+        XCTAssertEqual(GuidancePromptSchedule.continueKeys.filter { $0.hasPrefix("continue_mi.") }.count, 40)
         for quarter in 1...40 {
             XCTAssertTrue(GuidancePromptSchedule.continueKeys.contains(GuidancePromptSchedule.continueKey(miles: Double(quarter) / 4) ?? ""))
         }

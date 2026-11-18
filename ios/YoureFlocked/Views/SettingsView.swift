@@ -34,7 +34,7 @@ struct SettingsView: View {
     #endif
     @AppStorage("showSuspectedLocations") private var showSuspectedLocations: Bool = false
     @AppStorage("offlineRadius") private var offlineRadius: Double = 20.0
-    @AppStorage("useMetric") private var useMetric: Bool = false
+    @AppStorage(DistanceUnits.storageKey) private var useMetric: Bool = false
     @AppStorage("enableHaptics") private var enableHaptics: Bool = true
     @AppStorage("keepScreenAwake") private var keepScreenAwake: Bool = true
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw: String = AppAppearance.system.rawValue

@@ -50,6 +50,7 @@ final class LiveActivityManager {
     private var navigationRerouting = false
 
     private var navigationThrottle = NavigationUpdateThrottle()
+    private var lastUnits: DistanceUnits = .selected()
 
     /// The radius the camera path last asked for, so an activity requested by
     /// guidance describes the same detection zone.
@@ -158,7 +159,10 @@ final class LiveActivityManager {
             return
         }
 
-        guard navigationThrottle.shouldPush(fields) else { return }
+        let units = DistanceUnits.selected()
+        let unitsChanged = lastUnits != units
+        lastUnits = units
+        guard navigationThrottle.shouldPush(fields) || unitsChanged else { return }
 
         await Self.updateActivity(id: id, state: composedState())
     }
@@ -201,7 +205,13 @@ final class LiveActivityManager {
     // MARK: - Content
 
     private func composedState() -> SurveillanceActivityAttributes.ContentState {
-        LiveActivityContent.compose(camera: lastCameraFields, navigation: navigationFields)
+        LiveActivityContent.compose(camera: lastCameraFields, navigation: navigationFields, units: .selected())
+    }
+
+    func unitsDidChange() async {
+        lastUnits = .selected()
+        guard let id = currentActivityID else { return }
+        await Self.updateActivity(id: id, state: composedState())
     }
 
     /// The alert radius as the user last left it, read from the key Settings'

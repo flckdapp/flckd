@@ -35,3 +35,10 @@ process a comma-separated subset and `--work-dir` to keep intermediates in a
 different gitignored checkout. Generation keeps the existing
 `eleven_multilingual_v2` model and seed 1; existing raw files are skipped.
 Use the same key subset for normalization to leave older bundle files intact.
+
+Metric adds 157 recordings per voice: five approach distances for each of the
+23 actions (`2km`, `1km`, `500m`, `200m`, `100m`), thirty half-kilometer continue
+phrases (`continue_km.0_50` through `continue_km.15_00`), and `200m`/`300m`/`400m`
+distance alerts for each camera type. The phrases use US spelling, "kilometers"
+and "meters". Lane and traffic-light phrases are shared by both unit systems.
+Each voice folder contains 435 recordings in total.

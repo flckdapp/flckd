@@ -6,6 +6,9 @@ enum GuidancePromptSelector {
         ("500ft", 152.4), ("1000ft", 304.8), ("quarter_mi", 402.336),
         ("half_mi", 804.672), ("1mi", 1609.344), ("2mi", 3218.688),
     ]
+    static let metricDistances: [(key: String, meters: Double)] = [
+        ("100m", 100), ("200m", 200), ("500m", 500), ("1km", 1000), ("2km", 2000),
+    ]
     static let actions = [
         "turn_left", "turn_right", "slight_left", "slight_right", "sharp_left", "sharp_right", "uturn",
         "keep_left", "keep_right", "keep_straight", "exit_left", "exit_right", "ramp_left", "ramp_right",
@@ -18,7 +21,7 @@ enum GuidancePromptSelector {
     static var allKeys: Set<String> {
         var keys = Set(actions + lanes + ["depart", "arrive", "arrive_left", "arrive_right", "continue_long", "rerouting", "new_route"])
         keys.formUnion(GuidancePromptSchedule.continueKeys)
-        for distance in distances {
+        for distance in distances + metricDistances {
             for action in actions { keys.insert("\(distance.key).\(action)") }
         }
         for signal in ["at_light", "at_next_light", "at_second_light"] {
@@ -30,11 +33,12 @@ enum GuidancePromptSelector {
     static func select(
         content: VisualInstructionContent?, distance: Double, roundaboutExit: UInt8? = nil,
         laneInfo: [LaneInfo]? = nil, signal: String? = nil,
-        lanesEnabled: Bool = true, trafficLightsEnabled: Bool = true, isApproach: Bool? = nil
+        lanesEnabled: Bool = true, trafficLightsEnabled: Bool = true, isApproach: Bool? = nil,
+        units: DistanceUnits = .imperial
     ) -> [String] {
         guard let content, let action = action(content, roundaboutExit: roundaboutExit) else { return [] }
         if action == "depart" { return [action] }
-        let approach = isApproach ?? (distance >= 150)
+        let approach = isApproach ?? (distance >= (units == .metric ? 100 : 150))
         if action.hasPrefix("arrive"), !approach { return [action] }
         // There are no distance-prefixed arrival recordings. Do not announce
         // arrival early; preserve the distance in the on-device fallback.
@@ -43,7 +47,7 @@ enum GuidancePromptSelector {
         if trafficLightsEnabled, let signal, signalActions.contains(action) {
             key = "\(signal).\(action)"
         } else if approach {
-            key = "\(nearestDistance(distance)).\(action)"
+            key = "\(nearestDistance(distance, units: units)).\(action)"
         } else {
             key = action
         }
@@ -51,8 +55,9 @@ enum GuidancePromptSelector {
         return [key]
     }
 
-    static func nearestDistance(_ meters: Double) -> String {
-        distances.min { abs($0.meters - meters) < abs($1.meters - meters) }?.key ?? "500ft"
+    static func nearestDistance(_ meters: Double, units: DistanceUnits = .imperial) -> String {
+        let choices = units == .metric ? metricDistances : distances
+        return choices.min { abs($0.meters - meters) < abs($1.meters - meters) }?.key ?? choices[0].key
     }
 
     static func action(_ content: VisualInstructionContent, roundaboutExit: UInt8?) -> String? {

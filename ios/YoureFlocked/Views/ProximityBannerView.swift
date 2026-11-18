@@ -11,7 +11,7 @@ import CoreLocation
 struct ProximityBannerView: View {
     let alert: ProximityAlertEngine.ProximityAlert
     var tripStats: ProximityAlertEngine.TripStats = .init()
-    @AppStorage("useMetric") private var useMetric: Bool = false
+    @AppStorage(DistanceUnits.storageKey) private var useMetric: Bool = false
 
     var body: some View {
         HStack(spacing: 0) {

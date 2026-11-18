@@ -25,6 +25,15 @@ final class LiveActivityComposeTests: XCTestCase {
 
     // MARK: - Composition
 
+    func testCompositionCarriesUnitsWithAndWithoutNavigation() {
+        for units in DistanceUnits.allCases {
+            for fields in [nil, navigation] {
+                let state = LiveActivityContent.compose(camera: camera, navigation: fields, units: units)
+                XCTAssertEqual(state.distanceUnits, units)
+            }
+        }
+    }
+
     func testCameraOnlyCompositionLeavesEveryNavigationFieldAbsent() {
         let state = LiveActivityContent.compose(camera: camera, navigation: nil)
 

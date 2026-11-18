@@ -69,7 +69,7 @@ struct SurveillanceLiveActivity: Widget {
                     } else {
                         VStack(alignment: .trailing, spacing: 2) {
                             if context.state.nearestCameraDistance >= 0 && context.state.nearestCameraDistance < 10_000 {
-                                Text(distanceText(context.state.nearestCameraDistance))
+                                Text(localizedDistanceText(context.state.nearestCameraDistance, units: context.state.resolvedDistanceUnits))
                                     .font(.title3.bold().monospacedDigit())
                                     .foregroundStyle(.white)
                                 Image(systemName: "location.north.fill")
@@ -237,7 +237,7 @@ struct SurveillanceLiveActivity: Widget {
 
             if context.state.nearbyCameraCount > 0 {
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(distanceText(context.state.nearestCameraDistance))
+                    Text(localizedDistanceText(context.state.nearestCameraDistance, units: context.state.resolvedDistanceUnits))
                         .font(.title3.bold().monospacedDigit())
                     Text("nearest")
                         .font(.caption2)
@@ -329,7 +329,7 @@ struct SurveillanceLiveActivity: Widget {
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.white)
                 if state.nearestCameraDistance >= 0 {
-                    Text(localizedDistanceText(state.nearestCameraDistance))
+                    Text(localizedDistanceText(state.nearestCameraDistance, units: state.resolvedDistanceUnits))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
@@ -367,29 +367,14 @@ struct SurveillanceLiveActivity: Widget {
     private func turnDistanceLabel(_ state: SurveillanceActivityAttributes.ContentState) -> String? {
         if state.isRerouting == true { return "Rerouting…" }
         guard let meters = state.distanceToNextTurnMeters else { return nil }
-        return localizedDistanceText(meters)
+        return localizedDistanceText(meters, units: state.resolvedDistanceUnits)
     }
 
-    private func distanceText(_ meters: Double) -> String {
-        if meters >= 1000 {
-            return String(format: "%.1fkm", meters / 1000)
-        }
-        return "\(Int(meters))m"
-    }
-
-    /// A distance in the units of the device's region.
-    ///
-    /// The app's own metric/imperial setting is in `UserDefaults.standard`,
-    /// which this extension cannot read: the app and the widget share no App
-    /// Group, and adding one is an entitlement change. `MKDistanceFormatter`
-    /// follows the region instead, which agrees with the setting for anyone who
-    /// left it alone and is only wrong for someone who deliberately overrode it.
-    /// Used for the navigating layout; `distanceText` keeps the
-    /// camera-only layout rendering exactly as it did before turns existed.
-    private func localizedDistanceText(_ meters: Double) -> String {
+    /// Units arrive in the payload; legacy payloads resolve to imperial.
+    private func localizedDistanceText(_ meters: Double, units: DistanceUnits) -> String {
         let formatter = MKDistanceFormatter()
         formatter.unitStyle = .abbreviated
-        formatter.units = .default
+        formatter.units = units.formatterUnits
         return formatter.string(fromDistance: max(0, meters))
     }
 

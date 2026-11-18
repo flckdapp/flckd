@@ -22,7 +22,7 @@ struct NavigationBannerView: View {
     /// after the session starts.
     let fallbackTitle: String
 
-    @AppStorage("useMetric") private var useMetric: Bool = false
+    @AppStorage(DistanceUnits.storageKey) private var useMetric: Bool = false
 
     var body: some View {
         HStack(spacing: 0) {

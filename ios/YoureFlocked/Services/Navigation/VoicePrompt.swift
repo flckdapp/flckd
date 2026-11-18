@@ -11,8 +11,8 @@ struct VoiceUtterance: Equatable, Sendable {
     var kind: VoicePromptKind = .directions
     var createdAt: TimeInterval
 
-    static func preview(voice: PromptVoice, now: TimeInterval) -> Self {
-        Self(clips: ["500ft.turn_right", "lane_right", "cam.flock.ahead"], voice: voice,
+    static func preview(voice: PromptVoice, now: TimeInterval, units: DistanceUnits = .imperial) -> Self {
+        Self(clips: [units == .metric ? "200m.turn_right" : "500ft.turn_right", "lane_right", "cam.flock.ahead"], voice: voice,
              priority: .sample, kind: .preview, createdAt: now)
     }
 }

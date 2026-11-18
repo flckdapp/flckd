@@ -13,7 +13,7 @@ struct RoutePlanOptions: Sendable {
     var useMetric: Bool
 
     static let avoidanceLevelKey = "avoidanceLevel"
-    static let useMetricKey = "useMetric"
+    static let useMetricKey = DistanceUnits.storageKey
 
     /// `useFOV` is false and `costing` is "auto" to match `RouteView`: wedge
     /// avoidance lets a route pass directly behind a camera pole, so planning

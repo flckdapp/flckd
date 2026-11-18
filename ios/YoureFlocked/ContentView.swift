@@ -13,6 +13,7 @@ struct ContentView: View {
     @AppStorage("keepScreenAwake") private var keepScreenAwake: Bool = true
     @AppStorage("alertMode") private var alertModeRaw: String = AlertMode.nearCamera.rawValue
     @AppStorage("enableHaptics") private var enableHaptics: Bool = true
+    @AppStorage(DistanceUnits.storageKey) private var useMetric = false
 
     #if DEBUG
     /// Held in `@State` rather than read through `RerouteProbe.shared` inline.
@@ -93,6 +94,12 @@ struct ContentView: View {
                 alertMode: AlertMode(rawValue: alertModeRaw) ?? .nearCamera,
                 enableHaptics: enableHaptics
             )
+        }
+        .onChange(of: useMetric) { _, _ in
+            VoicePromptPlayer.shared.cancel(.guidance)
+            VoicePromptPlayer.shared.cancel(.camera)
+            VoicePromptPlayer.shared.cancel(.sample)
+            Task { await liveActivityManager.unitsDidChange() }
         }
         .task {
             locationManager.requestAuthorizationIfNeeded()

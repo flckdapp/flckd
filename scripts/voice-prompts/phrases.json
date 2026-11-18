@@ -82,7 +82,12 @@
       "cameras_ahead_many": "Several cameras ahead.",
       "clear": "No cameras ahead."
     },
-    "_types_note": "flock: manufacturer or brand tag names Flock Safety. camera: every other plate reader and surveillance camera."
+    "_types_note": "flock: manufacturer or brand tag names Flock Safety. camera: every other plate reader and surveillance camera.",
+    "distance_metric": {
+      "200m": "{T} in 200 meters.",
+      "300m": "{T} in 300 meters.",
+      "400m": "{T} in 400 meters."
+    }
   },
   "continue_distances": {
     "continue_mi.0_25": "Continue on this road for a quarter mile.",
@@ -124,6 +129,43 @@
     "continue_mi.9_25": "Continue on this road for 9 and a quarter miles.",
     "continue_mi.9_50": "Continue on this road for 9 and a half miles.",
     "continue_mi.9_75": "Continue on this road for 9 and three quarter miles.",
-    "continue_mi.10_00": "Continue on this road for 10 miles."
+    "continue_mi.10_00": "Continue on this road for 10 miles.",
+    "continue_km.0_50": "Continue on this road for half a kilometer.",
+    "continue_km.1_00": "Continue on this road for 1 kilometer.",
+    "continue_km.1_50": "Continue on this road for 1 and a half kilometers.",
+    "continue_km.2_00": "Continue on this road for 2 kilometers.",
+    "continue_km.2_50": "Continue on this road for 2 and a half kilometers.",
+    "continue_km.3_00": "Continue on this road for 3 kilometers.",
+    "continue_km.3_50": "Continue on this road for 3 and a half kilometers.",
+    "continue_km.4_00": "Continue on this road for 4 kilometers.",
+    "continue_km.4_50": "Continue on this road for 4 and a half kilometers.",
+    "continue_km.5_00": "Continue on this road for 5 kilometers.",
+    "continue_km.5_50": "Continue on this road for 5 and a half kilometers.",
+    "continue_km.6_00": "Continue on this road for 6 kilometers.",
+    "continue_km.6_50": "Continue on this road for 6 and a half kilometers.",
+    "continue_km.7_00": "Continue on this road for 7 kilometers.",
+    "continue_km.7_50": "Continue on this road for 7 and a half kilometers.",
+    "continue_km.8_00": "Continue on this road for 8 kilometers.",
+    "continue_km.8_50": "Continue on this road for 8 and a half kilometers.",
+    "continue_km.9_00": "Continue on this road for 9 kilometers.",
+    "continue_km.9_50": "Continue on this road for 9 and a half kilometers.",
+    "continue_km.10_00": "Continue on this road for 10 kilometers.",
+    "continue_km.10_50": "Continue on this road for 10 and a half kilometers.",
+    "continue_km.11_00": "Continue on this road for 11 kilometers.",
+    "continue_km.11_50": "Continue on this road for 11 and a half kilometers.",
+    "continue_km.12_00": "Continue on this road for 12 kilometers.",
+    "continue_km.12_50": "Continue on this road for 12 and a half kilometers.",
+    "continue_km.13_00": "Continue on this road for 13 kilometers.",
+    "continue_km.13_50": "Continue on this road for 13 and a half kilometers.",
+    "continue_km.14_00": "Continue on this road for 14 kilometers.",
+    "continue_km.14_50": "Continue on this road for 14 and a half kilometers.",
+    "continue_km.15_00": "Continue on this road for 15 kilometers."
+  },
+  "distances_metric": {
+    "2km": "In 2 kilometers",
+    "1km": "In 1 kilometer",
+    "500m": "In 500 meters",
+    "200m": "In 200 meters",
+    "100m": "In 100 meters"
   }
 }

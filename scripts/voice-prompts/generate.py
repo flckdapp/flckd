@@ -39,6 +39,8 @@ def clips():
         out[k] = sentence(a)
         for dk, d in p["distances_imperial"].items():
             out[f"{dk}.{k}"] = sentence(f"{d}, {a}")
+        for dk, d in p.get("distances_metric", {}).items():
+            out[f"{dk}.{k}"] = sentence(f"{d}, {a}")
     for k, t in p["lanes"].items():
         out[k] = sentence(t)
     for sk, s in p["signals"].items():
@@ -50,8 +52,8 @@ def clips():
         out[k] = sentence(t)
     c = p.get("cameras", {})
     for tk, tname in c.get("types", {}).items():
-        for group in ("where", "distance"):
-            for wk, tmpl in c[group].items():
+        for group in ("where", "distance", "distance_metric"):
+            for wk, tmpl in c.get(group, {}).items():
                 out[f"cam.{tk}.{wk}"] = sentence(tmpl.replace("{T}", tname))
         out[f"cam.{tk}.passing"] = sentence(c["passing"].replace("{T}", tname))
         out[f"cam.{tk}.in_view"] = sentence(c["in_view"].replace("{T}", tname))

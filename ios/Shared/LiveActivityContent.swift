@@ -33,7 +33,7 @@ enum LiveActivityContent {
 
     static func compose(
         camera: CameraActivityFields,
-        navigation: NavigationActivityFields?
+        navigation: NavigationActivityFields?, units: DistanceUnits? = nil
     ) -> SurveillanceActivityAttributes.ContentState {
         SurveillanceActivityAttributes.ContentState(
             nearbyCameraCount: camera.nearbyCameraCount,
@@ -45,7 +45,8 @@ enum LiveActivityContent {
             nextManeuverInstruction: navigation?.instruction,
             distanceToNextTurnMeters: navigation?.distanceToNextTurnMeters,
             eta: navigation?.eta,
-            isRerouting: navigation.map(\.isRerouting)
+            isRerouting: navigation.map(\.isRerouting),
+            distanceUnits: units
         )
     }
 }

@@ -42,10 +42,14 @@ struct SurveillanceActivityAttributes: ActivityAttributes {
         var eta: Date?
 
         var isRerouting: Bool?
+        /// Optional for payloads from older builds; absent means imperial.
+        var distanceUnits: DistanceUnits?
     }
 }
 
 extension SurveillanceActivityAttributes.ContentState {
+
+    var resolvedDistanceUnits: DistanceUnits { distanceUnits ?? .imperial }
 
     /// True when there is a turn to draw.
     ///

@@ -122,6 +122,11 @@ audio session is active only while a prompt is playing, including when the
 screen is locked. Decoded generic recordings are cached in memory; route
 text is not cached or written to disk.
 
+Distances default to imperial. Selecting metric switches both displayed and
+spoken distances using another set of recordings already bundled in the app.
+The unit preference is also included in local Live Activity updates so the
+lock screen agrees with the app; no shared App Group or network request is used.
+
 **Traffic lights.** At navigation start and after an accepted reroute, the
 app asks the same on-device Valhalla engine for `trace_attributes` along the
 route to find traffic-signal nodes. No request leaves the device. The result
@@ -379,7 +384,7 @@ Runtime service URLs in the results are covered by the table above or by
 network requests.
 
 Any build output under `ios/` holds the checked-out packages and will swamp
-that list — this built tree answers with 1,743 lines instead of the 31 tracked
+that list — this built tree (with `_dd` and `_dd_voice`) answers with 3,446 lines instead of the 31 tracked
 source lines. Those counts depend on resolved package sources. Skip
 it with `--exclude-dir`, naming whichever derived-data directory you have
 (`_dd` is what the commands below use, `_build` and `DerivedData` are the
