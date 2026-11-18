@@ -614,7 +614,7 @@ struct SettingsView: View {
             Section("Voice Prompts") {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Generated with ElevenLabs")
-                    Text("Eric (Male) and Matilda (Female). Generic prompts generated during development and shipped as audio files in the app. No ElevenLabs service runs in the app.")
+                    Text("Eric and Jessica. Generic prompts generated during development and shipped as audio files in the app. No ElevenLabs service runs in the app.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

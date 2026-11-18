@@ -3,7 +3,9 @@
   python3 -I normalize.py <voice_id> <out_dir>
 
 Each clip: leading/trailing silence trimmed, measured with EBU R128, gained to -16 LUFS integrated,
-peaks limited to leave about 1.5 dB of true-peak headroom after AAC encoding, then AAC-LC mono 64 kbps 44.1 kHz .m4a.
+peaks limited to leave about 1.5 dB of true-peak headroom after AAC encoding, then AAC-LC mono 128 kbps 44.1 kHz .m4a using
+Apple's AudioToolbox encoder (`aac_at`, macOS ffmpeg): ffmpeg's built-in AAC encoder
+audibly degraded bright voices at 64 kbps.
 """
 import argparse
 import json
@@ -51,7 +53,7 @@ def main():
                   f"alimiter=limit=0.66:attack=1:release=50:level=false,aresample=44100")
         out = dst / (f.stem + ".m4a")
         r = run(["-loglevel", "error", "-y", "-i", str(f), "-af", second,
-                 "-ac", "1", "-c:a", "aac", "-b:a", "64k", str(out)])
+                 "-ac", "1", "-c:a", "aac_at", "-b:a", "128k", str(out)])
         if r.returncode != 0:
             sys.exit(f"{f.name}: {r.stderr[-400:]}")
     print(f"normalised {len(clips)} clips into {dst}")

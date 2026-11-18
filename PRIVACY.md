@@ -89,7 +89,7 @@ to run your own.
 ## Turn-by-turn guidance
 
 The app bundles recorded generic voice prompts generated during development
-with ElevenLabs (Eric and Matilda). Only generic phrases were sent to that
+with ElevenLabs (Eric and Jessica). Only generic phrases were sent to that
 service, never user, location or route data. The development tools live in
 `scripts/voice-prompts/`; they do not run in the app.
 
@@ -107,7 +107,7 @@ never through a request built around your position.
 
 **Spoken directions and camera alerts.** The app plays pre-recorded audio
 files bundled with it, on your device. Nothing is synthesized over the network
-at runtime. Two voices, Eric and Matilda, are available in Settings.
+at runtime. Two voices, Eric and Jessica, are available in Settings.
 When a direction has no matching recording, Apple's `AVSpeechSynthesizer`
 speaks Ferrostar's instruction text on the device using an installed voice.
 That text is never sent anywhere. The master Voice switch silences all automatic

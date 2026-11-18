@@ -17,7 +17,7 @@ Inspired by [DeFlock](https://deflock.me).
 - Plans routes that pass fewer cameras, entirely on your phone
 - Gives turn-by-turn directions along that route, with spoken prompts and the
   next turn on your lock screen, and replans around cameras if you leave it
-- Offers two recorded guidance voices, Eric and Matilda, and optional spoken
+- Offers two recorded guidance voices, Eric and Jessica, and optional spoken
   camera alerts, all played on your device
 
 ## Platforms

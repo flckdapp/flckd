@@ -431,7 +431,7 @@ passing have specific clips. Ahead groups use the two/three/several recording.
 
 Settings shows one master Voice switch, default on, and a "Voice & Spoken
 Prompts" page that holds everything else. That page starts with a voice list built
-from `PromptVoice.allCases`, shown by name (Eric, Matilda), with a selection
+from `PromptVoice.allCases`, shown by name (Eric, Jessica), with a selection
 checkmark and a preview button per row. Previews use that row's voice and replace
 any previous preview, even with Voice off. They are refused while starting or
 navigating, so they never interrupt or wait behind a live direction.

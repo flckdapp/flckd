@@ -16,15 +16,18 @@ From the repository root:
 python3 -I scripts/voice-prompts/generate.py --plan
 python3 -I scripts/voice-prompts/generate.py --voice cjVigY5qzO86Huf0OWal
 python3 -I scripts/voice-prompts/normalize.py cjVigY5qzO86Huf0OWal ios/YoureFlocked/Resources/VoicePrompts/male
-python3 -I scripts/voice-prompts/generate.py --voice XrExE9yKIg1WjnnlVkGX
-python3 -I scripts/voice-prompts/normalize.py XrExE9yKIg1WjnnlVkGX ios/YoureFlocked/Resources/VoicePrompts/female
+python3 -I scripts/voice-prompts/generate.py --voice r1KmysJdVYZjJCm4mL3b
+python3 -I scripts/voice-prompts/normalize.py r1KmysJdVYZjJCm4mL3b ios/YoureFlocked/Resources/VoicePrompts/female
 ```
 
-Eric (`cjVigY5qzO86Huf0OWal`) is Male; Matilda (`XrExE9yKIg1WjnnlVkGX`)
-is Female. Raw MP3 output stays in gitignored `ai-docs/voice-prompts/out/`.
+Eric (`cjVigY5qzO86Huf0OWal`) is Male; Jessica (`r1KmysJdVYZjJCm4mL3b`)
+is Female. Eric is an ElevenLabs default voice. Jessica comes from the
+ElevenLabs Voice Library, where its owner can withdraw it after a 730-day
+notice period; that would only stop future re-renders, not the shipped files. Raw MP3 output stays in gitignored `ai-docs/voice-prompts/out/`.
 Existing MP3 files are skipped; remove only the clips you intend to regenerate.
 Normalization trims silence, targets -16 LUFS, limits peaks and writes mono
-44.1 kHz AAC at 64 kbps. Both voice directories must keep identical clip keys.
+44.1 kHz AAC at 128 kbps with Apple's encoder (`aac_at`), so normalization needs
+ffmpeg on macOS; ffmpeg's built-in AAC at 64 kbps audibly degraded bright voices. Both voice directories must keep identical clip keys.
 Xcode copies `VoicePrompts` as a folder reference so the voices cannot flatten
 onto each other. Run the voice manifest tests after regeneration.
 

@@ -7,7 +7,7 @@ enum PromptVoice: String, CaseIterable, Sendable {
     var name: String {
         switch self {
         case .male: "Eric"
-        case .female: "Matilda"
+        case .female: "Jessica"
         }
     }
 
