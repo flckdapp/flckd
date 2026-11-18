@@ -13,7 +13,7 @@ final class VoiceSettingsTests: XCTestCase {
     func testPermissionMatrix() {
         for bits in 0..<128 {
             let settings = VoiceSettings(
-                master: bits & 1 != 0, directions: bits & 2 != 0, lanes: bits & 4 != 0,
+                master: bits & 1 != 0, directions: bits & 2 != 0,
                 trafficLights: bits & 8 != 0, rerouting: bits & 16 != 0,
                 cameras: bits & 32 != 0, outsideNavigation: bits & 64 != 0
             )
@@ -22,7 +22,7 @@ final class VoiceSettingsTests: XCTestCase {
                     let context = VoicePlaybackContext(navigating: navigating, tripMuted: muted)
                     let automatic = settings.master && !muted
                     XCTAssertEqual(settings.allows(.directions, context: context), automatic && settings.directions)
-                    XCTAssertEqual(settings.allows(.lane, context: context), automatic && settings.directions && settings.lanes)
+                    XCTAssertEqual(settings.allows(.lane, context: context), automatic && settings.directions)
                     XCTAssertEqual(settings.allows(.trafficLight, context: context), automatic && settings.directions && settings.trafficLights)
                     XCTAssertEqual(settings.allows(.rerouting, context: context), automatic && settings.rerouting)
                     for type in CameraVoiceType.allCases {
@@ -125,7 +125,8 @@ final class VoiceSettingsTests: XCTestCase {
         XCTAssertEqual(queue.pending, [camera, reroute])
         queue.removeDisallowed(settings: VoiceSettings(master: false), context: context)
         XCTAssertTrue(queue.pending.isEmpty)
-        XCTAssertFalse(VoiceSettings(lanes: false).allows(lane, context: context))
+        XCTAssertTrue(VoiceSettings().allows(lane, context: context))
+        XCTAssertFalse(VoiceSettings(directions: false).allows(lane, context: context))
         XCTAssertFalse(VoiceSettings(trafficLights: false).allows(light, context: context))
         XCTAssertFalse(VoiceSettings(rerouting: false).allows(reroute, context: context))
         XCTAssertFalse(VoiceSettings().allows(camera, context: VoicePlaybackContext(navigating: true, tripMuted: true)))

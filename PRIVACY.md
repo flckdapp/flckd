@@ -107,11 +107,11 @@ never through a request built around your position.
 
 **Spoken directions and camera alerts.** The app plays pre-recorded audio
 files bundled with it, on your device. Nothing is synthesized over the network
-at runtime. Male (Eric) and Female (Matilda) voices are available in Settings.
+at runtime. Two voices, Eric and Matilda, are available in Settings.
 When a direction has no matching recording, Apple's `AVSpeechSynthesizer`
 speaks Ferrostar's instruction text on the device using an installed voice.
 That text is never sent anywhere. The master Voice switch silences all automatic
-speech. Separate switches control directions, lane guidance, traffic lights,
+speech. Separate switches control directions, traffic lights,
 rerouting announcements and camera alerts. Turning directions off does not
 silence camera alerts. Camera speech defaults to while navigating; you can also
 allow it when not navigating, or disable individual device types. The driving

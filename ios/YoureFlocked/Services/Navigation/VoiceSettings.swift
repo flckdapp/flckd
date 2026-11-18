@@ -14,7 +14,6 @@ struct VoicePlaybackContext: Equatable, Sendable {
 struct VoiceSettings: Equatable, Sendable {
     static let masterKey = "voiceEnabled"
     static let directionsKey = "voiceGuidanceEnabled"
-    static let lanesKey = "spokenLaneGuidanceEnabled"
     static let trafficLightsKey = "spokenTrafficLightsEnabled"
     static let reroutingKey = "spokenReroutingEnabled"
     static let camerasKey = "spokenCameraAlertsEnabled"
@@ -23,7 +22,6 @@ struct VoiceSettings: Equatable, Sendable {
 
     var master = true
     var directions = true
-    var lanes = true
     var trafficLights = true
     var rerouting = true
     var cameras = true
@@ -35,7 +33,8 @@ struct VoiceSettings: Equatable, Sendable {
         guard master, !context.tripMuted else { return false }
         switch kind {
         case .directions: return directions
-        case .lane: return directions && lanes
+        // Lane prompts are part of directions: spoken whenever the route has lane data.
+        case .lane: return directions
         case .trafficLight: return directions && trafficLights
         case .rerouting: return rerouting
         case .camera(let type): return cameras && cameraTypes.contains(type) && (context.navigating || outsideNavigation)
@@ -70,7 +69,7 @@ struct VoiceSettings: Equatable, Sendable {
         }
         let legacy = defaults.string(forKey: legacyCameraModeKey)
         return Self(
-            master: enabled(masterKey), directions: enabled(directionsKey), lanes: enabled(lanesKey),
+            master: enabled(masterKey), directions: enabled(directionsKey),
             trafficLights: enabled(trafficLightsKey), rerouting: enabled(reroutingKey),
             cameras: enabled(camerasKey, fallback: legacy != "off"),
             outsideNavigation: enabled(outsideNavigationKey, fallback: legacy == "always"),

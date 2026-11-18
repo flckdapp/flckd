@@ -41,7 +41,6 @@ struct SettingsView: View {
     @AppStorage(NavigationSessionController.voiceGuidanceKey) private var voiceGuidance: Bool = true
     @AppStorage(PromptVoice.storageKey) private var promptVoice: String = PromptVoice.male.rawValue
     @AppStorage(VoiceSettings.masterKey) private var voiceEnabled = true
-    @AppStorage(VoiceSettings.lanesKey) private var laneGuidance = true
     @AppStorage(VoiceSettings.trafficLightsKey) private var trafficLights = true
     @AppStorage(VoiceSettings.reroutingKey) private var reroutingAnnouncements = true
     @AppStorage(VoiceSettings.camerasKey) private var cameraAlerts = true
@@ -64,7 +63,7 @@ struct SettingsView: View {
         .task {
             await refreshDataStats()
         }
-        .onChange(of: [voiceEnabled, voiceGuidance, laneGuidance, trafficLights,
+        .onChange(of: [voiceEnabled, voiceGuidance, trafficLights,
                        reroutingAnnouncements, cameraAlerts, camerasOutsideNavigation]) { _, _ in
             VoicePromptPlayer.shared.settingsDidChange()
         }
@@ -255,13 +254,8 @@ struct SettingsView: View {
                         promptVoice = voice.rawValue
                     } label: {
                         HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(voice.title)
-                                    .foregroundStyle(.primary)
-                                Text(voice.name)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                            Text(voice.name)
+                                .foregroundStyle(.primary)
                             Spacer()
                             if promptVoice == voice.rawValue {
                                 Image(systemName: "checkmark")
@@ -270,7 +264,7 @@ struct SettingsView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.borderless)
-                    .accessibilityLabel("\(voice.title), \(voice.name)")
+                    .accessibilityLabel(voice.name)
                     .accessibilityAddTraits(promptVoice == voice.rawValue ? .isSelected : [])
                     Button {
                         navigationController.playVoiceSample(voice)
@@ -296,7 +290,6 @@ struct SettingsView: View {
     private var spokenPromptsSection: some View {
         Section {
             Toggle("Turn-by-turn directions", isOn: $voiceGuidance)
-            Toggle("Lane guidance", isOn: $laneGuidance)
             Toggle("Traffic lights", isOn: $trafficLights)
             Toggle("Rerouting announcements", isOn: $reroutingAnnouncements)
             Toggle("Camera alerts", isOn: $cameraAlerts)
