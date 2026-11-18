@@ -120,6 +120,7 @@ ios/
         GuidancePromptSelector.swift       pure maneuver, distance and lane clip selection
         GuidancePromptSchedule.swift       pure per-step continue, countdown and speed-scaled final triggers
         NavigationMotion.swift             pure path interpolation, fix intervals and speed-smoothed camera distance
+        NavigationFollowState.swift        pure gesture/camera ownership and explicit recenter state
         DebugDriveSimulation.swift          debug only: uniform path samples, simulated speed and clock
         CameraExposure.swift                shared route distance geometry and speech-only observability predicate
         CameraPromptSelector.swift         pure camera type, clip and preference gating
@@ -514,6 +515,14 @@ Decisions:
   the covered planner map is removed while driving instead of rendering twice.
   Panning/zooming disables follow; Re-center resumes it. The same Release-safe
   path handles real location updates and does not depend on debug simulation.
+  Camera ownership is yielded at map touch-down by a passive recognizer that
+  never recognizes, delays, cancels or prevents MapKit gestures. Recognizer
+  states are also checked before each display-link camera write, rather than
+  relying on a region callback that may be nested inside `setCamera`. Pan,
+  pinch, rotation, pitch and double-tap zoom therefore work immediately, and
+  follow stays off after the gesture ends. Re-center blends from the user's
+  camera to the current speed-dependent follow camera over 0.8 seconds while
+  keeping the puck projected on the car throughout the transition.
 - **The driving zoom opens gradually with speed.** Distance stays at 450 m
   through 20 mph, then follows `450 + 1250 * ((mph - 20) / 50)^2`, capped at
   1700 m at 70 mph. This gives about 563 m at 35 mph and 763 m at 45 mph while

@@ -18,6 +18,10 @@ struct NavigationMotionMap: UIViewRepresentable {
         context.coordinator.map = map
         map.addAnnotation(context.coordinator.puck)
         context.coordinator.installFollowingPuck(on: map)
+        let observer = MapTouchObserver(target: nil, action: nil)
+        observer.onBegin = { [weak coordinator = context.coordinator] in coordinator?.beginInteraction() }
+        observer.onEnd = { [weak coordinator = context.coordinator] in coordinator?.endInteraction() }
+        map.addGestureRecognizer(observer)
         context.coordinator.start()
         return map
     }
@@ -54,10 +58,12 @@ struct NavigationMotionMap: UIViewRepresentable {
         private var lastMapHeading = Double.nan
         private var renderRoute: [CLLocationCoordinate2D] = []
         private var annotationCenter: CLLocationCoordinate2D?
-        private var cameraUpdate = false
         private var sceneObserver: NSObjectProtocol?
         private var foregroundObserver: NSObjectProtocol?
         private let followingPuck = NavigationPuckView()
+        private var followState = NavigationFollowState()
+        private var lastRequestedFollow = true
+        private var recenterStart: (time: TimeInterval, camera: MKMapCamera)?
 
         init(_ parent: NavigationMotionMap) { self.parent = parent; super.init(); puck.title = "You" }
 
@@ -101,6 +107,13 @@ struct NavigationMotionMap: UIViewRepresentable {
 
         func update(_ snapshot: NavigationSnapshot) {
             guard let map else { return }
+            if parent.following != lastRequestedFollow {
+                lastRequestedFollow = parent.following
+                if parent.following {
+                    followState.recenter()
+                    recenterStart = (CACurrentMediaTime(), map.camera)
+                } else { followState.stopFollowing() }
+            }
             link?.isPaused = UIApplication.shared.applicationState == .background
             if cameras != snapshot.cameras {
                 map.removeAnnotations(cameraAnnotations)
@@ -162,12 +175,15 @@ struct NavigationMotionMap: UIViewRepresentable {
         @objc private func frame() {
             let now = CACurrentMediaTime()
             guard ready, let map, let pose = motion.sample(at: now) else { return }
+            // Observe recognizers directly before *every* camera write. MapKit
+            // may report regionWillChange while our setCamera call is nested.
+            if mapGestureIsActive(map), followState.following { beginInteraction() }
             let distance = zoom.update(speed: speed, at: now)
             let moving = motion.isMoving(at: now)
-            let needsFrame = moving || wasMoving || zoom.isSettling || wasFollowing != parent.following || !lastMapHeading.isFinite
+            let needsFrame = moving || wasMoving || zoom.isSettling || recenterStart != nil || wasFollowing != followState.canDriveCamera || !lastMapHeading.isFinite
             guard needsFrame else { return }
             wasMoving = moving
-            wasFollowing = parent.following
+            wasFollowing = followState.canDriveCamera
             heading = pose.heading
             UIView.performWithoutAnimation {
                 followingPuck.isHidden = false
@@ -175,11 +191,24 @@ struct NavigationMotionMap: UIViewRepresentable {
                 // Following uses a screen-anchored puck. MapKit lays out
                 // annotations separately from camera rendering, so moving both
                 // coordinates on one callback still permits a screen-space hop.
-                if parent.following {
-                    cameraUpdate = true
-                    let camera = MKMapCamera(lookingAtCenter: pose.coordinate, fromDistance: distance, pitch: 45, heading: pose.heading)
+                if followState.canDriveCamera {
+                    var center = pose.coordinate
+                    var followDistance = distance
+                    var heading = pose.heading
+                    var pitch = 45.0
+                    if let transition = recenterStart {
+                        let t = min(1, max(0, (now - transition.time) / 0.8))
+                        let eased = t * t * (3 - 2 * t)
+                        let old = transition.camera
+                        center = CLLocationCoordinate2D(latitude: old.centerCoordinate.latitude + (center.latitude - old.centerCoordinate.latitude) * eased,
+                                                        longitude: old.centerCoordinate.longitude + (center.longitude - old.centerCoordinate.longitude) * eased)
+                        followDistance = old.centerCoordinateDistance + (distance - old.centerCoordinateDistance) * eased
+                        heading = NavigationMotion.heading(from: old.heading, to: heading, fraction: eased)
+                        pitch = old.pitch + (45 - old.pitch) * eased
+                        if t >= 1 { recenterStart = nil }
+                    }
+                    let camera = MKMapCamera(lookingAtCenter: center, fromDistance: followDistance, pitch: pitch, heading: heading)
                     map.setCamera(camera, animated: false)
-                    cameraUpdate = false
                 }
                 positionPuck(pose, on: map)
                 if !lastMapHeading.isFinite || abs(map.camera.heading - lastMapHeading) > 0.2 {
@@ -192,16 +221,27 @@ struct NavigationMotionMap: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, regionWillChangeAnimated animated: Bool) {
-            guard !cameraUpdate else { return }
-            func gestures(in view: UIView) -> [UIGestureRecognizer] {
-                (view.gestureRecognizers ?? []) + view.subviews.flatMap { gestures(in: $0) }
-            }
-            let touched = gestures(in: mapView).contains { gesture in gesture.state == .began || gesture.state == .changed }
-            if touched, parent.following { parent.following = false }
+            if followState.following, mapGestureIsActive(mapView) { beginInteraction() }
         }
 
+        private func mapGestureIsActive(_ view: UIView) -> Bool {
+            (view.gestureRecognizers ?? []).contains { !($0 is MapTouchObserver) && ($0.state == .began || $0.state == .changed) }
+                || view.subviews.contains { mapGestureIsActive($0) }
+        }
+
+        func beginInteraction() {
+            followState.beginInteraction()
+            recenterStart = nil
+            if parent.following {
+                lastRequestedFollow = false
+                parent.following = false
+            }
+        }
+
+        func endInteraction() { followState.endInteraction() }
+
         func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
-            if !parent.following {
+            if !followState.canDriveCamera {
                 lastMapHeading = .nan
                 if let pose = motion.sample(at: CACurrentMediaTime()) {
                     positionPuck(pose, on: mapView)
@@ -210,7 +250,7 @@ struct NavigationMotionMap: UIViewRepresentable {
         }
 
         private func positionPuck(_ pose: NavigationMotion.Pose, on map: MKMapView) {
-            if parent.following {
+            if followState.canDriveCamera, recenterStart == nil {
                 followingPuck.transform = .identity
             } else {
                 let point = map.convert(pose.coordinate, toPointTo: map)
@@ -252,6 +292,37 @@ struct NavigationMotionMap: UIViewRepresentable {
             return renderer
         }
     }
+}
+
+/// Passive touch observer: it never recognizes, prevents, delays or cancels
+/// MapKit's gestures. Touch-down yields the camera before pinch/pan can begin.
+private final class MapTouchObserver: UIGestureRecognizer {
+    var onBegin: (() -> Void)?
+    var onEnd: (() -> Void)?
+    private var touches = Set<ObjectIdentifier>()
+
+    override init(target: Any?, action: Selector?) {
+        super.init(target: target, action: action)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        let first = self.touches.isEmpty
+        self.touches.formUnion(touches.map(ObjectIdentifier.init))
+        if first { onBegin?() }
+    }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        self.touches.subtract(touches.map(ObjectIdentifier.init))
+        if self.touches.isEmpty { onEnd?(); state = .failed }
+    }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        self.touches.removeAll(); onEnd?(); state = .failed
+    }
+    override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+    override func reset() { super.reset(); touches.removeAll() }
 }
 
 private final class NavigationPuckView: UIView {
