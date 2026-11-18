@@ -110,10 +110,14 @@ files bundled with it, on your device. Nothing is synthesized over the network
 at runtime. Male (Eric) and Female (Matilda) voices are available in Settings.
 When a direction has no matching recording, Apple's `AVSpeechSynthesizer`
 speaks Ferrostar's instruction text on the device using an installed voice.
-That text is never sent anywhere. Voice guidance can be switched off in
-Settings or muted during a trip. Camera speech defaults to while navigating;
-you can turn it off, allow it always, or disable individual device types.
-Voice guidance and the trip mute control also silence camera speech. The
+That text is never sent anywhere. The master Voice switch silences all automatic
+speech. Separate switches control directions, lane guidance, traffic lights,
+rerouting announcements and camera alerts. Turning directions off does not
+silence camera alerts. Camera speech defaults to while navigating; you can also
+allow it when not navigating, or disable individual device types. The driving
+screen's mute silences all speech for that trip only, without changing Settings.
+Each voice has an explicit preview button that works with Voice off; previews
+are disabled during navigation and starting a new preview replaces the old one. The
 audio session is active only while a prompt is playing, including when the
 screen is locked. Decoded generic recordings are cached in memory; route
 text is not cached or written to disk.

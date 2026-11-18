@@ -57,7 +57,7 @@ enum RelativeDirection: String, CaseIterable {
 @Observable @MainActor
 final class ProximityAlertEngine {
 
-    @ObservationIgnored var voiceContext: (() -> (navigating: Bool, muted: Bool))?
+    @ObservationIgnored var voiceContext: (() -> VoicePlaybackContext)?
     @ObservationIgnored private var spokenPassingCameraID: Int64?
 
     /// Refetch once the user has travelled this fraction of the fetch radius
@@ -353,10 +353,10 @@ final class ProximityAlertEngine {
               let key = CameraPromptSelector.select(
                 camera: alert.camera, direction: alert.relativeDirection, distance: alert.distance,
                 nearbyCount: alert.nearbyCount, event: event, inFieldOfView: inFieldOfView,
-                settings: .fromDefaults(), navigating: context.navigating, muted: context.muted
-              ) else { return }
+                settings: .fromDefaults(), context: context
+              ), let type = CameraPromptSelector.type(for: alert.camera) else { return }
         VoicePromptPlayer.shared.enqueue(VoiceUtterance(
-            clips: [key], voice: .selected, priority: .camera,
+            clips: [key], voice: .selected, priority: .camera, kind: .camera(type),
             createdAt: ProcessInfo.processInfo.systemUptime
         ))
     }

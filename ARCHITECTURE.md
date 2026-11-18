@@ -391,11 +391,29 @@ speed cameras and gunshot detectors each have their own clips. Unknown devices
 and guards stay silent. Rear entry alerts are silent; field-of-view alerts and
 passing have specific clips. Ahead groups use the two/three/several recording.
 
-Settings keeps Voice Guidance and adds Male/Female (Eric/Matilda) and Play sample.
-Camera Alert Voice offers Off / While navigating (default) / Always and four
-per-type toggles, all on by default. Voice Guidance and the trip mute also gate
-camera speech; changing camera preferences cancels queued camera utterances.
-All are ordinary UserDefaults preferences, not another navigation state store.
+Settings has one master Voice switch, default on, and a voice list built from
+`PromptVoice.allCases`: Male (Eric) and Female (Matilda), with a selection
+checkmark and a preview button per row. Previews use that row's voice and replace
+any previous preview, even with Voice off. They are refused while starting or
+navigating, so they never interrupt or wait behind a live direction.
+
+Spoken prompts has separate directions, lane, traffic-light, rerouting and camera
+switches, disabled under the master switch. The existing `voiceGuidanceEnabled`
+key still controls directions only; camera alerts and rerouting are independent.
+Camera alerts default to while navigating. Also when not navigating enables
+them outside a trip, and four per-type switches default on. The old
+`spokenCameraAlertMode` migrates once into the camera and outside-navigation
+switches without overriding a saved new preference. The driving screen's mute
+is in-memory and per-trip, silences directions and cameras alike, and never
+changes a persisted preference. With master Voice off, its button shows silence
+and is disabled rather than suggesting it can override Settings.
+
+`VoiceSettings` is the pure permission policy shared by the controller, proximity
+engine and player. Producers pass lane/signal permissions into the pure guidance
+selector; disabled lights use plain distance/turn recordings. The player also
+rechecks queued utterances at playback and stops disallowed active speech when
+preferences or trip context change. All saved settings use UserDefaults; there
+is no additional route or position storage.
 
 Decisions:
 

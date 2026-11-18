@@ -22,6 +22,7 @@ struct NavigationSnapshot {
     var cameras: [SurveillanceCamera] = []
     var status: NavigationStatus = .quiet
     var isMuted: Bool = false
+    var voiceEnabled: Bool = true
 }
 
 /// Turn-by-turn guidance, live.
@@ -41,6 +42,7 @@ struct NavigationView: View {
 
     @Environment(NavigationSessionController.self) private var navigationController
     @Environment(ProximityAlertEngine.self) private var proximityEngine
+    @AppStorage(VoiceSettings.masterKey) private var voiceEnabled = true
 
     /// The cameras the previewed route was planned against. The controller
     /// keeps its own copy to fence reroutes against but does not publish it,
@@ -95,7 +97,8 @@ struct NavigationView: View {
             destinationCoordinate: navigationController.destination?.coordinate,
             cameras: cameras,
             status: status,
-            isMuted: navigationController.isMuted
+            isMuted: navigationController.isMuted,
+            voiceEnabled: voiceEnabled
         )
     }
 
@@ -316,14 +319,15 @@ struct NavigationDrivingView: View {
 
     private var muteButton: some View {
         Button(action: onToggleMute) {
-            Image(systemName: snapshot.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+            Image(systemName: snapshot.isMuted || !snapshot.voiceEnabled ? "speaker.slash.fill" : "speaker.wave.2.fill")
                 .font(.title3)
                 .foregroundStyle(snapshot.isMuted ? AnyShapeStyle(.secondary) : AnyShapeStyle(NavigationPalette.accent))
                 .frame(width: 46, height: 46)
                 .background(.quaternary, in: Circle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(snapshot.isMuted ? "Unmute voice guidance" : "Mute voice guidance")
+        .disabled(!snapshot.voiceEnabled)
+        .accessibilityLabel(!snapshot.voiceEnabled ? "Voice off in Settings" : snapshot.isMuted ? "Unmute trip speech" : "Mute trip speech")
         .accessibilityIdentifier("navigation-mute")
     }
 

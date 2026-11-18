@@ -1,17 +1,5 @@
 import Foundation
 
-enum CameraVoiceMode: String, CaseIterable, Sendable {
-    case off, navigating, always
-    static let storageKey = "spokenCameraAlertMode"
-    var title: String {
-        switch self {
-        case .off: "Off"
-        case .navigating: "While navigating"
-        case .always: "Always"
-        }
-    }
-}
-
 enum CameraVoiceType: String, CaseIterable, Sendable {
     case flock, camera, speed, gunshot
     var storageKey: String { "spokenCamera_\(rawValue)" }
@@ -22,24 +10,6 @@ enum CameraVoiceType: String, CaseIterable, Sendable {
         case .speed: "Speed cameras"
         case .gunshot: "Gunshot detectors"
         }
-    }
-}
-
-struct CameraVoiceSettings {
-    var mode: CameraVoiceMode = .navigating
-    var enabledTypes: Set<CameraVoiceType> = Set(CameraVoiceType.allCases)
-
-    static func fromDefaults(_ defaults: UserDefaults = .standard) -> Self {
-        Self(
-            mode: CameraVoiceMode(rawValue: defaults.string(forKey: CameraVoiceMode.storageKey) ?? "") ?? .navigating,
-            enabledTypes: Set(CameraVoiceType.allCases.filter {
-                defaults.object(forKey: $0.storageKey) == nil || defaults.bool(forKey: $0.storageKey)
-            })
-        )
-    }
-
-    func allows(_ type: CameraVoiceType, navigating: Bool, muted: Bool) -> Bool {
-        !muted && enabledTypes.contains(type) && (mode == .always || (mode == .navigating && navigating))
     }
 }
 
@@ -66,9 +36,9 @@ enum CameraPromptSelector {
     static func select(
         camera: SurveillanceCamera, direction: RelativeDirection, distance: Double,
         nearbyCount: Int, event: Event, inFieldOfView: Bool,
-        settings: CameraVoiceSettings, navigating: Bool, muted: Bool
+        settings: VoiceSettings, context: VoicePlaybackContext
     ) -> String? {
-        guard let type = type(for: camera), settings.allows(type, navigating: navigating, muted: muted) else { return nil }
+        guard let type = type(for: camera), settings.allows(.camera(type), context: context) else { return nil }
         let prefix = "cam.\(type.rawValue)."
         if event == .passing { return prefix + "passing" }
         if inFieldOfView { return prefix + "in_view" }

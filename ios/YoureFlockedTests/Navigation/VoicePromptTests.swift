@@ -179,7 +179,7 @@ final class VoicePromptTests: XCTestCase {
                     event: CameraPromptSelector.Event = .entry, fov: Bool = false) -> String? {
             CameraPromptSelector.select(camera: camera(tags: ["brand": "Flock Safety"]), direction: direction,
                                         distance: distance, nearbyCount: count, event: event, inFieldOfView: fov,
-                                        settings: CameraVoiceSettings(), navigating: true, muted: false)
+                                        settings: VoiceSettings(), context: VoicePlaybackContext(navigating: true))
         }
         for direction in [RelativeDirection.ahead, .right, .left, .nearby] {
             XCTAssertEqual(select(direction), "cam.flock.\(direction.rawValue.lowercased())")
@@ -194,27 +194,6 @@ final class VoicePromptTests: XCTestCase {
         XCTAssertEqual(select(.behind, event: .passing), "cam.flock.passing")
         XCTAssertEqual(select(.ahead, event: .passing, fov: true), "cam.flock.passing")
         XCTAssertEqual(select(.behind, fov: true), "cam.flock.in_view")
-    }
-
-    func testCameraGatingAndDefaults() throws {
-        for mode in CameraVoiceMode.allCases {
-            for navigating in [true, false] {
-                for muted in [true, false] {
-                    let settings = CameraVoiceSettings(mode: mode)
-                    XCTAssertEqual(settings.allows(.flock, navigating: navigating, muted: muted),
-                                   !muted && (mode == .always || (mode == .navigating && navigating)))
-                }
-            }
-        }
-        let suite = "VoicePromptTests.\(UUID())"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        XCTAssertEqual(CameraVoiceSettings.fromDefaults(defaults).mode, .navigating)
-        XCTAssertEqual(CameraVoiceSettings.fromDefaults(defaults).enabledTypes, Set(CameraVoiceType.allCases))
-        for type in CameraVoiceType.allCases {
-            defaults.set(false, forKey: type.storageKey)
-            XCTAssertFalse(CameraVoiceSettings.fromDefaults(defaults).allows(type, navigating: true, muted: false))
-        }
     }
 
     func testUtterancePriorityGroupingAndStaleness() {

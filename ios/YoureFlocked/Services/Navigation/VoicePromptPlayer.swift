@@ -18,6 +18,7 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
     private var cache: [String: [Float]] = [:]
     private var sessionActive = false
     private var fallbackToken: (utterance: ObjectIdentifier, generation: Int)?
+    private var context = VoicePlaybackContext()
     private let sampleRate = 44_100.0
 
     private override init() {
@@ -43,9 +44,38 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
 
     func enqueue(_ utterance: VoiceUtterance) {
         queue.async {
+            guard VoiceSettings.fromDefaults().allows(utterance, context: self.context) else { return }
+            if utterance.kind == .preview {
+                self.prompts.remove(.sample)
+                if self.active?.kind == .preview {
+                    self.stopCurrent()
+                    self.releaseSession()
+                }
+            }
             self.prompts.enqueue(utterance)
             self.playNext()
         }
+    }
+
+    func updateContext(_ context: VoicePlaybackContext) {
+        queue.async {
+            self.context = context
+            self.applyPermissions()
+        }
+    }
+
+    func settingsDidChange() {
+        queue.async { self.applyPermissions() }
+    }
+
+    private func applyPermissions() {
+        let settings = VoiceSettings.fromDefaults()
+        prompts.removeDisallowed(settings: settings, context: context)
+        if let active, !settings.allows(active, context: context) {
+            stopCurrent()
+            releaseSession()
+        }
+        playNext()
     }
 
     func cancel(_ priority: VoiceUtterance.Priority) {
@@ -77,6 +107,7 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
 
     private func playNext() {
         guard active == nil else { return }
+        prompts.removeDisallowed(settings: .fromDefaults(), context: context)
         guard let utterance = prompts.next(now: ProcessInfo.processInfo.systemUptime) else {
             releaseSession()
             return

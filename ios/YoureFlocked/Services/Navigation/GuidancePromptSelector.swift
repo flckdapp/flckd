@@ -28,7 +28,8 @@ enum GuidancePromptSelector {
 
     static func select(
         content: VisualInstructionContent?, distance: Double, roundaboutExit: UInt8? = nil,
-        laneInfo: [LaneInfo]? = nil, signal: String? = nil, longContinue: Bool = false
+        laneInfo: [LaneInfo]? = nil, signal: String? = nil, longContinue: Bool = false,
+        lanesEnabled: Bool = true, trafficLightsEnabled: Bool = true
     ) -> [String] {
         guard let content, let action = action(content, roundaboutExit: roundaboutExit) else { return [] }
         if longContinue { return ["continue_long"] }
@@ -39,14 +40,14 @@ enum GuidancePromptSelector {
         if action.hasPrefix("arrive") { return [] }
         let approach = distance >= 150
         let key: String
-        if let signal, signalActions.contains(action) {
+        if trafficLightsEnabled, let signal, signalActions.contains(action) {
             key = "\(signal).\(action)"
         } else if approach {
             key = "\(nearestDistance(distance)).\(action)"
         } else {
             key = action
         }
-        if approach, let lane = lane(laneInfo ?? content.laneInfo ?? []) { return [key, lane] }
+        if lanesEnabled, approach, let lane = lane(laneInfo ?? content.laneInfo ?? []) { return [key, lane] }
         return [key]
     }
 

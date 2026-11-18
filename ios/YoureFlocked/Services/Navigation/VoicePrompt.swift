@@ -8,7 +8,13 @@ struct VoiceUtterance: Equatable, Sendable {
     var language: String = "en-US"
     var voice: PromptVoice = .male
     var priority: Priority = .guidance
+    var kind: VoicePromptKind = .directions
     var createdAt: TimeInterval
+
+    static func preview(voice: PromptVoice, now: TimeInterval) -> Self {
+        Self(clips: ["500ft.turn_right", "lane_right", "cam.flock.ahead"], voice: voice,
+             priority: .sample, kind: .preview, createdAt: now)
+    }
 }
 
 struct VoicePromptQueue {
@@ -16,6 +22,7 @@ struct VoicePromptQueue {
     private(set) var pending: [VoiceUtterance] = []
 
     mutating func enqueue(_ utterance: VoiceUtterance) {
+        if utterance.kind == .preview { remove(.sample) }
         pending.append(utterance)
     }
 
@@ -31,6 +38,10 @@ struct VoicePromptQueue {
     }
 
     mutating func clear() { pending.removeAll() }
+
+    mutating func removeDisallowed(settings: VoiceSettings, context: VoicePlaybackContext) {
+        pending.removeAll { !settings.allows($0, context: context) }
+    }
 }
 
 /// Sample positions, not completion timers, determine every join.

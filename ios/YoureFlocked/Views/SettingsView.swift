@@ -40,7 +40,12 @@ struct SettingsView: View {
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw: String = AppAppearance.system.rawValue
     @AppStorage(NavigationSessionController.voiceGuidanceKey) private var voiceGuidance: Bool = true
     @AppStorage(PromptVoice.storageKey) private var promptVoice: String = PromptVoice.male.rawValue
-    @AppStorage(CameraVoiceMode.storageKey) private var cameraVoiceMode: String = CameraVoiceMode.navigating.rawValue
+    @AppStorage(VoiceSettings.masterKey) private var voiceEnabled = true
+    @AppStorage(VoiceSettings.lanesKey) private var laneGuidance = true
+    @AppStorage(VoiceSettings.trafficLightsKey) private var trafficLights = true
+    @AppStorage(VoiceSettings.reroutingKey) private var reroutingAnnouncements = true
+    @AppStorage(VoiceSettings.camerasKey) private var cameraAlerts = true
+    @AppStorage(VoiceSettings.outsideNavigationKey) private var camerasOutsideNavigation = false
 
     var body: some View {
         Form {
@@ -50,6 +55,7 @@ struct SettingsView: View {
             alertSection
             routingSection
             navigationSection
+            spokenPromptsSection
             cameraVoiceSection
             filterSection
             suspectedLocationsSection
@@ -59,6 +65,10 @@ struct SettingsView: View {
         }
         .task {
             await refreshDataStats()
+        }
+        .onChange(of: [voiceEnabled, voiceGuidance, laneGuidance, trafficLights,
+                       reroutingAnnouncements, cameraAlerts, camerasOutsideNavigation]) { _, _ in
+            VoicePromptPlayer.shared.settingsDidChange()
         }
     }
 
@@ -206,39 +216,77 @@ struct SettingsView: View {
     @ViewBuilder
     private var navigationSection: some View {
         Section {
-            Picker("Voice", selection: $promptVoice) {
-                Text("Male").tag(PromptVoice.male.rawValue)
-                Text("Female").tag(PromptVoice.female.rawValue)
-            }
-            Toggle("Voice Guidance", isOn: $voiceGuidance)
-                .onChange(of: voiceGuidance) { _, enabled in
-                    navigationController.setVoiceGuidance(enabled: enabled)
+            Toggle("Voice", isOn: $voiceEnabled)
+            ForEach(PromptVoice.allCases, id: \.rawValue) { voice in
+                HStack {
+                    Button {
+                        promptVoice = voice.rawValue
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(voice.title)
+                                    .foregroundStyle(.primary)
+                                Text(voice.name)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if promptVoice == voice.rawValue {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("\(voice.title), \(voice.name)")
+                    .accessibilityAddTraits(promptVoice == voice.rawValue ? .isSelected : [])
+                    Button {
+                        navigationController.playVoiceSample(voice)
+                    } label: {
+                        Image(systemName: "play.circle")
+                            .font(.title2)
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Preview \(voice.name)")
+                    .disabled(navigationController.isActive || navigationController.isStarting)
                 }
-            Button("Play sample") { navigationController.playVoiceSample() }
+            }
         } header: {
-            Text("Navigation")
+            Text("Voice")
         } footer: {
-            Text("Speaks each turn while you drive. Changing this also mutes or unmutes a session that is already running.")
+            Text("Voice off silences automatic speech. Previews still play, except during navigation.")
         }
+    }
+
+    private var spokenPromptsSection: some View {
+        Section {
+            Toggle("Turn-by-turn directions", isOn: $voiceGuidance)
+            Toggle("Lane guidance", isOn: $laneGuidance)
+            Toggle("Traffic lights", isOn: $trafficLights)
+            Toggle("Rerouting announcements", isOn: $reroutingAnnouncements)
+            Toggle("Camera alerts", isOn: $cameraAlerts)
+            Toggle("Also when not navigating", isOn: $camerasOutsideNavigation)
+                .disabled(!cameraAlerts)
+        } header: {
+            Text("Spoken prompts")
+        } footer: {
+            Text("Camera alerts are independent of directions. The trip mute silences all speech for that trip.")
+        }
+        .disabled(!voiceEnabled)
     }
 
     private var cameraVoiceSection: some View {
         Section {
-            Picker("Speak camera alerts", selection: $cameraVoiceMode) {
-                ForEach(CameraVoiceMode.allCases, id: \.rawValue) { mode in
-                    Text(mode.title).tag(mode.rawValue)
-                }
-            }
-            .onChange(of: cameraVoiceMode) { _, _ in VoicePromptPlayer.shared.cancel(.camera) }
             ForEach(CameraVoiceType.allCases, id: \.rawValue) { type in
                 CameraVoiceTypeToggle(type: type)
-                    .disabled(cameraVoiceMode == CameraVoiceMode.off.rawValue)
             }
         } header: {
-            Text("Camera Alert Voice")
+            Text("Spoken camera types")
         } footer: {
-            Text("Recorded alerts play on this device. Voice Guidance and the trip mute control also silence camera speech. Banners, haptics and notifications are unchanged.")
+            Text("Banners, haptics and notifications are unchanged.")
         }
+        .disabled(!voiceEnabled || !cameraAlerts)
     }
 
     // MARK: - Filter Settings
@@ -639,7 +687,7 @@ private struct CameraVoiceTypeToggle: View {
 
     var body: some View {
         Toggle(type.title, isOn: $enabled)
-            .onChange(of: enabled) { _, _ in VoicePromptPlayer.shared.cancel(.camera) }
+            .onChange(of: enabled) { _, _ in VoicePromptPlayer.shared.settingsDidChange() }
     }
 }
 
