@@ -17,6 +17,7 @@ enum GuidancePromptSelector {
 
     static var allKeys: Set<String> {
         var keys = Set(actions + lanes + ["depart", "arrive", "arrive_left", "arrive_right", "continue_long", "rerouting", "new_route"])
+        keys.formUnion(GuidancePromptSchedule.continueKeys)
         for distance in distances {
             for action in actions { keys.insert("\(distance.key).\(action)") }
         }
@@ -28,17 +29,16 @@ enum GuidancePromptSelector {
 
     static func select(
         content: VisualInstructionContent?, distance: Double, roundaboutExit: UInt8? = nil,
-        laneInfo: [LaneInfo]? = nil, signal: String? = nil, longContinue: Bool = false,
-        lanesEnabled: Bool = true, trafficLightsEnabled: Bool = true
+        laneInfo: [LaneInfo]? = nil, signal: String? = nil,
+        lanesEnabled: Bool = true, trafficLightsEnabled: Bool = true, isApproach: Bool? = nil
     ) -> [String] {
         guard let content, let action = action(content, roundaboutExit: roundaboutExit) else { return [] }
-        if longContinue { return ["continue_long"] }
         if action == "depart" { return [action] }
-        if action.hasPrefix("arrive"), distance < 150 { return [action] }
+        let approach = isApproach ?? (distance >= 150)
+        if action.hasPrefix("arrive"), !approach { return [action] }
         // There are no distance-prefixed arrival recordings. Do not announce
         // arrival early; preserve the distance in the on-device fallback.
         if action.hasPrefix("arrive") { return [] }
-        let approach = distance >= 150
         let key: String
         if trafficLightsEnabled, let signal, signalActions.contains(action) {
             key = "\(signal).\(action)"
@@ -49,10 +49,6 @@ enum GuidancePromptSelector {
         }
         if lanesEnabled, approach, let lane = lane(laneInfo ?? content.laneInfo ?? []) { return [key, lane] }
         return [key]
-    }
-
-    static func isContinueReminder(text: String, distance: Double) -> Bool {
-        distance >= 500 && text.lowercased().hasPrefix("continue")
     }
 
     static func nearestDistance(_ meters: Double) -> String {

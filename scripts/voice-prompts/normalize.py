@@ -5,6 +5,7 @@
 Each clip: leading/trailing silence trimmed, measured with EBU R128, gained to -16 LUFS integrated,
 peaks limited to leave about 1.5 dB of true-peak headroom after AAC encoding, then AAC-LC mono 64 kbps 44.1 kHz .m4a.
 """
+import argparse
 import json
 import pathlib
 import subprocess
@@ -22,10 +23,22 @@ def run(args):
 
 
 def main():
-    src = WORK / "out" / sys.argv[1]
-    dst = pathlib.Path(sys.argv[2])
+    ap = argparse.ArgumentParser()
+    ap.add_argument("voice")
+    ap.add_argument("out_dir", type=pathlib.Path)
+    ap.add_argument("--work-dir", type=pathlib.Path, default=WORK)
+    ap.add_argument("--keys", help="comma-separated clip keys; leave other bundled files untouched")
+    a = ap.parse_args()
+    src = a.work_dir / "out" / a.voice
+    dst = a.out_dir
     dst.mkdir(parents=True, exist_ok=True)
     clips = sorted(src.glob("*.mp3"))
+    if a.keys:
+        keys = set(a.keys.split(","))
+        clips = [f for f in clips if f.stem in keys]
+        missing = keys - {f.stem for f in clips}
+        if missing:
+            sys.exit("Missing raw clips: " + ", ".join(sorted(missing)))
     for f in clips:
         probe = run(["-i", str(f), "-af", f"{TRIM},loudnorm={TARGET}:print_format=json", "-f", "null", "-"])
         text = probe.stderr

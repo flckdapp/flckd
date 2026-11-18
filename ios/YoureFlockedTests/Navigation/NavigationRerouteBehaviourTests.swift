@@ -92,6 +92,22 @@ final class NavigationRerouteBehaviourTests: XCTestCase {
 
     // MARK: - Step advance
 
+    func testEveryLocationFixPublishesProgressWithoutANewSpokenInstruction() async throws {
+        try start()
+        let firstUpdate = await drive(to: fix(at: CLLocationCoordinate2D(latitude: 0.0001, longitude: 0)))
+        let secondUpdate = await drive(to: fix(at: CLLocationCoordinate2D(latitude: 0.0002, longitude: 0)))
+        let first = try XCTUnwrap(firstUpdate)
+        let second = try XCTUnwrap(secondUpdate)
+        XCTAssertEqual(first.remainingSteps?.count, second.remainingSteps?.count)
+        XCTAssertLessThan(try XCTUnwrap(second.currentProgress?.distanceToNextManeuver),
+                          try XCTUnwrap(first.currentProgress?.distanceToNextManeuver))
+        func spokenID(_ state: NavigationState) -> UUID? {
+            guard case let .navigating(_, _, _, _, _, _, _, _, _, spoken, _) = state.tripState else { return nil }
+            return spoken?.utteranceId
+        }
+        XCTAssertEqual(spokenID(first), spokenID(second))
+    }
+
     func testStepsAdvanceOneAtATimeThroughTheHairpin() async throws {
         try start()
         XCTAssertEqual(core.state?.remainingSteps?.count, 5)

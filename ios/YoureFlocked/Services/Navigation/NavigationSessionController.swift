@@ -66,7 +66,7 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
     @ObservationIgnored private var plannedDistanceMeters: Double = 0
     @ObservationIgnored private var rerouteCount = 0
     @ObservationIgnored private var routeCameras: [SurveillanceCamera] = []
-    @ObservationIgnored private var spokenIDs = Set<UUID>()
+    @ObservationIgnored private var promptSchedule = GuidancePromptSchedule()
     @ObservationIgnored private var routeSignals = RouteSignals()
     @ObservationIgnored private var signalTask: Task<Void, Never>?
     @ObservationIgnored private var signalGeneration = UUID()
@@ -218,7 +218,7 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         signalTask = nil
         signalGeneration = UUID()
         routeSignals = RouteSignals()
-        spokenIDs.removeAll()
+        promptSchedule.reset()
         if !preserveArrivalPrompt { VoicePromptPlayer.shared.cancel(.guidance) }
         core?.stopNavigation()
         cancellables.removeAll()
@@ -312,35 +312,48 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
     }
 
     private func speakInstruction(from state: NavigationState) {
-        guard case let .navigating(_, _, _, steps, _, progress, _, _, visual, spoken, _) = state.tripState,
-              let spoken, spokenIDs.insert(spoken.utteranceId).inserted else { return }
+        guard case let .navigating(_, user, _, steps, _, progress, _, deviation, visual, spoken, _) = state.tripState,
+              case .noDeviation = deviation, let step = steps.first, let route = currentRoute else { return }
+        let completed = max(0, route.steps.count - steps.count)
+        // The current banner can appear later than the first progress update;
+        // the step's stored banner still describes the same upcoming maneuver.
+        let banner = visual ?? step.visualInstructions.first
+        let speed = user.speed?.value ?? (step.duration > 0 ? step.distance / step.duration : 13.4)
+        guard let prompt = promptSchedule.update(
+            step: completed, length: step.distance, remaining: progress.distanceToNextManeuver, speed: speed
+        ) else { return }
+        if case let .continueRoad(key) = prompt {
+            speak([key])
+            return
+        }
+        let approach: Bool
+        let distance: Double
+        switch prompt {
+        case .approach(_, let meters): approach = true; distance = meters
+        case .final: approach = false; distance = 0
+        case .continueRoad: return
+        }
         let next = steps.dropFirst().first
         let settings = VoiceSettings.fromDefaults()
-        let distance = spoken.triggerDistanceBeforeManeuver
         var signal: String?
-        if let route = currentRoute, let step = steps.first, let point = step.geometry.last {
-            let completed = max(0, route.steps.count - steps.count)
+        if let point = step.geometry.last {
             let targetDistance = route.steps.prefix(completed + 1).reduce(0.0) {
                 $0 + (RouteSignals.cumulative($1.geometry).last ?? 0)
             }
             signal = routeSignals.prefix(
                 maneuver: point, targetDistance: targetDistance,
-                userDistance: targetDistance - progress.distanceToNextManeuver, approach: distance >= 150
+                userDistance: targetDistance - progress.distanceToNextManeuver, approach: approach
             )
         }
-        // Valhalla's voice list may start with a post-transition "continue"
-        // reminder on long steps while the banner already describes the next
-        // turn. It is a long-gap reminder, not a turn several miles early.
-        let longContinue = GuidancePromptSelector.isContinueReminder(text: spoken.text, distance: distance)
         let clips = GuidancePromptSelector.select(
-            content: visual?.primaryContent, distance: distance,
+            content: banner?.primaryContent, distance: distance,
             roundaboutExit: next?.roundaboutExitNumber,
-            laneInfo: visual?.subContent?.laneInfo, signal: signal, longContinue: longContinue,
+            laneInfo: banner?.subContent?.laneInfo, signal: signal,
             lanesEnabled: settings.allows(.lane, context: voiceContext),
-            trafficLightsEnabled: settings.allows(.trafficLight, context: voiceContext)
+            trafficLightsEnabled: settings.allows(.trafficLight, context: voiceContext), isApproach: approach
         )
         if clips.first?.hasPrefix("arrive") == true { announcedArrival = true }
-        speak(clips, fallback: spoken.text)
+        speak(clips, fallback: spoken?.text ?? banner?.primaryContent.text ?? next?.instruction ?? step.instruction)
     }
 
     private func loadSignals(for route: Route) {
@@ -488,7 +501,7 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
             try core.startNavigation(route: route)
             plannedDistanceMeters = max(0, plannedDistanceMeters - remaining) + route.distance
             currentRoute = route
-            spokenIDs.removeAll()
+            promptSchedule.reset()
             rerouteCount += 1
             speak(["new_route"], kind: .rerouting)
             loadSignals(for: route)

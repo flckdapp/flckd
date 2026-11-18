@@ -61,11 +61,8 @@ final class VoicePromptTests: XCTestCase {
         }
         XCTAssertEqual(GuidancePromptSelector.select(content: content(.turn, .left), distance: 149), ["turn_left"])
         XCTAssertEqual(GuidancePromptSelector.select(content: content(.turn, .left), distance: 150), ["500ft.turn_left"])
-        XCTAssertEqual(GuidancePromptSelector.select(content: content(.continue), distance: 6000, longContinue: true), ["continue_long"])
         XCTAssertEqual(GuidancePromptSelector.nearestDistance(230), "1000ft")
-        XCTAssertTrue(GuidancePromptSelector.isContinueReminder(text: "Continue for a while", distance: 569))
-        XCTAssertFalse(GuidancePromptSelector.isContinueReminder(text: "Turn left", distance: 5000))
-        XCTAssertFalse(GuidancePromptSelector.isContinueReminder(text: "Continue straight", distance: 100))
+        XCTAssertEqual(GuidancePromptSelector.select(content: content(.turn, .right), distance: 150, isApproach: false), ["turn_right"])
     }
 
     func testLaneGroupsAndApproachOnly() {
@@ -291,7 +288,7 @@ final class VoicePromptTests: XCTestCase {
             let directory = try XCTUnwrap(voice.url(for: "turn_left")).deletingLastPathComponent()
             let urls = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
                 .filter { $0.pathExtension == "m4a" }
-            XCTAssertEqual(urls.count, 238)
+            XCTAssertEqual(urls.count, 278)
             for url in urls {
                 let file = try AVAudioFile(forReading: url)
                 XCTAssertEqual(file.processingFormat.sampleRate, 44_100)

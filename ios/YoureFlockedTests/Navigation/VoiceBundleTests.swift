@@ -13,7 +13,7 @@ final class VoiceBundleTests: XCTestCase {
                 .filter { $0.pathExtension == "m4a" }.map { $0.deletingPathExtension().lastPathComponent })
         }
         let maleKeys = try keys(male)
-        XCTAssertEqual(maleKeys.count, 238)
+        XCTAssertEqual(maleKeys.count, 278)
         XCTAssertEqual(maleKeys, try keys(female))
     }
 }

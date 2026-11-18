@@ -116,6 +116,7 @@ ios/
         VoicePromptPlayer.swift            serial AVAudioEngine playback and on-device speech fallback
         VoicePCM.swift                     silence trimming, fixed gaps and click-free fades
         GuidancePromptSelector.swift       pure maneuver, distance and lane clip selection
+        GuidancePromptSchedule.swift       pure per-step continue, countdown and speed-scaled final triggers
         CameraPromptSelector.swift         pure camera type, clip and preference gating
         RouteSignals.swift                 optional on-device trace_attributes and signal-to-turn mapping
       RoutePlanMetrics.swift        debug only: one timed record per plan
@@ -358,15 +359,35 @@ The flow, start to finish:
    manager back to its idle distance filter and auto-pause, engine
    keep-alive released. The same teardown runs on End and on a failed start.
 
-Voice prompts are selected from each new spoken instruction, deduplicated by
-`utteranceId`. Valhalla puts the upcoming maneuver in the current step's banner;
+Voice timing is app-owned. `GuidancePromptSchedule` consumes Ferrostar's
+`TripProgress.distanceToNextManeuver` on every location-driven state update,
+not Valhalla's `voiceInstructions` triggers. It deduplicates by accepted-route
+step index and threshold, resets on step advance and reroute, and consumes all
+crossed thresholds when a sparse fix jumps ahead, speaking only the nearest.
+Heading changes do not publish progress; the location adapter requests 10 m
+updates while navigating, not a fixed-frequency timer. Off-route fixes do not
+consume the schedule.
+
+At step entry, including departure and reroutes, a sufficiently long step gets
+one "Continue on this road for..." prompt rounded to a quarter mile, up to ten
+miles. Under an eighth of a mile it is omitted; over ten miles it uses the
+generic recording. It is also omitted unless at least twelve seconds remain
+before the first countdown, so short city steps do not get back-to-back prompts.
+The countdown uses 2 miles, 1 mile, half a mile and a quarter mile, only where
+shorter than the step; sub-quarter-mile steps use 500 feet if there is room.
+Final prompts fire six seconds ahead at current speed, clamped to 30-150 m.
+An approach less than two seconds ahead of final is skipped. Missing speed uses
+the route step's estimated speed. All recordings remain imperial even when the
+display is metric. No metric recordings are synthesized or downloaded.
+
+Valhalla puts the upcoming maneuver in the current step's banner;
 the step's own maneuver is the one at its start. The selector therefore uses
 the current banner's primary content, the next step's roundabout exit number,
 and the banner sub-content's lane information. Angles cannot identify an exit
 number; an unknown or unsupported maneuver uses on-device speech rather than
-guessing. Distances select the nearest imperial recording (the clip inventory
-is imperial even with metric display units); below 150 m the action stands
-alone. Long-gap "continue" reminders use `continue_long`. Only contiguous
+guessing. Ferrostar's spoken instruction text is retained only as an on-device
+fallback, never as the timing source. Approach prompts use distance recordings;
+final prompts use the bare action even at the 150 m speed clamp. Only contiguous
 one- or two-lane edge groups, or a single middle lane, get a lane recording,
 and only on approach prompts. Reroute start and acceptance have recordings too.
 

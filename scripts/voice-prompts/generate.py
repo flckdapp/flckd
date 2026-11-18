@@ -46,6 +46,8 @@ def clips():
             out[f"{sk}.{k}"] = sentence(f"{s} {p['actions'][k]}")
     for k, t in p["standalone"].items():
         out[k] = sentence(t) if k != "then" else "then"
+    for k, t in p.get("continue_distances", {}).items():
+        out[k] = sentence(t)
     c = p.get("cameras", {})
     for tk, tname in c.get("types", {}).items():
         for group in ("where", "distance"):
@@ -95,6 +97,8 @@ def main():
     ap.add_argument("--model", default="eleven_multilingual_v2")
     ap.add_argument("--sample", action="store_true")
     ap.add_argument("--keys", help="comma-separated clip keys to render")
+    ap.add_argument("--work-dir", type=pathlib.Path, default=WORK,
+                    help="local intermediate directory (defaults to gitignored ai-docs/voice-prompts)")
     a = ap.parse_args()
 
     all_clips = clips()
@@ -120,7 +124,7 @@ def main():
         wanted = {k: all_clips[k] for k in SAMPLE}
     else:
         wanted = all_clips
-    out = WORK / "out" / a.voice
+    out = a.work_dir / "out" / a.voice
     out.mkdir(parents=True, exist_ok=True)
     for k, text in wanted.items():
         f = out / f"{k}.mp3"
