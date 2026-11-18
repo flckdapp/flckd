@@ -159,7 +159,7 @@ final class NotificationManager: NSObject, @unchecked Sendable, UNUserNotificati
 
     @MainActor
     private static func buildAndSend(data: AlertData) async {
-        let useMetric = UserDefaults.standard.bool(forKey: "useMetric")
+        let useMetric = UserDefaults.standard.bool(forKey: DistanceUnits.storageKey)
         let distanceText: String
         if useMetric {
             distanceText = "\(Int(data.distance))m"

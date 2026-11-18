@@ -39,14 +39,37 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 @main
 struct YoureFlockedApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @State private var locationManager = LocationManager()
-    @State private var cameraStore = CameraStore()
+    @State private var locationManager: LocationManager
+    @State private var cameraStore: CameraStore
     @State private var notificationManager = NotificationManager()
-    @State private var liveActivityManager = LiveActivityManager()
-    @State private var proximityEngine = ProximityAlertEngine()
+    @State private var liveActivityManager: LiveActivityManager
+    @State private var proximityEngine: ProximityAlertEngine
+    @State private var navigationController: NavigationSessionController
     @State private var offlineUpdater = OfflineDataUpdater()
     @State private var showSplash = true
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw: String = AppAppearance.system.rawValue
+
+    /// The guidance session needs the same singletons the rest of the app
+    /// uses, and a `@State` initializer expression cannot see its siblings, so
+    /// they are built here and handed over.
+    init() {
+        let locationManager = LocationManager()
+        let cameraStore = CameraStore()
+        let liveActivityManager = LiveActivityManager()
+        let proximityEngine = ProximityAlertEngine()
+
+        _locationManager = State(initialValue: locationManager)
+        _cameraStore = State(initialValue: cameraStore)
+        _liveActivityManager = State(initialValue: liveActivityManager)
+        _proximityEngine = State(initialValue: proximityEngine)
+        _navigationController = State(initialValue: NavigationSessionController(
+            locationManager: locationManager,
+            cameraStore: cameraStore,
+            proximityEngine: proximityEngine,
+            liveActivityManager: liveActivityManager,
+            routingService: ValhallaRoutingService()
+        ))
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -57,6 +80,7 @@ struct YoureFlockedApp: App {
                     .environment(notificationManager)
                     .environment(liveActivityManager)
                     .environment(proximityEngine)
+                    .environment(navigationController)
                     .environment(offlineUpdater)
 
                 if showSplash {

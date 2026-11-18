@@ -8,6 +8,7 @@ struct SettingsView: View {
     @Environment(LocationManager.self) private var locationManager
     @Environment(CameraStore.self) private var cameraStore
     @Environment(NotificationManager.self) private var notificationManager
+    @Environment(NavigationSessionController.self) private var navigationController
     @Environment(\.modelContext) private var modelContext
 
     @State private var suspectedCount: Int = 0
@@ -33,10 +34,17 @@ struct SettingsView: View {
     #endif
     @AppStorage("showSuspectedLocations") private var showSuspectedLocations: Bool = false
     @AppStorage("offlineRadius") private var offlineRadius: Double = 20.0
-    @AppStorage("useMetric") private var useMetric: Bool = false
+    @AppStorage(DistanceUnits.storageKey) private var useMetric: Bool = false
     @AppStorage("enableHaptics") private var enableHaptics: Bool = true
     @AppStorage("keepScreenAwake") private var keepScreenAwake: Bool = true
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw: String = AppAppearance.system.rawValue
+    @AppStorage(NavigationSessionController.voiceGuidanceKey) private var voiceGuidance: Bool = true
+    @AppStorage(PromptVoice.storageKey) private var promptVoice: String = PromptVoice.male.rawValue
+    @AppStorage(VoiceSettings.masterKey) private var voiceEnabled = true
+    @AppStorage(VoiceSettings.trafficLightsKey) private var trafficLights = true
+    @AppStorage(VoiceSettings.reroutingKey) private var reroutingAnnouncements = true
+    @AppStorage(VoiceSettings.camerasKey) private var cameraAlerts = true
+    @AppStorage(VoiceSettings.outsideNavigationKey) private var camerasOutsideNavigation = false
 
     var body: some View {
         Form {
@@ -45,6 +53,7 @@ struct SettingsView: View {
             screenSection
             alertSection
             routingSection
+            voiceSection
             filterSection
             suspectedLocationsSection
             cameraDataSection
@@ -53,6 +62,10 @@ struct SettingsView: View {
         }
         .task {
             await refreshDataStats()
+        }
+        .onChange(of: [voiceEnabled, voiceGuidance, trafficLights,
+                       reroutingAnnouncements, cameraAlerts, camerasOutsideNavigation]) { _, _ in
+            VoicePromptPlayer.shared.settingsDidChange()
         }
     }
 
@@ -193,6 +206,114 @@ struct SettingsView: View {
         } footer: {
             Text("Download road data so routes are computed on this device and your destination never leaves it.")
         }
+    }
+
+    // MARK: - Voice
+
+    @ViewBuilder
+    private var voiceSection: some View {
+        Section {
+            Toggle("Voice", isOn: $voiceEnabled)
+            NavigationLink {
+                voiceSettingsView
+            } label: {
+                HStack {
+                    Text("Voice & Spoken Prompts")
+                    Spacer()
+                    Text(voiceEnabled ? selectedVoiceName : "Off")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text("Voice")
+        } footer: {
+            Text("Spoken directions and camera alerts, from recordings in the app.")
+        }
+    }
+
+    private var selectedVoiceName: String {
+        (PromptVoice(rawValue: promptVoice) ?? .male).name
+    }
+
+    private var voiceSettingsView: some View {
+        Form {
+            voicePickerSection
+            spokenPromptsSection
+            cameraVoiceSection
+        }
+        .navigationTitle("Voice & Spoken Prompts")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @ViewBuilder
+    private var voicePickerSection: some View {
+        Section {
+            ForEach(PromptVoice.allCases, id: \.rawValue) { voice in
+                HStack {
+                    Button {
+                        promptVoice = voice.rawValue
+                    } label: {
+                        HStack {
+                            Text(voice.name)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if promptVoice == voice.rawValue {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(voice.name)
+                    .accessibilityAddTraits(promptVoice == voice.rawValue ? .isSelected : [])
+                    Button {
+                        navigationController.playVoiceSample(voice)
+                    } label: {
+                        Image(systemName: "play.circle")
+                            .font(.title2)
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Preview \(voice.name)")
+                    .disabled(navigationController.isActive || navigationController.isStarting)
+                }
+            }
+        } header: {
+            Text("Voice")
+        } footer: {
+            Text(voiceEnabled
+                ? "Previews play the voice you tap. They are unavailable during navigation."
+                : "Voice is off in Settings, so nothing is spoken automatically. Previews still play.")
+        }
+    }
+
+    private var spokenPromptsSection: some View {
+        Section {
+            Toggle("Turn-by-turn directions", isOn: $voiceGuidance)
+            Toggle("Traffic lights", isOn: $trafficLights)
+            Toggle("Rerouting announcements", isOn: $reroutingAnnouncements)
+            Toggle("Camera alerts", isOn: $cameraAlerts)
+            Toggle("Also when not navigating", isOn: $camerasOutsideNavigation)
+                .disabled(!cameraAlerts)
+        } header: {
+            Text("Spoken prompts")
+        } footer: {
+            Text("Camera alerts are independent of directions. The trip mute silences all speech for that trip.")
+        }
+        .disabled(!voiceEnabled)
+    }
+
+    private var cameraVoiceSection: some View {
+        Section {
+            ForEach(CameraVoiceType.allCases, id: \.rawValue) { type in
+                CameraVoiceTypeToggle(type: type)
+            }
+        } header: {
+            Text("Spoken camera types")
+        } footer: {
+            Text("Banners, haptics and notifications are unchanged.")
+        }
+        .disabled(!voiceEnabled || !cameraAlerts)
     }
 
     // MARK: - Filter Settings
@@ -451,6 +572,12 @@ struct SettingsView: View {
             Link(destination: URL(string: "https://github.com/FoggedLens/deflock-app")!) {
                 Label("DeFlock Source Code", systemImage: "chevron.left.forwardslash.chevron.right")
             }
+
+            NavigationLink {
+                licencesView
+            } label: {
+                Label("Open-source Licences", systemImage: "doc.text")
+            }
         } header: {
             Text("About")
         } footer: {
@@ -459,6 +586,69 @@ struct SettingsView: View {
                 Text("This app does not collect or transmit personal data.")
             }
             .font(.caption)
+        }
+    }
+
+    // MARK: - Licences
+
+    @ViewBuilder
+    private var licencesView: some View {
+        Form {
+            Section {
+                licenceRow(
+                    "valhalla-mobile",
+                    licence: "MIT",
+                    detail: "The routing engine. Plans every route on this device.",
+                    url: URL(string: "https://github.com/rallista/valhalla-mobile")!
+                )
+
+                licenceRow(
+                    "Ferrostar",
+                    licence: "BSD-3-Clause",
+                    detail: "Turn-by-turn guidance. Bundles Mozilla\u{2019}s UniFFI runtime, which is MPL-2.0.",
+                    url: URL(string: "https://github.com/stadiamaps/ferrostar")!
+                )
+            } footer: {
+                Text("Neither library talks to a server in this app.")
+            }
+            Section("Voice Prompts") {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Generated with ElevenLabs")
+                    Text("Eric and Jessica. Generic prompts generated during development and shipped as audio files in the app. No ElevenLabs service runs in the app.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .navigationTitle("Open-source Licences")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func licenceRow(
+        _ name: String,
+        licence: String,
+        detail: String,
+        url: URL
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline) {
+                Link(destination: url) {
+                    HStack(spacing: 4) {
+                        Text(name)
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption2)
+                    }
+                }
+                Spacer()
+                Text(licence)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -513,12 +703,39 @@ struct SettingsView: View {
     }
 }
 
+private struct CameraVoiceTypeToggle: View {
+    let type: CameraVoiceType
+    @AppStorage private var enabled: Bool
+
+    init(type: CameraVoiceType) {
+        self.type = type
+        _enabled = AppStorage(wrappedValue: true, type.storageKey)
+    }
+
+    var body: some View {
+        Toggle(type.title, isOn: $enabled)
+            .onChange(of: enabled) { _, _ in VoicePromptPlayer.shared.settingsDidChange() }
+    }
+}
+
 #Preview {
+    let locationManager = LocationManager()
+    let cameraStore = CameraStore()
+    let liveActivityManager = LiveActivityManager()
+    let proximityEngine = ProximityAlertEngine()
+
     NavigationStack {
         SettingsView()
-            .environment(LocationManager())
-            .environment(CameraStore())
+            .environment(locationManager)
+            .environment(cameraStore)
             .environment(NotificationManager())
             .environment(OfflineDataUpdater())
+            .environment(NavigationSessionController(
+                locationManager: locationManager,
+                cameraStore: cameraStore,
+                proximityEngine: proximityEngine,
+                liveActivityManager: liveActivityManager,
+                routingService: ValhallaRoutingService()
+            ))
     }
 }

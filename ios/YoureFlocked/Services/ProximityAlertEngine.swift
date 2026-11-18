@@ -57,6 +57,59 @@ enum RelativeDirection: String, CaseIterable {
 @Observable @MainActor
 final class ProximityAlertEngine {
 
+    @ObservationIgnored var voiceContext: (() -> VoicePlaybackContext)?
+    @ObservationIgnored private var speechTrack = CameraSpeechTrack()
+    @ObservationIgnored private var speechEntries: [Int64: Date] = [:]
+    @ObservationIgnored private var speechPasses = Set<Int64>()
+    @ObservationIgnored private var speechRoute: [CLLocationCoordinate2D]?
+    @ObservationIgnored private var speechProgress = 0.0
+    @ObservationIgnored private var speechOnRoute = false
+    @ObservationIgnored private var speechExposure: CameraObservability.RouteExposure?
+    @ObservationIgnored private var exposureTask: Task<Void, Never>?
+    @ObservationIgnored private var exposureGeneration = UUID()
+    @ObservationIgnored private var exposureCameras: [SurveillanceCamera] = []
+
+    func setSpeechRoute(_ path: [CLLocationCoordinate2D]?, cameras: [SurveillanceCamera] = []) {
+        exposureTask?.cancel()
+        exposureGeneration = UUID()
+        speechRoute = path
+        speechProgress = 0
+        speechOnRoute = false
+        speechExposure = nil
+        exposureCameras = []
+        speechTrack = CameraSpeechTrack()
+        speechPasses.removeAll()
+        VoicePromptPlayer.shared.cancel(.camera)
+        VoicePromptPlayer.shared.updateCameraEligibility(CameraSpeechEligibility())
+        if path != nil { refreshSpeechExposure(cameras) }
+    }
+
+    func updateSpeechProgress(traveled: Double, onRoute: Bool) {
+        speechProgress = max(0, traveled)
+        speechOnRoute = onRoute
+    }
+
+    private func refreshSpeechExposure(_ cameras: [SurveillanceCamera]) {
+        guard let path = speechRoute, cameras != exposureCameras else { return }
+        exposureCameras = cameras
+        speechExposure = nil
+        VoicePromptPlayer.shared.cancel(.camera)
+        VoicePromptPlayer.shared.updateCameraEligibility(CameraSpeechEligibility())
+        exposureTask?.cancel()
+        let generation = UUID()
+        exposureGeneration = generation
+        exposureTask = Task { [weak self] in
+            let work = Task.detached(priority: .utility) {
+                CameraObservability.RouteExposure.build(path: path, cameras: cameras)
+            }
+            let exposure = await withTaskCancellationHandler {
+                await work.value
+            } onCancel: { work.cancel() }
+            guard !Task.isCancelled, let self, self.exposureGeneration == generation else { return }
+            self.speechExposure = exposure
+        }
+    }
+
     /// Refetch once the user has travelled this fraction of the fetch radius
     /// from the centre of what's cached, leaving the rest as headroom ahead.
     private let cameraRefreshFraction: Double = 0.5
@@ -195,6 +248,9 @@ final class ProximityAlertEngine {
             nil
         }
 
+        updateCameraSpeech(location: location, cameraStore: cameraStore, alertRadius: alertRadius,
+                           inFieldOfView: alertMode == .inFieldOfView, alertsEnabled: notificationManager.alertsEnabled)
+
         // Check cameras within exit radius for hysteresis.
         // Bounding-box prefilter first: a full CLLocation/haversine pass
         // over thousands of stored cameras on every location update is
@@ -260,6 +316,7 @@ final class ProximityAlertEngine {
                 activeAlert?.relativeBearing = normalizedRelBearing
                 activeAlert?.relativeDirection = direction
                 activeAlert?.nearbyCount = max(0, nearby.count - 1)
+
 
                 // "Very close" escalation haptic (one-shot)
                 if enableHaptics,
@@ -330,6 +387,74 @@ final class ProximityAlertEngine {
     }
 
     // MARK: - Keeping Cameras Current
+
+    private func updateCameraSpeech(location: CLLocation, cameraStore: CameraStore, alertRadius: Double,
+                                    inFieldOfView: Bool, alertsEnabled: Bool) {
+        speechTrack.append(location)
+        guard let context = voiceContext?() else { return }
+        guard location.horizontalAccuracy >= 0, location.horizontalAccuracy <= CameraExposureGeometry.radiusMeters else {
+            VoicePromptPlayer.shared.updateCameraEligibility(CameraSpeechEligibility())
+            return
+        }
+        if context.navigating { refreshSpeechExposure(cameraStore.cameras) }
+        let settings = VoiceSettings.fromDefaults()
+        struct Candidate {
+            let camera: SurveillanceCamera
+            let distance: Double
+            let direction: RelativeDirection
+            let passing: Bool
+        }
+        speechEntries = speechEntries.filter { Date().timeIntervalSince($0.value) < cameraCooldownDuration }
+        let candidates: [Candidate] = cameraStore.cameras.compactMap { camera in
+            guard let type = CameraPromptSelector.type(for: camera), alertsEnabled,
+                  settings.allows(.camera(type), context: context) else { return nil }
+            let distance = CameraExposureGeometry.distance(camera.coordinate, location.coordinate)
+            guard distance <= alertRadius else { return nil }
+            let passing: Bool
+            if context.navigating {
+                guard speechOnRoute, let exposure = speechExposure,
+                      exposure.permits(camera: camera, progress: speechProgress, alertRadius: alertRadius, passing: false,
+                                       position: location.coordinate, course: location.course) else { return nil }
+                passing = exposure.permits(camera: camera, progress: speechProgress, alertRadius: alertRadius, passing: true,
+                                          position: location.coordinate, course: location.course)
+            } else {
+                guard speechTrack.permits(camera, at: location) else { return nil }
+                passing = true
+            }
+            let direction: RelativeDirection = location.course >= 0
+                ? .from(relativeBearing: camera.bearing(from: location.coordinate) - location.course) : .nearby
+            return Candidate(camera: camera, distance: distance, direction: direction, passing: passing)
+        }.sorted { $0.distance < $1.distance }
+        let eligibility = CameraSpeechEligibility(entry: Set(candidates.map { $0.camera.id }),
+                                                  passing: Set(candidates.filter(\.passing).map { $0.camera.id }))
+        VoicePromptPlayer.shared.updateCameraEligibility(eligibility)
+        // Speech is independent of the banner's nearest camera. A nearby side
+        // street must not hide a second camera that actually watches this road.
+        guard let chosen = candidates.first(where: { speechEntries[$0.camera.id] == nil && $0.direction != .behind })
+            ?? candidates.first(where: { speechEntries[$0.camera.id] != nil && $0.passing && !speechPasses.contains($0.camera.id) }) else { return }
+        let entry = speechEntries[chosen.camera.id] == nil
+        let unannounced = candidates.filter { speechEntries[$0.camera.id] == nil && $0.direction != .behind }
+        let event: CameraPromptSelector.Event = entry ? .entry : .passing
+        guard let key = CameraPromptSelector.select(
+            camera: chosen.camera, direction: chosen.direction, distance: chosen.distance,
+            nearbyCount: entry ? max(0, unannounced.count - 1) : 0,
+            event: event, inFieldOfView: inFieldOfView && chosen.passing, settings: settings, context: context, units: .selected()
+        ), let type = CameraPromptSelector.type(for: chosen.camera) else { return }
+        if entry {
+            speechEntries[chosen.camera.id] = Date()
+            speechPasses.remove(chosen.camera.id)
+            if key.hasPrefix("cam.cameras_ahead_") {
+                for candidate in unannounced { speechEntries[candidate.camera.id] = Date() }
+            }
+        } else { speechPasses.insert(chosen.camera.id) }
+        let grouped = key.hasPrefix("cam.cameras_ahead_")
+        let targets = grouped ? Set(unannounced.map { $0.camera.id }) : [chosen.camera.id]
+        VoicePromptPlayer.shared.enqueue(VoiceUtterance(
+            clips: [key], voice: .selected, priority: .camera, kind: .camera(type),
+            createdAt: ProcessInfo.processInfo.systemUptime, cameraTargets: targets,
+            cameraRequiresView: !entry || key.hasSuffix(".in_view")
+        ))
+    }
 
     /// Fetches cameras for where the user actually is, as they move.
     ///

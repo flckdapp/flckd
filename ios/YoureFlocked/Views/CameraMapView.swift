@@ -30,6 +30,9 @@ struct CameraMapView: View {
 
     @State private var viewModel = MapViewModel()
     @State private var rotationModel = MapRotationModel()
+    #if DEBUG
+    @State private var followingSimulation = true
+    #endif
     @State private var suspectedLocations: [SuspectedLocation] = []
     @State private var isLoadingSuspectedLocations: Bool = false
     @State private var isDownloadingArea: Bool = false
@@ -76,6 +79,12 @@ struct CameraMapView: View {
             .presentationDragIndicator(.hidden)
         }
         .onChange(of: viewModel.followMode) { _, _ in
+            #if DEBUG
+            if locationManager.simulatedSourceActive {
+                if viewModel.isFollowingUser { followingSimulation = true }
+                return
+            }
+            #endif
             proximityEngine.checkTripEnd(isFollowingUser: viewModel.isFollowingUser)
         }
         .alert("Offline Download", isPresented: $showDownloadAlert) {
@@ -130,7 +139,22 @@ struct CameraMapView: View {
     @ViewBuilder
     private var mapContent: some View {
         Map(position: $viewModel.cameraPosition) {
+            #if DEBUG
+            if locationManager.simulatedSourceActive {
+                if let location = locationManager.currentLocation {
+                    Annotation("Simulated position", coordinate: location.coordinate) {
+                        Image(systemName: "location.fill")
+                            .foregroundStyle(.white)
+                            .padding(6)
+                            .background(.blue, in: Circle())
+                    }
+                }
+            } else {
+                UserAnnotation()
+            }
+            #else
             UserAnnotation()
+            #endif
 
             // Camera markers: individual cameras up to the cluster
             // threshold, numbered roll-up badges beyond it.
@@ -195,6 +219,20 @@ struct CameraMapView: View {
                 )
             }
         }
+        #if DEBUG
+        .onChange(of: locationManager.simulatedSourceActive) { _, active in
+            followingSimulation = true
+            if !active { viewModel.cameraPosition = .userLocation(followsHeading: true, fallback: MapViewModel.locationFallback) }
+        }
+        .onChange(of: viewModel.cameraPosition.positionedByUser) { _, byUser in
+            if byUser { followingSimulation = false }
+        }
+        .onChange(of: locationManager.currentLocation) { _, location in
+            guard locationManager.simulatedSourceActive, followingSimulation, let location else { return }
+            viewModel.cameraPosition = .camera(MapCamera(centerCoordinate: location.coordinate, distance: 1000,
+                                                        heading: location.course >= 0 ? location.course : 0))
+        }
+        #endif
     }
 
     // MARK: - Overlay Controls

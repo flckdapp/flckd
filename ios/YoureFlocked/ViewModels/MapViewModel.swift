@@ -16,7 +16,11 @@ final class MapViewModel {
 
     // MARK: - Map State
 
-    var cameraPosition: MapCameraPosition = .userLocation(followsHeading: true, fallback: .automatic)
+    // Automatic framing depends on annotations, but viewport culling and
+    // clustering depend on framing. Without a location fix those two inputs
+    // chase each other indefinitely. A fixed world fallback breaks the cycle.
+    static var locationFallback: MapCameraPosition { .rect(.world) }
+    var cameraPosition: MapCameraPosition = .userLocation(followsHeading: true, fallback: locationFallback)
     var visibleRegion: MKCoordinateRegion?
     var selectedCamera: SurveillanceCamera?
     var showCameraDetail: Bool = false
@@ -30,7 +34,7 @@ final class MapViewModel {
 
     var followMode: FollowMode {
         if cameraPosition.followsUserHeading { return .followHeading }
-        if cameraPosition == .userLocation(fallback: .automatic) { return .follow }
+        if cameraPosition == .userLocation(fallback: Self.locationFallback) { return .follow }
         return .off
     }
 
@@ -184,9 +188,9 @@ final class MapViewModel {
         withAnimation(.smooth(duration: 0.5)) {
             switch followMode {
             case .off:
-                cameraPosition = .userLocation(fallback: .automatic)
+                cameraPosition = .userLocation(fallback: Self.locationFallback)
             case .follow:
-                cameraPosition = .userLocation(followsHeading: true, fallback: .automatic)
+                cameraPosition = .userLocation(followsHeading: true, fallback: Self.locationFallback)
             case .followHeading:
                 // Keep the current view when leaving follow mode. `.automatic`
                 // frames every annotation, which zooms far out after a long
@@ -194,7 +198,7 @@ final class MapViewModel {
                 if let region = visibleRegion {
                     cameraPosition = .region(region)
                 } else {
-                    cameraPosition = .automatic
+                    cameraPosition = Self.locationFallback
                 }
             }
         }

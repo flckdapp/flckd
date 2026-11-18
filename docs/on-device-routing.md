@@ -24,6 +24,15 @@ Overpass as the fallback. Speed cameras come from a national file
 downloaded with the region pack. Those requests reveal roughly what you're
 looking at; a routing request would reveal where you're going.
 
+Turn-by-turn guidance keeps to the same rule. Starting navigation re-issues
+the previewed plan's request to the same engine, in OSRM format so it
+carries banner and voice instructions, and a reroute is the
+progressive-avoidance planner run again from the current position against
+the same packs. The guidance library,
+[Ferrostar](https://github.com/stadiamaps/ferrostar), is handed a request
+loader that always throws, so it has no working network path either. See
+the turn-by-turn section of [`ARCHITECTURE.md`](../ARCHITECTURE.md).
+
 ---
 
 ## The engine
@@ -54,8 +63,9 @@ it, these are the parts that matter:
   warnings. It rebuilds on the next request. Construction was measured at
   72 ms on an A18 and 99 ms on an A14 against a 455 MB pack, so a rebuild is
   cheap next to a plan, which takes several hundred milliseconds per engine
-  call. Turn-by-turn should still skip the background teardown while
-  navigating, but the cost of getting it wrong is small.
+  call. A guidance session sets `keepAliveInBackground` so the background
+  teardown is skipped while navigating and a reroute with the screen off
+  doesn't pay for a rebuild; a memory warning still tears it down.
 - **Cache size.** The package's default config sets a 1 GB tile cache,
   which is a server setting and costs about 15 MB of dirty memory at
   construction. The app sets it to 32 MB.
