@@ -54,9 +54,7 @@ struct SettingsView: View {
             screenSection
             alertSection
             routingSection
-            navigationSection
-            spokenPromptsSection
-            cameraVoiceSection
+            voiceSection
             filterSection
             suspectedLocationsSection
             cameraDataSection
@@ -211,12 +209,46 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Navigation
+    // MARK: - Voice
 
     @ViewBuilder
-    private var navigationSection: some View {
+    private var voiceSection: some View {
         Section {
             Toggle("Voice", isOn: $voiceEnabled)
+            NavigationLink {
+                voiceSettingsView
+            } label: {
+                HStack {
+                    Text("Voice & Spoken Prompts")
+                    Spacer()
+                    Text(voiceEnabled ? selectedVoiceName : "Off")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text("Voice")
+        } footer: {
+            Text("Spoken directions and camera alerts, from recordings in the app.")
+        }
+    }
+
+    private var selectedVoiceName: String {
+        (PromptVoice(rawValue: promptVoice) ?? .male).name
+    }
+
+    private var voiceSettingsView: some View {
+        Form {
+            voicePickerSection
+            spokenPromptsSection
+            cameraVoiceSection
+        }
+        .navigationTitle("Voice & Spoken Prompts")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @ViewBuilder
+    private var voicePickerSection: some View {
+        Section {
             ForEach(PromptVoice.allCases, id: \.rawValue) { voice in
                 HStack {
                     Button {
@@ -255,7 +287,9 @@ struct SettingsView: View {
         } header: {
             Text("Voice")
         } footer: {
-            Text("Voice off silences automatic speech. Previews still play, except during navigation.")
+            Text(voiceEnabled
+                ? "Previews play the voice you tap. They are unavailable during navigation."
+                : "Voice is off in Settings, so nothing is spoken automatically. Previews still play.")
         }
     }
 

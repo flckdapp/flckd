@@ -391,8 +391,9 @@ speed cameras and gunshot detectors each have their own clips. Unknown devices
 and guards stay silent. Rear entry alerts are silent; field-of-view alerts and
 passing have specific clips. Ahead groups use the two/three/several recording.
 
-Settings has one master Voice switch, default on, and a voice list built from
-`PromptVoice.allCases`: Male (Eric) and Female (Matilda), with a selection
+Settings shows one master Voice switch, default on, and a "Voice & Spoken
+Prompts" page that holds everything else. That page starts with a voice list built
+from `PromptVoice.allCases`: Male (Eric) and Female (Matilda), with a selection
 checkmark and a preview button per row. Previews use that row's voice and replace
 any previous preview, even with Voice off. They are refused while starting or
 navigating, so they never interrupt or wait behind a live direction.
