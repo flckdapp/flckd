@@ -39,6 +39,8 @@ struct SettingsView: View {
     @AppStorage("keepScreenAwake") private var keepScreenAwake: Bool = true
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw: String = AppAppearance.system.rawValue
     @AppStorage(NavigationSessionController.voiceGuidanceKey) private var voiceGuidance: Bool = true
+    @AppStorage(PromptVoice.storageKey) private var promptVoice: String = PromptVoice.male.rawValue
+    @AppStorage(CameraVoiceMode.storageKey) private var cameraVoiceMode: String = CameraVoiceMode.navigating.rawValue
 
     var body: some View {
         Form {
@@ -48,6 +50,7 @@ struct SettingsView: View {
             alertSection
             routingSection
             navigationSection
+            cameraVoiceSection
             filterSection
             suspectedLocationsSection
             cameraDataSection
@@ -203,14 +206,38 @@ struct SettingsView: View {
     @ViewBuilder
     private var navigationSection: some View {
         Section {
+            Picker("Voice", selection: $promptVoice) {
+                Text("Male").tag(PromptVoice.male.rawValue)
+                Text("Female").tag(PromptVoice.female.rawValue)
+            }
             Toggle("Voice Guidance", isOn: $voiceGuidance)
                 .onChange(of: voiceGuidance) { _, enabled in
                     navigationController.setVoiceGuidance(enabled: enabled)
                 }
+            Button("Play sample") { navigationController.playVoiceSample() }
         } header: {
             Text("Navigation")
         } footer: {
             Text("Speaks each turn while you drive. Changing this also mutes or unmutes a session that is already running.")
+        }
+    }
+
+    private var cameraVoiceSection: some View {
+        Section {
+            Picker("Speak camera alerts", selection: $cameraVoiceMode) {
+                ForEach(CameraVoiceMode.allCases, id: \.rawValue) { mode in
+                    Text(mode.title).tag(mode.rawValue)
+                }
+            }
+            .onChange(of: cameraVoiceMode) { _, _ in VoicePromptPlayer.shared.cancel(.camera) }
+            ForEach(CameraVoiceType.allCases, id: \.rawValue) { type in
+                CameraVoiceTypeToggle(type: type)
+                    .disabled(cameraVoiceMode == CameraVoiceMode.off.rawValue)
+            }
+        } header: {
+            Text("Camera Alert Voice")
+        } footer: {
+            Text("Recorded alerts play on this device. Voice Guidance and the trip mute control also silence camera speech. Banners, haptics and notifications are unchanged.")
         }
     }
 
@@ -509,6 +536,14 @@ struct SettingsView: View {
             } footer: {
                 Text("Neither library talks to a server in this app.")
             }
+            Section("Voice Prompts") {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Generated with ElevenLabs")
+                    Text("Eric (Male) and Matilda (Female). Generic prompts generated during development and shipped as audio files in the app. No ElevenLabs service runs in the app.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .navigationTitle("Open-source Licences")
         .navigationBarTitleDisplayMode(.inline)
@@ -590,6 +625,21 @@ struct SettingsView: View {
         let stats = cameraStore.cacheStats(context: modelContext)
         cacheCount = stats.count
         cacheSizeBytes = stats.sizeBytes
+    }
+}
+
+private struct CameraVoiceTypeToggle: View {
+    let type: CameraVoiceType
+    @AppStorage private var enabled: Bool
+
+    init(type: CameraVoiceType) {
+        self.type = type
+        _enabled = AppStorage(wrappedValue: true, type.storageKey)
+    }
+
+    var body: some View {
+        Toggle(type.title, isOn: $enabled)
+            .onChange(of: enabled) { _, _ in VoicePromptPlayer.shared.cancel(.camera) }
     }
 }
 

@@ -112,17 +112,28 @@ ios/
         FlckdNavigationWidgetProvider.swift Ferrostar's widget hook, onto the shared Live Activity
         ManeuverSymbol.swift                OSRM type and modifier to the app's ManeuverType
         NoNetworkRequestLoader.swift        the request loader Ferrostar is given; always throws
+        VoicePrompt.swift                  utterance model, priority queue and sample-frame join timeline
+        VoicePromptPlayer.swift            serial AVAudioEngine playback and on-device speech fallback
+        VoicePCM.swift                     silence trimming, fixed gaps and click-free fades
+        GuidancePromptSelector.swift       pure maneuver, distance and lane clip selection
+        CameraPromptSelector.swift         pure camera type, clip and preference gating
+        RouteSignals.swift                 optional on-device trace_attributes and signal-to-turn mapping
       RoutePlanMetrics.swift        debug only: one timed record per plan
       RoutingMetricsStore.swift     debug only: session stats and JSON export
       RerouteProbe.swift            debug only: repeated planning while driving
     Resources/
       Info.plist, entitlements, assets
+      VoicePrompts/{male,female}/     generic recorded prompts; one folder reference preserves both voices
   YoureFlockedWidgets/              widget and Live Activity target
   YoureFlockedUITests/              gitignored; contains real coordinates
 ```
 
 The `.xcodeproj` is generated and isn't in git. Edit `project.yml`, then run
 `xcodegen generate`.
+
+`scripts/voice-prompts/` holds the generic phrase script and development-only
+ElevenLabs generation and normalization tools. Raw output stays in gitignored
+`ai-docs/`; only the finished audio ships. See its README to regenerate it.
 
 ### Pattern
 
@@ -323,8 +334,9 @@ The flow, start to finish:
    `startNavigation(route:)` is called. The controller mirrors Ferrostar's
    published state onto an observable property; `NavigationView` draws the
    banner, the remaining geometry and the progress bar from it, Ferrostar's
-   `SpokenInstructionObserver` speaks, and the widget provider pushes the
-   next turn into `LiveActivityManager`.
+    muted `SpokenInstructionObserver` stays silent, the app's recorded-prompt
+    player speaks, and the widget provider pushes the next turn into
+    `LiveActivityManager`.
 4. On deviation Ferrostar asks the delegate; the controller answers
    `.getNewRoutes` unless the car is within 100 m of the destination.
    `FlckdRouteProvider.getRoutes` runs the progressive-avoidance planner
@@ -334,9 +346,48 @@ The flow, start to finish:
    as OSRM. The screen shows "Rerouting…", then "New route avoids N of M
    cameras"; the lock screen shows the spinner too.
 5. On `.complete` the controller builds the trip summary, shows the arrival
-   card, and tears the session down: Live Activity turn cleared, location
+    card, lets the final arrival utterance finish, and tears the session down: Live Activity turn cleared, location
    manager back to its idle distance filter and auto-pause, engine
    keep-alive released. The same teardown runs on End and on a failed start.
+
+Voice prompts are selected from each new spoken instruction, deduplicated by
+`utteranceId`. Valhalla puts the upcoming maneuver in the current step's banner;
+the step's own maneuver is the one at its start. The selector therefore uses
+the current banner's primary content, the next step's roundabout exit number,
+and the banner sub-content's lane information. Angles cannot identify an exit
+number; an unknown or unsupported maneuver uses on-device speech rather than
+guessing. Distances select the nearest imperial recording (the clip inventory
+is imperial even with metric display units); below 150 m the action stands
+alone. Long-gap "continue" reminders use `continue_long`. Only contiguous
+one- or two-lane edge groups, or a single middle lane, get a lane recording,
+and only on approach prompts. Reroute start and acceptance have recordings too.
+
+After start and each accepted reroute, `RouteSignals` makes one on-device
+`trace_attributes` call on the engine's existing serial queue. Its returned
+polyline and edge end indices locate `end_node.traffic_signal` nodes. The
+request filter is `node.traffic_signal`, not `end_node.traffic_signal`. An edge's
+`traffic_signal` flag cannot locate a light along that edge and is not used to
+invent a node. A node within 25 m of the maneuver, checked against route
+progress as well as position to handle loops, enables light-based prompts.
+Approaches name the next or second light only when zero or one other signal
+lies ahead before the turn. Missing data, errors and results older than five
+seconds silently leave ordinary prompts. Results are discarded on route
+replacement or teardown; neither geometry nor positions are written down.
+
+Spoken camera warnings hook the existing proximity engine's entry and 60 m
+escalation events; they do not run another detector. Speech's escalation
+one-shot is independent of the haptics toggle. Banners, notifications, haptics,
+cooldowns and trip tally retain their existing behavior. ALPR manufacturer or
+brand tags containing "flock" select Flock recordings; other ALPRs and cameras,
+speed cameras and gunshot detectors each have their own clips. Unknown devices
+and guards stay silent. Rear entry alerts are silent; field-of-view alerts and
+passing have specific clips. Ahead groups use the two/three/several recording.
+
+Settings keeps Voice Guidance and adds Male/Female (Eric/Matilda) and Play sample.
+Camera Alert Voice offers Off / While navigating (default) / Always and four
+per-type toggles, all on by default. Voice Guidance and the trip mute also gate
+camera speech; changing camera preferences cancels queued camera utterances.
+All are ordinary UserDefaults preferences, not another navigation state store.
 
 Decisions:
 
@@ -361,9 +412,22 @@ Decisions:
   is deterministic, so the candidate order holds; the length check makes a
   mismatch degrade to the primary route rather than navigate an alternate
   the user never saw.
-- **Ferrostar owns the audio session.** It ducks other audio per utterance
-  and releases afterwards, which is what a navigation app wants; two owners
-  of one session fight.
+- **The app owns the audio session.** Ferrostar gets a muted no-op synthesizer
+  with `managesAudioSession: false`. `VoicePromptPlayer` confines all audio
+  work to one serial queue. It activates `.playback` / `.voicePrompt` with
+  `.duckOthers` and `.interruptSpokenAudioAndMixWithOthers` once per utterance
+  and releases with `.notifyOthersOnDeactivation` after the final clip, never
+  between an approach and its lane sentence. `AVAudioFile` decodes generic
+  recordings to a per-voice PCM cache. Residual source/encoder silence is
+  trimmed, then a single `AVAudioPlayerNode` buffer contains the whole
+  utterance with fixed 350 ms sentence gaps and 8 ms endpoint fades; a 120 ms
+  intra-sentence constant is reserved for future joins. Guidance wins between
+  utterances, camera alerts wait for the current one and expire after five
+  seconds. A missing clip falls back to on-device `AVSpeechSynthesizer`,
+  preferring premium then enhanced installed voices for its language.
+  Interruptions and unplugged outputs stop speech instead of resuming an old
+  instruction. Background audio is declared for locked-screen prompts; no
+  silence is played to keep the app running.
 - **Drive simulation is debug-only.** A `Simulate drive` toggle under the
   route card replays the route through Ferrostar's
   `SimulatedLocationProvider` at 4x. It lives behind `#if DEBUG` with the

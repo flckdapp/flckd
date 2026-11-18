@@ -57,6 +57,9 @@ enum RelativeDirection: String, CaseIterable {
 @Observable @MainActor
 final class ProximityAlertEngine {
 
+    @ObservationIgnored var voiceContext: (() -> (navigating: Bool, muted: Bool))?
+    @ObservationIgnored private var spokenPassingCameraID: Int64?
+
     /// Refetch once the user has travelled this fraction of the fetch radius
     /// from the centre of what's cached, leaving the rest as headroom ahead.
     private let cameraRefreshFraction: Double = 0.5
@@ -251,6 +254,11 @@ final class ProximityAlertEngine {
                 setCameraCooldown(closest.camera.osmID)
                 recordEncounter(camera: closest.camera)
                 notificationManager.sendProximityAlert(for: closest.camera, distance: closest.distance)
+                spokenPassingCameraID = nil
+                if !isOnCooldown {
+                    speakCamera(event: .entry, inFieldOfView: alertMode == .inFieldOfView,
+                                alertsEnabled: notificationManager.alertsEnabled)
+                }
 
             } else {
                 // Same camera: update distance, bearing, and direction in place.
@@ -260,6 +268,15 @@ final class ProximityAlertEngine {
                 activeAlert?.relativeBearing = normalizedRelBearing
                 activeAlert?.relativeDirection = direction
                 activeAlert?.nearbyCount = max(0, nearby.count - 1)
+
+                // Speech has its own one-shot: disabling haptics must not
+                // disable spoken escalation or change the banner's state.
+                if closest.distance <= veryCloseRadius, location.speed >= stationarySpeedThreshold,
+                   spokenPassingCameraID != closest.camera.osmID {
+                    spokenPassingCameraID = closest.camera.osmID
+                    speakCamera(event: .passing, inFieldOfView: alertMode == .inFieldOfView,
+                                alertsEnabled: notificationManager.alertsEnabled)
+                }
 
                 // "Very close" escalation haptic (one-shot)
                 if enableHaptics,
@@ -330,6 +347,19 @@ final class ProximityAlertEngine {
     }
 
     // MARK: - Keeping Cameras Current
+
+    private func speakCamera(event: CameraPromptSelector.Event, inFieldOfView: Bool, alertsEnabled: Bool) {
+        guard alertsEnabled, let alert = activeAlert, let context = voiceContext?(),
+              let key = CameraPromptSelector.select(
+                camera: alert.camera, direction: alert.relativeDirection, distance: alert.distance,
+                nearbyCount: alert.nearbyCount, event: event, inFieldOfView: inFieldOfView,
+                settings: .fromDefaults(), navigating: context.navigating, muted: context.muted
+              ) else { return }
+        VoicePromptPlayer.shared.enqueue(VoiceUtterance(
+            clips: [key], voice: .selected, priority: .camera,
+            createdAt: ProcessInfo.processInfo.systemUptime
+        ))
+    }
 
     /// Fetches cameras for where the user actually is, as they move.
     ///

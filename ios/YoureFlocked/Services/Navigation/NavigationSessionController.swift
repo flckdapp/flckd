@@ -66,6 +66,12 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
     @ObservationIgnored private var plannedDistanceMeters: Double = 0
     @ObservationIgnored private var rerouteCount = 0
     @ObservationIgnored private var routeCameras: [SurveillanceCamera] = []
+    @ObservationIgnored private var spokenIDs = Set<UUID>()
+    @ObservationIgnored private var routeSignals = RouteSignals()
+    @ObservationIgnored private var signalTask: Task<Void, Never>?
+    @ObservationIgnored private var signalGeneration = UUID()
+    @ObservationIgnored private var voiceCosting = "auto"
+    @ObservationIgnored private var announcedArrival = false
 
     private(set) var isActive = false
     private(set) var isStarting = false
@@ -78,8 +84,7 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
     private(set) var startError: Error?
     private(set) var tripSummary: TripSummary?
 
-    /// Read-only because the live `SpokenInstructionObserver` only exposes a
-    /// toggle; a plain setter here could not keep the two in step.
+    /// Changes go through `setVoiceGuidance` so pending audio is cancelled too.
     private(set) var isMuted = false
 
     #if DEBUG
@@ -105,6 +110,9 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         super.init()
         UserDefaults.standard.register(defaults: [Self.voiceGuidanceKey: true])
         isMuted = !UserDefaults.standard.bool(forKey: Self.voiceGuidanceKey)
+        proximityEngine.voiceContext = { [weak self] in
+            (navigating: self?.isActive ?? false, muted: self?.isMuted ?? true)
+        }
     }
 
     // MARK: - Session Lifecycle
@@ -125,6 +133,8 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         self.routeCameras = routeCameras
 
         let options = RoutePlanOptions.fromDefaults()
+        voiceCosting = options.costing
+        announcedArrival = false
         do {
             let response = try await routingService.navigationResponse(for: plan, useMetric: options.useMetric)
             guard let route = FlckdRouteProvider.select(try FlckdRouteProvider.routes(fromOSRM: response), for: plan) else {
@@ -157,16 +167,14 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
             #endif
 
             let voiceEnabled = UserDefaults.standard.bool(forKey: Self.voiceGuidanceKey)
-            // `managesAudioSession` stays at Ferrostar's default: it already
-            // ducks other audio per utterance and releases afterwards, which
-            // is what a navigation app wants, and two owners of one session
-            // fight each other.
             let core = FerrostarCore(
                 customRouteProvider: provider,
                 locationProvider: locationProvider,
                 navigationControllerConfig: Self.navigationConfig,
                 networkSession: NoNetworkRequestLoader(),
-                spokenInstructionObserver: .initAVSpeechSynthesizer(isMuted: !voiceEnabled),
+                spokenInstructionObserver: SpokenInstructionObserver(
+                    synthesizer: SilentNavigationSynthesizer(), isMuted: true, managesAudioSession: false
+                ),
                 widgetProvider: FlckdNavigationWidgetProvider(liveActivityManager: liveActivityManager)
             )
             core.delegate = self
@@ -184,6 +192,8 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
             currentRoute = route
             isActive = true
             isStarting = false
+            speak(["depart"])
+            loadSignals(for: route)
             Self.log.info("guidance started: \(Int(route.distance))m, \(route.steps.count) steps")
         } catch {
             Self.log.error("guidance start failed: \(error.localizedDescription, privacy: .public)")
@@ -202,7 +212,14 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         tripSummary = nil
     }
 
-    private func teardown() {
+    private func teardown(preserveArrivalPrompt: Bool = false) {
+        signalTask?.cancel()
+        signalTask = nil
+        signalGeneration = UUID()
+        routeSignals = RouteSignals()
+        spokenIDs.removeAll()
+        if !preserveArrivalPrompt { VoicePromptPlayer.shared.cancel(.guidance) }
+        if CameraVoiceSettings.fromDefaults().mode != .always { VoicePromptPlayer.shared.cancel(.camera) }
         core?.stopNavigation()
         cancellables.removeAll()
         core = nil
@@ -233,8 +250,8 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
     func setVoiceGuidance(enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: Self.voiceGuidanceKey)
         guard isMuted == enabled else { return }
-        core?.spokenInstructionObserver.toggleMute()
         isMuted = !enabled
+        if !enabled { VoicePromptPlayer.shared.stopAll() }
     }
 
     // MARK: - State Mirroring
@@ -274,8 +291,67 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
 
     private func apply(_ newState: NavigationState?) {
         state = newState
+        if let newState { speakInstruction(from: newState) }
         guard let newState, case .complete = newState.tripState else { return }
         finish()
+    }
+
+    private func speak(_ clips: [String], fallback: String = "") {
+        guard !isMuted else { return }
+        VoicePromptPlayer.shared.enqueue(VoiceUtterance(
+            clips: clips, fallbackText: fallback, voice: .selected,
+            createdAt: ProcessInfo.processInfo.systemUptime
+        ))
+    }
+
+    private func speakInstruction(from state: NavigationState) {
+        guard case let .navigating(_, _, _, steps, _, progress, _, _, visual, spoken, _) = state.tripState,
+              let spoken, spokenIDs.insert(spoken.utteranceId).inserted else { return }
+        let next = steps.dropFirst().first
+        let distance = spoken.triggerDistanceBeforeManeuver
+        var signal: String?
+        if let route = currentRoute, let step = steps.first, let point = step.geometry.last {
+            let completed = max(0, route.steps.count - steps.count)
+            let targetDistance = route.steps.prefix(completed + 1).reduce(0.0) {
+                $0 + (RouteSignals.cumulative($1.geometry).last ?? 0)
+            }
+            signal = routeSignals.prefix(
+                maneuver: point, targetDistance: targetDistance,
+                userDistance: targetDistance - progress.distanceToNextManeuver, approach: distance >= 150
+            )
+        }
+        // Valhalla's voice list may start with a post-transition "continue"
+        // reminder on long steps while the banner already describes the next
+        // turn. It is a long-gap reminder, not a turn several miles early.
+        let longContinue = GuidancePromptSelector.isContinueReminder(text: spoken.text, distance: distance)
+        let clips = GuidancePromptSelector.select(
+            content: visual?.primaryContent, distance: distance,
+            roundaboutExit: next?.roundaboutExitNumber,
+            laneInfo: visual?.subContent?.laneInfo, signal: signal, longContinue: longContinue
+        )
+        if clips.first?.hasPrefix("arrive") == true { announcedArrival = true }
+        speak(clips, fallback: spoken.text)
+    }
+
+    private func loadSignals(for route: Route) {
+        signalTask?.cancel()
+        routeSignals = RouteSignals()
+        let generation = UUID()
+        signalGeneration = generation
+        let geometry = route.geometry
+        let costing = voiceCosting
+        signalTask = Task { [weak self] in
+            let signals = await RouteSignals.load(geometry: geometry, costing: costing)
+            guard !Task.isCancelled, let self, self.isActive, self.signalGeneration == generation else { return }
+            self.routeSignals = signals
+        }
+    }
+
+    func playVoiceSample() {
+        VoicePromptPlayer.shared.enqueue(VoiceUtterance(
+            clips: ["500ft.turn_right", "lane_right"], voice: .selected, priority: .sample,
+            createdAt: ProcessInfo.processInfo.systemUptime
+        ))
     }
 
     /// Builds the summary, then stops immediately: a reroute that completes
@@ -298,7 +374,8 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
             rerouteCount: rerouteCount
         )
         Self.log.info("guidance complete after \(self.rerouteCount) reroutes")
-        teardown()
+        if !announcedArrival { speak(["arrive"]) }
+        teardown(preserveArrivalPrompt: true)
     }
 
     // MARK: - Camera Data
@@ -351,6 +428,7 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
     private func setRerouting(_ rerouting: Bool) {
         guard isRerouting != rerouting else { return }
         isRerouting = rerouting
+        if rerouting { speak(["rerouting"]) }
         let liveActivityManager = liveActivityManager
         Task { await liveActivityManager.setNavigationRerouting(rerouting) }
     }
@@ -397,10 +475,14 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
             // The summary's distance is planned length less what remains, so
             // switching routes has to bank the part already driven first.
             let remaining = state?.currentProgress?.distanceRemaining ?? plannedDistanceMeters
+            VoicePromptPlayer.shared.cancel(.guidance)
             try core.startNavigation(route: route)
             plannedDistanceMeters = max(0, plannedDistanceMeters - remaining) + route.distance
             currentRoute = route
+            spokenIDs.removeAll()
             rerouteCount += 1
+            speak(["new_route"])
+            loadSignals(for: route)
         } catch {
             Self.log.error("reroute could not start: \(error.localizedDescription, privacy: .public)")
             rerouteFailed = true

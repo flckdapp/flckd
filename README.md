@@ -17,6 +17,8 @@ Inspired by [DeFlock](https://deflock.me).
 - Plans routes that pass fewer cameras, entirely on your phone
 - Gives turn-by-turn directions along that route, with spoken prompts and the
   next turn on your lock screen, and replans around cameras if you leave it
+- Offers recorded Male/Female guidance voices and optional spoken camera alerts,
+  all played on your device
 
 ## Platforms
 
@@ -39,8 +41,10 @@ mode. The engine is Valhalla, compiled in through
 [`valhalla-mobile`](https://github.com/rallista/valhalla-mobile); turn-by-turn
 guidance on top of it is [Ferrostar](https://github.com/stadiamaps/ferrostar),
 also compiled in, and a reroute is the same on-device planner run again. Spoken
-directions use the phone's own text-to-speech. Neither library talks to a
-server in this app.
+directions and camera alerts use recorded generic audio bundled in the app,
+with on-device text-to-speech as the fallback for directions. Optional
+traffic-light instructions come from an on-device trace of the route.
+Neither library talks to a server in this app.
 
 That road data is downloaded once per region. The default source,
 `tiles.flckd.app`, is a Cloudflare R2 bucket of static files: there's no

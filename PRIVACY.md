@@ -20,8 +20,9 @@ Please open an issue.
 - Routing happens on your device. Your start point and destination are never
   sent anywhere. There is no routing server.
 - Turn-by-turn directions happen on your device too. Spoken prompts come
-  from the phone's own text-to-speech, and a reroute is the same on-device
-  planner run again. Nothing about a trip is sent or kept.
+  from recorded audio bundled in the app, with on-device text-to-speech as
+  a fallback. A reroute is the same on-device planner run again. Nothing
+  about a trip is sent or kept.
 - No location history is written to disk, and no position ever leaves the
   device. Speed and red-light cameras come from one national file that is
   downloaded with your routing region and is the same for everyone. Other
@@ -104,11 +105,25 @@ with the cameras it knows about for that corridor. Camera data for the
 corridor comes through the same tile and grid-cell requests described below,
 never through a request built around your position.
 
-**Spoken directions.** Each prompt is text Ferrostar derives from the route
-("Turn right onto Second Street") and hands to `AVSpeechSynthesizer`, Apple's
-text-to-speech, which speaks it on the device with the system voices. The
-app sends that text nowhere. Voice guidance can be switched off in Settings
-or muted during a trip.
+**Spoken directions and camera alerts.** The app plays pre-recorded audio
+files bundled with it, on your device. Nothing is synthesized over the network
+at runtime. Male (Eric) and Female (Matilda) voices are available in Settings.
+When a direction has no matching recording, Apple's `AVSpeechSynthesizer`
+speaks Ferrostar's instruction text on the device using an installed voice.
+That text is never sent anywhere. Voice guidance can be switched off in
+Settings or muted during a trip. Camera speech defaults to while navigating;
+you can turn it off, allow it always, or disable individual device types.
+Voice guidance and the trip mute control also silence camera speech. The
+audio session is active only while a prompt is playing, including when the
+screen is locked. Decoded generic recordings are cached in memory; route
+text is not cached or written to disk.
+
+**Traffic lights.** At navigation start and after an accepted reroute, the
+app asks the same on-device Valhalla engine for `trace_attributes` along the
+route to find traffic-signal nodes. No request leaves the device. The result
+is held only for the active route and discarded when it changes or navigation
+ends. Missing data, errors or a late result leave ordinary distance prompts
+in place; the app does not guess where lights are.
 
 **The lock screen.** While you're navigating, the app's Live Activity shows
 the next turn above the camera warning. The whole payload is: the number of
@@ -273,7 +288,8 @@ registries; it does not send mobile-app traffic to those registries.
 - The speed-camera file downloaded with them. It describes cameras, not you.
 - Cached camera records (SwiftData). These describe cameras, not you.
 - Your settings (alert radius, filters, map preferences, voice guidance) in
-  standard iOS preferences storage.
+  standard iOS preferences storage, including the selected voice and spoken
+  camera alert preferences.
 
 That's all. There's no location log, no visit history, no route history and
 no trip history: the arrival card's numbers live in memory until you dismiss
@@ -359,7 +375,8 @@ Runtime service URLs in the results are covered by the table above or by
 network requests.
 
 Any build output under `ios/` holds the checked-out packages and will swamp
-that list — a built tree answers with about 1,700 lines instead of 30. Skip
+that list — this built tree answers with 1,743 lines instead of the 31 tracked
+source lines. Those counts depend on resolved package sources. Skip
 it with `--exclude-dir`, naming whichever derived-data directory you have
 (`_dd` is what the commands below use, `_build` and `DerivedData` are the
 other usual ones), or search only the files this repository tracks, which

@@ -47,6 +47,7 @@
 	<array>
 		<string>location</string>
 		<string>fetch</string>
+		<string>audio</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict>

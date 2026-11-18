@@ -64,6 +64,27 @@ final class LocalValhallaEngine: @unchecked Sendable {
         }
     }
 
+    /// Uses the same native engine and serial queue as route planning. Optional
+    /// voice enrichment must not start after sitting behind a slow route call.
+    func traceAttributes(rawRequest json: String) async throws -> Data {
+        let deadline = Date().addingTimeInterval(5)
+        return try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                do {
+                    guard Date() < deadline else { throw RoutingError.invalidResponse }
+                    let engine = try self.engineOnQueue().engine
+                    let response = try engine.traceAttributes(rawRequest: json)
+                    guard Date() < deadline, let data = response.data(using: .utf8) else {
+                        throw RoutingError.invalidResponse
+                    }
+                    continuation.resume(returning: data)
+                } catch {
+                    continuation.resume(throwing: Self.map(error))
+                }
+            }
+        }
+    }
+
     #if DEBUG
     /// As `route(rawRequest:region:)`, but reports per-call timing. A plan
     /// makes many calls, so this is what separates a slow engine from a
