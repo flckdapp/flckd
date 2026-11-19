@@ -354,6 +354,10 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
     private func speakInstruction(from state: NavigationState) {
         guard case let .navigating(_, user, _, steps, _, progress, _, deviation, visual, spoken, _) = state.tripState,
               case .noDeviation = deviation, let step = steps.first, let route = currentRoute else { return }
+        // Once arrival has been said, nothing more is: the route's last step is
+        // the arrival point, with no banner, and would otherwise fall through
+        // to on-device speech saying it again.
+        guard !announcedArrival else { return }
         let completed = max(0, route.steps.count - steps.count)
         // The current banner can appear later than the first progress update;
         // the step's stored banner still describes the same upcoming maneuver.
@@ -386,13 +390,16 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
                 userDistance: targetDistance - progress.distanceToNextManeuver, approach: approach
             )
         }
-        let clips = GuidancePromptSelector.select(
+        var clips = GuidancePromptSelector.select(
             content: banner?.primaryContent, distance: distance,
             roundaboutExit: next?.roundaboutExitNumber,
             laneInfo: banner?.subContent?.laneInfo, signal: signal,
             lanesEnabled: settings.allows(.lane, context: voiceContext),
             trafficLightsEnabled: settings.allows(.trafficLight, context: voiceContext), isApproach: approach, units: units
         )
+        // The arrival step itself carries no banner; if arrival was not said on
+        // the way in, say it in the selected voice rather than Apple's.
+        if clips.isEmpty, steps.count == 1, !approach { clips = ["arrive"] }
         if clips.first?.hasPrefix("arrive") == true { announcedArrival = true }
         let roadName = approach && KokoroSupport.namesEnabled() ? banner?.primaryContent.text : nil
         speak(clips, fallback: spoken?.text ?? banner?.primaryContent.text ?? next?.instruction ?? step.instruction,

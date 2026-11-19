@@ -204,6 +204,9 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
     }
 
     private func speakFallback(_ prompt: VoiceUtterance) {
+        #if DEBUG
+        Self.log.debug("on-device speech fallback for an utterance of \(prompt.clips.count) clips")
+        #endif
         do { try activateSession() } catch {
             Self.log.error("Audio session unavailable for fallback")
             finished(token: generation)
