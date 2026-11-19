@@ -20,6 +20,7 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
     private var fallbackToken: (utterance: ObjectIdentifier, generation: Int)?
     private var context = VoicePlaybackContext()
     private var cameraEligibility = CameraSpeechEligibility()
+    private var kokoroStatistics = KokoroStats()
     private let sampleRate = 44_100.0
 
     private override init() {
@@ -128,7 +129,8 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
         let token = generation
         do {
             try activateSession()
-            let clips = try utterance.clips.map { try decoded($0, voice: utterance.voice) }
+            let loaded = try loader.samples(for: utterance)
+            let clips = loaded.clips
             guard !clips.isEmpty, clips.allSatisfy({ !$0.isEmpty }),
                   let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) else {
                 throw PlaybackError.missingClip
@@ -148,10 +150,15 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
                 self?.queue.async { [weak self] in self?.finished(token: token) }
             }
             node.play()
+            kokoroStatistics.record(utterance, playedKokoro: loaded.kokoro)
         } catch {
             engine.stop()
             node.stop()
-            if !utterance.fallbackText.isEmpty {
+            if error as? VoiceClipLoader.LoadError == .kokoroUnavailable {
+                Self.log.error("Kokoro preview files are missing")
+                finished(token: token)
+            } else if !utterance.fallbackText.isEmpty {
+                kokoroStatistics.record(utterance, playedKokoro: false)
                 speakFallback(utterance)
             } else {
                 Self.log.error("Recorded prompt could not play")
@@ -160,10 +167,23 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
         }
     }
 
-    private func decoded(_ key: String, voice: PromptVoice) throws -> [Float] {
-        let cacheKey = "\(voice.rawValue)/\(key)"
+    private var loader: VoiceClipLoader {
+        VoiceClipLoader(store: .standard, decode: { [unowned self] cacheKey, url in
+            try self.decoded(cacheKey: cacheKey, url: url)
+        })
+    }
+
+    func resetKokoroStats() {
+        queue.async { self.kokoroStatistics = KokoroStats() }
+    }
+
+    /// Read synchronously; the queue never calls back to the main thread.
+    func kokoroStats() -> KokoroStats {
+        queue.sync { kokoroStatistics }
+    }
+
+    private func decoded(cacheKey: String, url: URL) throws -> [Float] {
         if let samples = cache[cacheKey] { return samples }
-        guard let url = voice.url(for: key) else { throw PlaybackError.missingClip }
         let file = try AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: false)
         guard file.processingFormat.channelCount == 1, file.processingFormat.sampleRate == sampleRate,
               let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)) else {

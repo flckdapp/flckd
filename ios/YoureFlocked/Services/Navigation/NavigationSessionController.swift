@@ -323,7 +323,8 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         VoicePromptPlayer.shared.enqueue(VoiceUtterance(
             clips: clips, fallbackText: fallback, voice: .selected,
             kind: kind,
-            createdAt: ProcessInfo.processInfo.systemUptime
+            createdAt: ProcessInfo.processInfo.systemUptime,
+            kokoro: KokoroSelection.requested()
         ))
     }
 

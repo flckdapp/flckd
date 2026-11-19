@@ -12,10 +12,22 @@ struct VoiceUtterance: Equatable, Sendable {
     var createdAt: TimeInterval
     var cameraTargets = Set<Int64>()
     var cameraRequiresView = false
+    /// The Kokoro preset the user asked for. Whether its audio exists is
+    /// decided at playback, so a broken pack still counts as a request.
+    var kokoro: KokoroPreset? = nil
+    /// Previews of a Kokoro preset never fall back to another voice.
+    var kokoroOnly = false
 
     static func preview(voice: PromptVoice, now: TimeInterval, units: DistanceUnits = .imperial) -> Self {
         Self(clips: [units == .metric ? "200m.turn_right" : "500ft.turn_right", "lane_right", "cam.flock.ahead"], voice: voice,
              priority: .sample, kind: .preview, createdAt: now)
+    }
+
+    static func kokoroPreview(preset: KokoroPreset, now: TimeInterval, units: DistanceUnits = .imperial) -> Self {
+        var utterance = preview(voice: .selected, now: now, units: units)
+        utterance.kokoro = preset
+        utterance.kokoroOnly = true
+        return utterance
     }
 }
 

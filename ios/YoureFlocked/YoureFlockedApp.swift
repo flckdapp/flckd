@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             // LocationManager will re-register via @State init and
             // locationManagerDidChangeAuthorization → startTracking().
         }
+        DispatchQueue.global(qos: .utility).async { KokoroVoiceStore.standard?.removeStalePacks() }
         return true
     }
 
