@@ -43,7 +43,10 @@ final class KokoroSynthesizer: @unchecked Sendable {
     static let log = Logger(subsystem: "io.vws.app.flckd", category: "kokoro")
     static let outputRate = 44_100.0
 
-    let queue = DispatchQueue(label: "app.flckd.kokoro", qos: .utility)
+    /// User-initiated, not utility: at utility, renders on an iPhone 16 Pro
+    /// Max while navigating measured 1.24x slower than real time, likely on
+    /// the efficiency cores. Renders only ever start in the foreground.
+    let queue = DispatchQueue(label: "app.flckd.kokoro", qos: .userInitiated)
     private let factory: Factory
     private var engine: KokoroEngine?
     private(set) var lexicon: KokoroLexicon?
