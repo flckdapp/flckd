@@ -499,8 +499,9 @@ Kokoro speaks in two ways. The 435 fixed prompts are Kokoro audio files in
 six presets, rendered on a Mac by `scripts/voice-model/` and downloaded once
 from the tile server; they play exactly like the recordings, with no model in
 memory, inside and outside trips. Street names ("…onto Main Street") are
-rendered on the phone by Kokoro-82M through sherpa-onnx 2.0.1, which the user
-downloads separately. The download is hash-checked against `KokoroPack.json`,
+rendered on the phone by Kokoro-82M through sherpa-onnx 2.0.1. One "Download
+Kokoro" fetches the clips and, on phones with the memory for street names,
+the model too. The download is hash-checked against `KokoroPack.json`,
 compiled into the app, never against anything the server says.
 
 Per utterance the player tries, in order: Kokoro audio with the street name,

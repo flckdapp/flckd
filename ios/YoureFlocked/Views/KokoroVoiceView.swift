@@ -22,9 +22,6 @@ struct KokoroVoiceView: View {
     @State private var confirmDelete = false
     @State private var modelInstalled = false
     @State private var namesStatus = KokoroSupport.NamesStatus.notInstalled
-    @State private var isDownloadingModel = false
-    @State private var modelProgress: Double = 0
-    @State private var modelError: String?
     @State private var previewing: String?
     /// Bumped when the page goes away or the engine is deleted, so a preview
     /// that finishes afterwards neither plays nor counts as a measurement.
@@ -33,6 +30,11 @@ struct KokoroVoiceView: View {
     private var tripRunning: Bool { navigationController.isActive || navigationController.isStarting }
     private var presets: [KokoroPreset] { KokoroPreset.all(store?.descriptor) }
     private var clipsInstalled: Bool { !installedPresets.isEmpty }
+    /// Street names need the engine; phones without the memory for it get the voices only.
+    private var namesCapable: Bool { ProcessInfo.processInfo.physicalMemory >= KokoroSupport.memoryFloor }
+    private var missingClipBytes: Int64 { clipsInstalled ? 0 : store?.descriptor.clipBytes ?? 0 }
+    private var missingModelBytes: Int64 { namesCapable && !modelInstalled ? store?.descriptor.modelBytes ?? 0 : 0 }
+    private var needsDownload: Bool { missingClipBytes + missingModelBytes > 0 }
     private var fallbackName: String { (PromptVoice(rawValue: promptVoice) ?? .male).name }
 
     var body: some View {
@@ -79,17 +81,9 @@ struct KokoroVoiceView: View {
     @ViewBuilder
     private var downloadSection: some View {
         Section {
-            if clipsInstalled {
+            if needsDownload {
                 HStack {
-                    Text("Voices")
-                    Spacer()
-                    Text("Downloaded").foregroundStyle(.secondary)
-                }
-                Button("Delete Kokoro", role: .destructive) { confirmDelete = true }
-                    .disabled(isDownloading)
-            } else {
-                HStack {
-                    Button("Download Voices", action: downloadClips)
+                    Button(clipsInstalled ? "Finish Download" : "Download Kokoro", action: downloadAll)
                         .disabled(isDownloading)
                     Spacer()
                     if isDownloading {
@@ -98,11 +92,21 @@ struct KokoroVoiceView: View {
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                             .frame(width: 38, alignment: .trailing)
-                    } else if let store {
-                        Text(ByteCountFormatter.string(fromByteCount: store.descriptor.clipBytes, countStyle: .file))
+                    } else {
+                        Text(ByteCountFormatter.string(fromByteCount: missingClipBytes + missingModelBytes, countStyle: .file))
                             .foregroundStyle(.secondary)
                     }
                 }
+            } else {
+                HStack {
+                    Text("Kokoro")
+                    Spacer()
+                    Text("Downloaded").foregroundStyle(.secondary)
+                }
+            }
+            if clipsInstalled {
+                Button("Delete Kokoro", role: .destructive) { confirmDelete = true }
+                    .disabled(isDownloading)
             }
             if let downloadError {
                 Text(downloadError).font(.caption).foregroundStyle(.red)
@@ -110,7 +114,9 @@ struct KokoroVoiceView: View {
         } header: {
             Text("Download")
         } footer: {
-            Text("A one-time download from your tile server, the same files for everyone. Prompts then play from this phone.")
+            Text(namesCapable
+                 ? "One download from your tile server, the same files for everyone: the voices and the engine that says street names. Everything then plays from this phone."
+                 : "One download from your tile server, the same files for everyone. Prompts then play from this phone. This phone doesn't have the memory for street names.")
         }
     }
 
@@ -167,48 +173,21 @@ struct KokoroVoiceView: View {
                 Text("Street names need a phone with more memory.")
                     .foregroundStyle(.secondary)
             case .notInstalled:
-                HStack {
-                    Button("Download Street-Name Engine", action: downloadModel)
-                        .disabled(isDownloadingModel)
-                    Spacer()
-                    if isDownloadingModel {
-                        ProgressView(value: modelProgress).frame(width: 80)
-                        Text("\(Int(modelProgress * 100))%")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .frame(width: 38, alignment: .trailing)
-                    } else if let store {
-                        Text(ByteCountFormatter.string(fromByteCount: store.descriptor.modelBytes, countStyle: .file))
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                Text("Tap Finish Download above to add street names.")
+                    .foregroundStyle(.secondary)
             case .tooSlow:
                 Text("Street names were too slow on this phone.")
                     .foregroundStyle(.secondary)
                 Button("Test Again") { preview(selectedPreset) }
                     .disabled(previewing != nil)
-                deleteModelButton
             case .ready:
-                HStack {
-                    Text("Street-Name Engine")
-                    Spacer()
-                    Text("Downloaded").foregroundStyle(.secondary)
-                }
-                deleteModelButton
-            }
-            if let modelError {
-                Text(modelError).font(.caption).foregroundStyle(.red)
+                EmptyView()
             }
         } header: {
             Text("Street Names")
         } footer: {
             Text("Kokoro can add the street name to turn prompts, rendered on this phone a few seconds ahead while the app is on screen. If a name isn't ready, or has a word Kokoro doesn't know, the prompt plays without it.")
         }
-    }
-
-    private var deleteModelButton: some View {
-        Button("Delete Engine", role: .destructive, action: deleteModel)
-            .disabled(isDownloadingModel || previewing != nil)
     }
 
     private var selectedPreset: KokoroPreset {
@@ -265,45 +244,27 @@ struct KokoroVoiceView: View {
         }
     }
 
-    private func downloadModel() {
-        modelError = nil
-        isDownloadingModel = true
-        modelProgress = 0
-        KokoroSupport.clearMeasurement()
-        Task {
-            do {
-                try await VoiceModelService().downloadModel { value in
-                    Task { @MainActor in modelProgress = value }
-                }
-            } catch {
-                modelError = error.localizedDescription
-            }
-            isDownloadingModel = false
-            refresh()
-        }
-    }
-
-    private func deleteModel() {
-        previewGeneration += 1
-        previewing = nil
-        KokoroNameRenderer.shared.endPreview()
-        KokoroSupport.clearMeasurement()
-        do {
-            try store?.deleteModel()
-        } catch {
-            modelError = error.localizedDescription
-        }
-        refresh()
-    }
-
-    private func downloadClips() {
+    /// The voices and, on a phone that can say names, the engine, as one download.
+    private func downloadAll() {
         downloadError = nil
         isDownloading = true
         progress = 0
+        let clipBytes = Double(missingClipBytes), modelBytes = Double(missingModelBytes)
+        let total = max(clipBytes + modelBytes, 1)
         Task {
             do {
-                try await VoiceModelService().downloadClips { value in
-                    Task { @MainActor in progress = value }
+                let service = VoiceModelService()
+                if clipBytes > 0 {
+                    try await service.downloadClips { value in
+                        Task { @MainActor in progress = value * clipBytes / total }
+                    }
+                    refresh()
+                }
+                if modelBytes > 0 {
+                    KokoroSupport.clearMeasurement()
+                    try await service.downloadModel { value in
+                        Task { @MainActor in progress = (clipBytes + value * modelBytes) / total }
+                    }
                 }
             } catch {
                 downloadError = error.localizedDescription
