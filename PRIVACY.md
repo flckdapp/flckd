@@ -161,7 +161,7 @@ when you dismiss it. Nothing is written down.
 | **DeFlock CDN**<br>`cdn.deflock.me` | The public camera index, then the 20-degree ALPR data tile or tiles that intersect the grid cell being loaded. A tile name reveals a coarse area, not an exact position. | While the app is open: when a cell is loaded and its tile is missing or out of date |
 | **OpenStreetMap Overpass**<br>`overpass.deflock.org`, then `overpass-api.de` if that fails | A fallback only. One whole-degree grid cell, as four integers: for speed cameras until you have downloaded a routing region, and for every camera type while the DeFlock CDN is unavailable. The cell is fixed to the global degree grid, not to you: every phone in the same cell sends the same bytes. The query is sent in the request body, not the URL. | Only in those two cases, the first time you are in a cell, view one on the map, or plan a route through one; then not again for that cell for a day. Never if you have a region and DeFlock is up |
 | **Apple (MapKit)** | Map tiles for the area you're viewing. In the route search field, the text you type plus the map region. | While the map, the route search or the navigation screen is open |
-| **Tile server**<br>default `tiles.flckd.app` (a Cloudflare R2 bucket), configurable | The catalog, which region pack you're downloading, and the national speed-camera file, which is the same for everyone. Nothing about your position. | When you open Offline Routing in Settings, and while a region download is running. Once you have downloaded a region, also once a day when the app opens, to check for updates; with "Update Automatically" on (the default), newer regions download on Wi-Fi and a newer speed-camera file on any network |
+| **Tile server**<br>default `tiles.flckd.app` (a Cloudflare R2 bucket), configurable | The catalog, which region pack you're downloading, and the national speed-camera file, which is the same for everyone. If you choose to try it, the optional Kokoro voice files, also the same for everyone. Nothing about your position. | When you open Offline Routing in Settings, and while a region download is running. Once you have downloaded a region, also once a day when the app opens, to check for updates; with "Update Automatically" on (the default), newer regions download on Wi-Fi and a newer speed-camera file on any network. The Kokoro voice files only when you tap a download button on the Kokoro page; they are never checked for updates |
 | **ALPRWatch**<br>`alprwatch.org` | Nothing about you. A static file download. | Only if you switch on "Show Suspected Locations", which is off by default |
 
 Route planning itself makes no network request: the engine runs on the
@@ -236,7 +236,10 @@ you asked for. That's a coarse hint about an area you're interested in, and
 it's a real disclosure. The speed-camera file is the same national file for
 everyone, so fetching it adds nothing. The daily update check fetches the
 catalog, which is also the same for everyone, but its timing tells the
-server roughly which days you opened the app. No request includes your
+server roughly which days you opened the app. Downloading the optional
+Kokoro voice tells the server that you chose to try that voice, and nothing
+else: every phone fetches the same files, and the app checks each one
+against a hash built into the app. No request includes your
 position, your route, your destination, or anything you type.
 
 **Who sees it.** Cloudflare, because it terminates the connection and
@@ -299,6 +302,8 @@ registries; it does not send mobile-app traffic to those registries.
 - Region map packs, the routing data you downloaded. These describe roads,
   not you.
 - The speed-camera file downloaded with them. It describes cameras, not you.
+- The Kokoro voice files, if you downloaded them: the same generic prompts
+  and speech model for everyone. They describe a voice, not you.
 - Cached camera records (SwiftData). These describe cameras, not you.
 - Your settings (alert radius, filters, map preferences, voice guidance) in
   standard iOS preferences storage, including the selected voice and spoken
@@ -369,6 +374,7 @@ The relevant code is small:
 ios/YoureFlocked/Services/OverpassService.swift          fallback camera lookups
 ios/YoureFlocked/Services/DeFlockCDNService.swift        bulk ALPR camera data
 ios/YoureFlocked/Services/TilePackService.swift          region pack and speed-camera file downloads
+ios/YoureFlocked/Services/VoiceModelService.swift        optional Kokoro voice download
 ios/YoureFlocked/Services/ValhallaRoutingService.swift   route planning
 ios/YoureFlocked/Services/LocalValhallaEngine.swift      the on-device engine
 ios/YoureFlocked/Services/Navigation/                    turn-by-turn guidance over that engine

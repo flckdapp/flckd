@@ -328,7 +328,7 @@ actor TilePackService {
         "http://localhost:8080",
         "http://127.0.0.1:8080",
     ]
-    private static let userAgent = "FLCKD/1.0 (iOS; +https://flckd.app)"
+    static let userAgent = "FLCKD/1.0 (iOS; +https://flckd.app)"
 
     private let session: URLSession
 
