@@ -154,8 +154,10 @@ screen's mute silences all speech for that trip only, without changing Settings.
 Each voice has an explicit preview button that works with Voice off; previews
 are disabled during navigation and starting a new preview replaces the old one. The
 audio session is active only while a prompt is playing, including when the
-screen is locked. Decoded generic recordings are cached in memory; route
-text is not cached or written to disk.
+screen is locked. Decoded generic recordings are cached in memory. Route
+text is never written to disk; with Kokoro's street names on, the next few
+road names are held in memory, as text and as audio, only until those steps
+pass or the trip ends.
 
 Distances default to imperial. Selecting metric switches both displayed and
 spoken distances using another set of recordings already bundled in the app.

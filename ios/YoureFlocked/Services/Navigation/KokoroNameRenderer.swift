@@ -68,8 +68,10 @@ final class KokoroNameRenderer: @unchecked Sendable {
         case failed
     }
 
-    /// A named first clip may be at most this much longer than the name-free one (plan P5a).
-    static let firstClipAllowance: TimeInterval = 1.5
+    /// A named first clip may be at most this much longer than the name-free one
+    /// (plan P5a). Measured street names add 1.6 to 2.1 s, so the planned 1.5 s
+    /// rejected nearly all of them; the 5 s whole-utterance limit still applies.
+    static let firstClipAllowance: TimeInterval = 2.5
 
     static let shared = KokoroNameRenderer()
 
@@ -90,6 +92,9 @@ final class KokoroNameRenderer: @unchecked Sendable {
     private var tripRTFs: [Double] = []
     private var active = false
     private var tripActive = false
+    /// The current trip says names and so owns the engine. False when names
+    /// are off, and after a memory warning.
+    private var tripNeedsEngine = false
     private var tripBlocked = false
     private var engineReady = false
     private var lexicon: KokoroLexicon?
@@ -97,10 +102,15 @@ final class KokoroNameRenderer: @unchecked Sendable {
     private var planVersion = 0
     private var lastPlan: (steps: [KokoroNamePlanner.Step], units: DistanceUnits, preset: KokoroPreset)?
 
+    /// The played length of the name-free clip: decoded and trimmed as the player does.
     static let standardNameFreeDuration: @Sendable (KokoroPreset, String) -> TimeInterval? = { preset, key in
         guard let url = KokoroVoiceStore.standard?.clipURL(preset: preset, key: key),
-              let file = try? AVAudioFile(forReading: url) else { return nil }
-        return Double(file.length) / file.processingFormat.sampleRate
+              let file = try? AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: false),
+              let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)),
+              (try? file.read(into: buffer)) != nil,
+              let channel = buffer.floatChannelData?[0] else { return nil }
+        let samples = VoicePCM.trimmed(Array(UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength))))
+        return Double(samples.count) / file.processingFormat.sampleRate
     }
 
     init(synthesizer: KokoroSynthesizer = KokoroSynthesizer(),
@@ -135,6 +145,7 @@ final class KokoroNameRenderer: @unchecked Sendable {
         let current: Int = locked {
             previewToken += 1
             tripActive = true
+            tripNeedsEngine = enabled
             tripBlocked = false
             engineReady = false
             lexicon = nil
@@ -142,12 +153,18 @@ final class KokoroNameRenderer: @unchecked Sendable {
             tripRTFs.removeAll()
             return generation
         }
-        guard enabled else { return }
+        guard enabled else {
+            // A preview may have loaded the engine; this trip has no use for it.
+            synthesizer.queue.async { [self] in
+                if !locked({ tripNeedsEngine }) { synthesizer.unloadOnQueue() }
+            }
+            return
+        }
         synthesizer.queue.async { [self] in
             let loaded = synthesizer.loadOnQueue()
             let words = synthesizer.lexicon
             let ready: Bool = locked {
-                guard loaded, generation == current, tripActive, !tripBlocked else { return false }
+                guard loaded, generation == current, tripNeedsEngine, !tripBlocked else { return false }
                 engineReady = true
                 lexicon = words
                 return true
@@ -187,7 +204,10 @@ final class KokoroNameRenderer: @unchecked Sendable {
         prepare(requests, version: nil)
     }
 
-    private func prepare(_ requests: [Request], version: Int?) {
+    /// The version a replan must still match to publish; internal for tests.
+    var currentPlanVersion: Int { locked { planVersion } }
+
+    func prepare(_ requests: [Request], version: Int?) {
         let applied: Bool = locked {
             if let version, version != planVersion { return false }
             window = Set(requests.map(\.key))
@@ -227,6 +247,9 @@ final class KokoroNameRenderer: @unchecked Sendable {
         let rtfs: [Double] = locked {
             let values = tripRTFs
             generation += 1
+            // A replan computed before this point must not republish its names.
+            planVersion += 1
+            tripNeedsEngine = false
             window.removeAll()
             queue.removeAll()
             attempted.removeAll()
@@ -245,16 +268,18 @@ final class KokoroNameRenderer: @unchecked Sendable {
         if rtfs.count >= 3, let median = KokoroSupport.median(rtfs) { storeRTF(median) }
         synthesizer.queue.async { [self] in
             // A trip that began since then keeps the engine it is about to use.
-            if blocking || !locked({ tripActive }) { synthesizer.unloadOnQueue() }
+            if !locked({ tripNeedsEngine }) { synthesizer.unloadOnQueue() }
         }
     }
 
     // MARK: Worker
 
+    private var cool: Bool { thermalState().rawValue < ProcessInfo.ThermalState.serious.rawValue }
+
     private func kick() {
+        let cool = cool
         let job: (request: Request, generation: Int)? = locked {
-            guard inFlight == nil, active, !tripBlocked, engineReady,
-                  thermalState().rawValue < ProcessInfo.ThermalState.serious.rawValue else { return nil }
+            guard inFlight == nil, active, !tripBlocked, engineReady, cool else { return nil }
             while !queue.isEmpty {
                 let request = queue.removeFirst()
                 if cache[request.key] == nil, !attempted.contains(request.key) {
@@ -266,6 +291,22 @@ final class KokoroNameRenderer: @unchecked Sendable {
         }
         guard let job else { return }
         synthesizer.queue.async { [self] in
+            // Conditions can change while the job waits for the queue: a render
+            // starts only in the foreground, cool, in the trip that asked for it.
+            let cool = cool
+            let state: (proceed: Bool, stale: Bool) = locked {
+                let stale = generation != job.generation
+                let proceed = !stale && active && !tripBlocked && engineReady && cool
+                if !proceed {
+                    inFlight = nil
+                    if !stale, window.contains(job.request.key) { queue.insert(job.request, at: 0) }
+                }
+                return (proceed, stale)
+            }
+            guard state.proceed else {
+                kick()
+                return
+            }
             let knows = synthesizer.lexicon.map { words in { (word: String) in words.knows(word) } } ?? { _ in false }
             let result = synthesizer.render(job.request.text, preset: job.request.preset, knows: knows)
             let fits = result.map { fitsAllowance($0.samples, job.request) } ?? false
@@ -274,8 +315,12 @@ final class KokoroNameRenderer: @unchecked Sendable {
     }
 
     private func fitsAllowance(_ samples: [Float], _ request: Request) -> Bool {
+        let named = Double(samples.count) / KokoroSynthesizer.outputRate
         guard let nameFree = nameFreeDuration(request.preset, request.key.firstKey) else { return false }
-        return Double(samples.count) / KokoroSynthesizer.outputRate <= nameFree + Self.firstClipAllowance
+        #if DEBUG
+        KokoroSynthesizer.log.debug("name render \(named, format: .fixed(precision: 2)) s against \(nameFree, format: .fixed(precision: 2)) s name-free")
+        #endif
+        return named <= nameFree + Self.firstClipAllowance
     }
 
     private func complete(_ request: Request, generation started: Int, result: (samples: [Float], rtf: Double)?, fits: Bool) {
@@ -315,7 +360,9 @@ final class KokoroNameRenderer: @unchecked Sendable {
         guard synthesizer.loadOnQueue() else { return .failed }
         // Loading can take seconds: check again before spending the CPU.
         guard valid() else {
-            if !locked({ active || tripActive }) { synthesizer.unloadOnQueue() }
+            // Keep the engine only for a trip that uses it, or for the next
+            // preview while the page is on screen.
+            if locked({ !tripNeedsEngine && (!active || tripActive) }) { synthesizer.unloadOnQueue() }
             return .cancelled
         }
         let knows = synthesizer.lexicon.map { words in { (word: String) in words.knows(word) } } ?? { _ in false }
@@ -329,7 +376,7 @@ final class KokoroNameRenderer: @unchecked Sendable {
     func endPreview() {
         locked { previewToken += 1 }
         synthesizer.queue.async { [self] in
-            if !locked({ tripActive }) { synthesizer.unloadOnQueue() }
+            if !locked({ tripNeedsEngine }) { synthesizer.unloadOnQueue() }
         }
     }
 }

@@ -189,12 +189,12 @@ final class KokoroNameRendererTests: XCTestCase {
     func testFailedAndOverlongRendersAreTriedOnceAndDoNotBlock() {
         startTrip()
         let a = request("Main Street"), b = request("Oak Avenue"), c = request("Park Road")
-        engine.seconds = { text in text.contains("Main") ? nil : text.contains("Oak") ? 3.0 : 1.0 }
+        engine.seconds = { text in text.contains("Main") ? nil : text.contains("Oak") ? 4.0 : 1.0 }
         renderer.prepare([a, b, c])
         settle()
         XCTAssertEqual(engine.calls, [a.text, b.text, c.text])
         XCTAssertFalse(cached(a))
-        XCTAssertFalse(cached(b), "a first clip 2 s longer than the name-free one must be rejected")
+        XCTAssertFalse(cached(b), "a first clip 3 s longer than the name-free one must be rejected")
         XCTAssertTrue(cached(c))
         renderer.prepare([a, b, c])
         settle()
@@ -269,7 +269,7 @@ final class KokoroNameRendererTests: XCTestCase {
 
     func testTripMedianCountsRejectedRendersButNotFailuresOrStaleResults() {
         startTrip()
-        engine.seconds = { $0.contains("Elm") ? nil : 3.0 }
+        engine.seconds = { $0.contains("Elm") ? nil : 4.0 }
         let rejected = [request("Main Street"), request("Oak Avenue"), request("Park Road")]
         renderer.prepare(rejected + [request("Elm Lane")])
         settle()
@@ -444,5 +444,76 @@ final class KokoroNameRendererTests: XCTestCase {
                                      createdAt: start + 0.3))
         let next = queue.next(now: start + VoiceClipLoader.namedUtteranceLimit)
         XCTAssertEqual(next?.clips, ["cam.flock.ahead"])
+    }
+}
+
+final class KokoroNameRendererReviewTests: XCTestCase {
+    private let preset = KokoroPreset(id: "heart", name: "Heart", sid: 3, gainDB: 0)
+    private let lexicon = KokoroLexicon(words: ["in", "five", "hundred", "feet", "turn", "right", "onto", "main", "street", "oak", "avenue"])
+
+    private func make(namesEnabled: Bool = true) -> (KokoroNameRenderer, KokoroSynthesizer, HoldableEngine) {
+        let engine = HoldableEngine()
+        let lexicon = lexicon
+        let synthesizer = KokoroSynthesizer(factory: { engine.load(lexicon: lexicon) })
+        let renderer = KokoroNameRenderer(synthesizer: synthesizer, thermalState: { .nominal },
+                                          nameFreeDuration: { _, _ in 1.0 }, namesEnabled: { namesEnabled },
+                                          storeRTF: { _ in }, notificationCenter: NotificationCenter())
+        return (renderer, synthesizer, engine)
+    }
+
+    private func settle(_ synthesizer: KokoroSynthesizer) { for _ in 0..<8 { synthesizer.queue.sync {} } }
+
+    private func request(_ name: String) -> KokoroNameRenderer.Request {
+        .init(key: .init(preset: preset.id, firstKey: "500ft.turn_right", name: name),
+              text: "In five hundred feet, turn right onto \(name).", preset: preset)
+    }
+
+    func testAReplanFromAnEndedTripPublishesNothing() {
+        let (renderer, synthesizer, engine) = make()
+        renderer.setActive(true)
+        renderer.beginTrip()
+        settle(synthesizer)
+        let stale = renderer.currentPlanVersion
+        renderer.endTrip()
+        renderer.beginTrip()
+        settle(synthesizer)
+        renderer.prepare([request("Main Street")], version: stale)
+        settle(synthesizer)
+        XCTAssertEqual(engine.calls, [])
+        XCTAssertNil(renderer.audio(preset: preset, firstKey: "500ft.turn_right", name: "Main Street"))
+    }
+
+    func testATripWithoutNamesUnloadsAPreviewsEngine() async {
+        let (renderer, synthesizer, engine) = make(namesEnabled: false)
+        renderer.setActive(true)
+        engine.loadGate.hold()
+        let preset = preset
+        let task = Task { await renderer.renderPreview(text: "Turn right onto Main Street.", preset: preset) }
+        engine.loadGate.waitUntilEntered()
+        renderer.beginTrip()
+        engine.loadGate.release()
+        let result = await task.value
+        XCTAssertEqual(result, .cancelled)
+        settle(synthesizer)
+        XCTAssertFalse(synthesizer.queue.sync { synthesizer.isLoaded })
+    }
+
+    func testAJobQueuedBeforeBackgroundingDoesNotStartUntilForeground() {
+        let (renderer, synthesizer, engine) = make()
+        renderer.setActive(true)
+        renderer.beginTrip()
+        settle(synthesizer)
+        let blocker = DispatchSemaphore(value: 0)
+        synthesizer.queue.async { blocker.wait() }
+        let a = request("Main Street")
+        renderer.prepare([a])
+        renderer.setActive(false)
+        blocker.signal()
+        settle(synthesizer)
+        XCTAssertEqual(engine.calls, [])
+        renderer.setActive(true)
+        settle(synthesizer)
+        XCTAssertEqual(engine.calls, [a.text])
+        XCTAssertNotNil(renderer.audio(preset: preset, firstKey: a.key.firstKey, name: a.key.name))
     }
 }
