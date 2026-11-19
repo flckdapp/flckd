@@ -134,12 +134,8 @@ final class KokoroNameRendererTests: XCTestCase {
 
     func testSupportRule() throws {
         let gb: UInt64 = 1_000_000_000
-        XCTAssertFalse(KokoroSupport.namesSupported(physicalMemory: 4 * gb, measuredRTF: nil))
-        XCTAssertTrue(KokoroSupport.namesSupported(physicalMemory: 6 * gb, measuredRTF: nil))
-        XCTAssertTrue(KokoroSupport.namesSupported(physicalMemory: 6 * gb, measuredRTF: 0.8))
-        XCTAssertTrue(KokoroSupport.namesSupported(physicalMemory: 6 * gb, measuredRTF: 1.0))
-        XCTAssertFalse(KokoroSupport.namesSupported(physicalMemory: 6 * gb, measuredRTF: 1.2))
-        XCTAssertFalse(KokoroSupport.namesSupported(physicalMemory: 4 * gb, measuredRTF: 0.5))
+        XCTAssertFalse(KokoroSupport.namesSupported(physicalMemory: 4 * gb))
+        XCTAssertTrue(KokoroSupport.namesSupported(physicalMemory: 6 * gb))
 
         let suite = "KokoroSupport.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

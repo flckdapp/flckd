@@ -44,10 +44,7 @@ struct KokoroBenchView: View {
                 Button(bench.looping ? "Stop 30-minute loop" : "Start 30-minute loop") {
                     bench.looping ? bench.stopLoop() : bench.startLoop(benchFolder: useBenchFolder)
                 }
-                Button("Mark this phone as slow") { KokoroSupport.storeMeasurement(2.0) }
                 Button("Export report") { shareURL = try? bench.exportReport() }
-            } footer: {
-                Text("\"Mark this phone as slow\" stores a render speed of 2.0 for this pack, so the Kokoro page shows its \"too slow\" message.")
             }
             .disabled(bench.running && !bench.looping)
             Section("Status") {

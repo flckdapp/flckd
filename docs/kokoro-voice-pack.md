@@ -149,9 +149,9 @@ A name is never spoken in part.
 - Playback never waits for a render. A named first clip is used only if it is
   at most 2.5 s longer than the name-free clip and the whole utterance, joins
   included, is at most 5.0 s, so a camera alert waiting behind it still plays.
-- Phones under 5 GB of memory don't get names. A measured render speed slower
-  than real time (render time over audio length above 1.0) switches names off
-  until a new measurement says otherwise; the settings page offers "Test again".
+- Phones under 5 GB of memory don't get names. Render speed is not a gate: a
+  name that isn't ready when its prompt fires plays without it, for that
+  prompt only.
 
 ## Lookup order and fallbacks
 

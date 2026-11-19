@@ -1,16 +1,17 @@
 import Foundation
 
-/// Whether this phone may say street names with Kokoro. Support is measured,
-/// not listed (plan D9): enough memory, and renders at least as fast as real
-/// time once a measurement exists. An unmeasured phone is allowed to try.
+/// Whether this phone may say street names with Kokoro: enough memory for the
+/// engine. Render speed is not a gate: names render seconds ahead, and one
+/// that isn't ready in time simply plays without its name. The measured speed
+/// is still recorded, for diagnosis only.
 enum KokoroSupport {
     static let memoryFloor: UInt64 = 5_000_000_000
     static let sayNamesKey = "kokoroSayStreetNames"
     static let measuredRTFKey = "kokoroMeasuredRTF"
     static let measuredPackKey = "kokoroMeasuredPack"
 
-    static func namesSupported(physicalMemory: UInt64, measuredRTF: Double?) -> Bool {
-        physicalMemory >= memoryFloor && (measuredRTF.map { $0 <= 1.0 } ?? true)
+    static func namesSupported(physicalMemory: UInt64) -> Bool {
+        physicalMemory >= memoryFloor
     }
 
     static func sayNames(_ defaults: UserDefaults = .standard) -> Bool {
@@ -42,17 +43,15 @@ enum KokoroSupport {
         guard VoiceEngine.selected(defaults) == .kokoro, sayNames(defaults), let store, store.modelInstalled() else {
             return false
         }
-        return namesSupported(physicalMemory: physicalMemory, measuredRTF: measuredRTF(defaults, descriptor: store.descriptor))
+        return namesSupported(physicalMemory: physicalMemory)
     }
 
-    enum NamesStatus: Equatable, Sendable { case needsMoreMemory, notInstalled, tooSlow, ready }
+    enum NamesStatus: Equatable, Sendable { case needsMoreMemory, notInstalled, ready }
 
     /// What the street-names section of the Kokoro page shows, checked in this order.
-    static func namesStatus(physicalMemory: UInt64, modelInstalled: Bool, measuredRTF: Double?) -> NamesStatus {
+    static func namesStatus(physicalMemory: UInt64, modelInstalled: Bool) -> NamesStatus {
         if physicalMemory < memoryFloor { return .needsMoreMemory }
-        if !modelInstalled { return .notInstalled }
-        if let measuredRTF, measuredRTF > 1.0 { return .tooSlow }
-        return .ready
+        return modelInstalled ? .ready : .notInstalled
     }
 
     /// A live preview is a measurement too. Cancelled or failed renders record nothing.

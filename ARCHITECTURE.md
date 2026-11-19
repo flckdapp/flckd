@@ -525,10 +525,12 @@ may finish, but none starts. A generation counter discards any result that
 arrives after its trip ended, a window discards names for steps already
 passed, and each request is tried at most once per window. A memory warning
 unloads the engine for the rest of the trip; Kokoro clips continue. Audio is
-held in memory only. Whether a phone says names is measured, not listed: at
-least 5 GB of memory, and render time no slower than real time once a
-measurement exists (each live preview, and the median of each trip's renders,
-update it). The arrival card reports how many prompts Kokoro was asked for,
+held in memory only. Phones with at least 5 GB of memory say names. Render
+speed is not a gate: a name that isn't ready when its prompt fires plays
+without the name, for that prompt only. (An earlier rule switched names off
+for the whole trip after one slow measurement; on a real phone that silenced
+names a renderer seconds ahead had plenty of time for.) Previews and trips
+still record the measured speed, for diagnosis. The arrival card reports how many prompts Kokoro was asked for,
 spoke, and spoke with a name.
 
 Spoken prompts has separate directions, traffic-light, rerouting and camera

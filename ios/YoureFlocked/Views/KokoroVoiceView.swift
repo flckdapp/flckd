@@ -175,11 +175,6 @@ struct KokoroVoiceView: View {
             case .notInstalled:
                 Text("Tap Finish Download above to add street names.")
                     .foregroundStyle(.secondary)
-            case .tooSlow:
-                Text("Street names were too slow on this phone.")
-                    .foregroundStyle(.secondary)
-                Button("Test Again") { preview(selectedPreset) }
-                    .disabled(previewing != nil)
             case .ready:
                 EmptyView()
             }
@@ -188,11 +183,6 @@ struct KokoroVoiceView: View {
         } footer: {
             Text("Kokoro can add the street name to turn prompts, rendered on this phone a few seconds ahead while the app is on screen. If a name isn't ready, or has a word Kokoro doesn't know, the prompt plays without it.")
         }
-    }
-
-    private var selectedPreset: KokoroPreset {
-        KokoroPreset.named(presetID, in: store?.descriptor) ?? presets.first
-            ?? KokoroPreset(id: KokoroPreset.defaultID, name: "", sid: 0, gainDB: 0)
     }
 
     // MARK: Actions
@@ -206,8 +196,7 @@ struct KokoroVoiceView: View {
         installedPresets = Set(presets.filter { store.clipsInstalled(preset: $0) }.map(\.id))
         modelInstalled = store.modelInstalled()
         namesStatus = KokoroSupport.namesStatus(physicalMemory: ProcessInfo.processInfo.physicalMemory,
-                                                modelInstalled: modelInstalled,
-                                                measuredRTF: KokoroSupport.measuredRTF(descriptor: store.descriptor))
+                                                modelInstalled: modelInstalled)
     }
 
     private func preview(_ preset: KokoroPreset) {
@@ -220,7 +209,7 @@ struct KokoroVoiceView: View {
         }
         // With the engine installed the preview says a street name, rendered
         // live, so testers hear exactly what a trip will sound like.
-        guard namesStatus == .ready || namesStatus == .tooSlow,
+        guard namesStatus == .ready,
               let sentence = VoiceUtterance.kokoroPreviewSentence(units: units) else {
             navigationController.playKokoroSample(preset)
             return
