@@ -429,8 +429,8 @@ Runtime service URLs in the results are covered by the table above or by
 network requests.
 
 Any build output under `ios/` holds the checked-out packages and will swamp
-that list — this built tree (with `_dd` and `_dd_voice`) answers with 3,446 lines instead of the 31 tracked
-source lines. Those counts depend on resolved package sources. Skip
+that list — this built tree (with `_dd` and `_build`) answers with 2,013 lines instead of the 33 tracked
+source lines, two of which are a test's made-up server address. Those counts depend on resolved package sources. Skip
 it with `--exclude-dir`, naming whichever derived-data directory you have
 (`_dd` is what the commands below use, `_build` and `DerivedData` are the
 other usual ones), or search only the files this repository tracks, which

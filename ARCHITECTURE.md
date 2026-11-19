@@ -103,6 +103,7 @@ ios/
       ValhallaRoutingService.swift  request building, avoidance, scoring
       LocalValhallaEngine.swift     the embedded Valhalla engine
       TilePackService.swift         manifest, pack and speed-camera file download, RegionStore
+      VoiceModelService.swift       optional Kokoro voice download, hash-checked against the bundled descriptor
       OfflineDataUpdater.swift      daily update check for packs and the camera file
       USStateBounds.swift           rough region boxes for preflight UX
       SuspectedLocationService.swift  optional CSV download
@@ -125,12 +126,24 @@ ios/
         CameraExposure.swift                shared route distance geometry and speech-only observability predicate
         CameraPromptSelector.swift         pure camera type, clip and preference gating
         RouteSignals.swift                 optional on-device trace_attributes and signal-to-turn mapping
+        PromptText.swift                   the sentence each clip says, numbers spelled out
+        KokoroVoice.swift                  engine choice, pack descriptor and store, clip loader, trip counts
+        KokoroSynthesizer.swift            sherpa-onnx engine on its own queue; render, resample, level
+        KokoroNameRenderer.swift           pure name planner; renders street names ahead, in memory only
+        KokoroSupport.swift                pure memory and render-speed support rule and its settings
+        SpokenText.swift                   the word check every sentence passes before the engine sees it
+        SpokenRoadName.swift               pure turn-card name to speakable words, or nothing
       RoutePlanMetrics.swift        debug only: one timed record per plan
       RoutingMetricsStore.swift     debug only: session stats and JSON export
       RerouteProbe.swift            debug only: repeated planning while driving
+    Views/KokoroVoiceView.swift     the Kokoro page: downloads, presets, previews, street names
+    Views/KokoroBenchView.swift     debug only: Kokoro speed, memory and heat bench
     Resources/
       Info.plist, entitlements, assets
       VoicePrompts/{male,female}/     generic recorded prompts; one folder reference preserves both voices
+      PromptText.json                 every clip's sentence, for Kokoro
+      KokoroPack.json                 the Kokoro pack descriptor: the only hashes the download trusts
+      Licences/                       full licence texts for Kokoro, sherpa-onnx, ONNX Runtime and their parts
   YoureFlockedWidgets/              widget and Live Activity target
   YoureFlockedUITests/              gitignored; contains real coordinates
 ```
@@ -141,6 +154,9 @@ The `.xcodeproj` is generated and isn't in git. Edit `project.yml`, then run
 `scripts/voice-prompts/` holds the generic phrase script and development-only
 ElevenLabs generation and normalization tools. Raw output stays in gitignored
 `ai-docs/`; only the finished audio ships. See its README to regenerate it.
+`scripts/voice-model/` builds the optional Kokoro pack (model and pre-rendered
+clips) for the tile server; `docs/kokoro-voice-pack.md` describes the pack for
+other platforms.
 
 ### Pattern
 
@@ -393,8 +409,11 @@ cancelled. Traffic-light and lane clips are unit-free and shared. Camera distanc
 clips use 200/300/400 m in metric, versus the existing imperial forms.
 
 Both voices bundle 435 generic recordings, including 157 metric clips each
-(115 approaches, 30 continue distances and 12 camera distances). No voice audio
-is synthesized or downloaded at runtime. The lock screen receives the app's
+(115 approaches, 30 continue distances and 12 camera distances). The recorded
+voices are never synthesized or downloaded at runtime. Runtime speech comes
+from two on-device sources only: Apple's `AVSpeechSynthesizer` for directions
+with no matching recording, and the optional Kokoro voice below, whose files
+are the only downloaded voice and which synthesizes street names. The lock screen receives the app's
 unit choice as an optional Live Activity payload field; absent means imperial,
 including for payloads written by older builds. Both turn and camera distances
 use explicit formatter units, never the device region. No App Group is needed.
@@ -465,11 +484,51 @@ and guards stay silent. Rear entry alerts are silent; field-of-view alerts and
 passing have specific clips. Ahead groups use the two/three/several recording.
 
 Settings shows one master Voice switch, default on, and a "Voice & Spoken
-Prompts" page that holds everything else. That page starts with a voice list built
-from `PromptVoice.allCases`, shown by name (Eric, Jessica), with a selection
-checkmark and a preview button per row. Previews use that row's voice and replace
-any previous preview, even with Voice off. They are refused while starting or
-navigating, so they never interrupt or wait behind a live direction.
+Prompts" page that holds everything else. That page starts with a voice list:
+the recorded voices from `PromptVoice.allCases`, shown by name (Eric, Jessica),
+with a selection checkmark and a preview button per row, then a "Kokoro
+(experimental)" row that opens its own page. Previews use that row's voice and
+replace any previous preview, even with Voice off. They are refused while
+starting or navigating, so they never interrupt or wait behind a live
+direction, and every voice choice is disabled during a trip.
+
+**Kokoro.** An optional third voice for A/B testing against the recordings.
+`PromptVoice` stays recorded-only; a separate `VoiceEngine` setting picks
+recorded or Kokoro, so the selected recorded voice is always the fallback.
+Kokoro speaks in two ways. The 435 fixed prompts are Kokoro audio files in
+six presets, rendered on a Mac by `scripts/voice-model/` and downloaded once
+from the tile server; they play exactly like the recordings, with no model in
+memory, inside and outside trips. Street names ("…onto Main Street") are
+rendered on the phone by Kokoro-82M through sherpa-onnx 2.0.1, which the user
+downloads separately. The download is hash-checked against `KokoroPack.json`,
+compiled into the app, never against anything the server says.
+
+Per utterance the player tries, in order: Kokoro audio with the street name,
+Kokoro clips (only if every clip of the utterance exists), the recorded voice
+for the whole utterance. Voices are never mixed within an utterance, playback
+never waits for a render, and a Kokoro preview never falls back. Names are
+used on approach prompts only, taken from the turn card so voice and screen
+agree, and only when the named first clip is at most 2.5 s longer than the
+name-free one and the whole utterance is at most 5 s, so a waiting camera
+alert does not expire. `SpokenRoadName` turns the card text into words (route
+prefixes, road numbers read the local way, ordinals) or into nothing; a name
+is never spoken in part. Its rules are pinned by a JSON fixture shared with
+the future Android app.
+
+`KokoroNameRenderer` loads the engine at trip start and unloads it at trip
+end. On each step change and reroute it plans the named approach prompts of
+the current step and the next two and renders them one at a time, nearest
+first, while the app is in the foreground and the phone is below a serious
+thermal state; a render already running when the app leaves the foreground
+may finish, but none starts. A generation counter discards any result that
+arrives after its trip ended, a window discards names for steps already
+passed, and each request is tried at most once per window. A memory warning
+unloads the engine for the rest of the trip; Kokoro clips continue. Audio is
+held in memory only. Whether a phone says names is measured, not listed: at
+least 5 GB of memory, and render time no slower than real time once a
+measurement exists (each live preview, and the median of each trip's renders,
+update it). The arrival card reports how many prompts Kokoro was asked for,
+spoke, and spoke with a name.
 
 Spoken prompts has separate directions, traffic-light, rerouting and camera
 switches, disabled under the master switch. The existing `voiceGuidanceEnabled`
@@ -594,6 +653,17 @@ Decisions:
   Interruptions and unplugged outputs stop speech instead of resuming an old
   instruction. Background audio is declared for locked-screen prompts; no
   silence is played to keep the app running.
+- **Kokoro is an optional second voice, not a replacement.** Nobody we found
+  keeps a large speech model loaded in the background, and iOS kills
+  background apps for sustained CPU, so the fixed prompts are pre-rendered
+  files and only street names are rendered live, ahead, in the foreground.
+  Mixing voices inside an utterance would spoil the comparison testers are
+  asked to make, so an utterance is all Kokoro or all recorded. The engine
+  logs any word it doesn't know whatever its debug setting, so only text in
+  which every word passed the app's own check ever reaches it, and a road
+  name cannot end up in a log. sherpa-onnx was chosen because the same C
+  library has a Kotlin API for Android and, since 2.0.0, contains no
+  eSpeak-NG; the pack ships no eSpeak data either.
 - **Drive simulation is debug-only.** `Simulate drive` under the route card has
   15/25/35/45/55/70 mph Speed presets and a 1x/2x/4x/8x Time multiplier, persisted
   only in Debug and applied on the next Start. At 1x a fix arrives each second;
