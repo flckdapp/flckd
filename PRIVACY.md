@@ -1,6 +1,6 @@
 # Privacy Policy — FLCKD (You're Flocked)
 
-**Last updated:** 2026-11-17
+**Last updated:** 2026-11-19
 
 FLCKD warns you when you're near surveillance cameras. This document
 describes what the code actually does, including the parts that aren't
@@ -91,7 +91,11 @@ to run your own.
 The app bundles recorded generic voice prompts generated during development
 with ElevenLabs (Eric and Jessica). Only generic phrases were sent to that
 service, never user, location or route data. The development tools live in
-`scripts/voice-prompts/`; they do not run in the app.
+`scripts/voice-prompts/`; they do not run in the app. `scripts/voice-model/`
+is another development tool: it downloads the public Kokoro speech model and
+the sherpa-onnx Python package to the developer's Mac, renders the same
+generic phrases there, sends nothing about any user, and does not run in the
+app.
 
 Starting navigation hands the route you previewed to Ferrostar, on the
 phone. It reads your position from the same location manager the proximity

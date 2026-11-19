@@ -1,6 +1,6 @@
 """Trim, loudness-normalise and encode rendered clips for the app bundle.
 
-  python3 -I normalize.py <voice_id> <out_dir>
+  python3 -I normalize.py <voice_id> <out_dir> [--ext wav]
 
 Each clip: leading/trailing silence trimmed, measured with EBU R128, gained to -16 LUFS integrated,
 peaks limited to leave about 1.5 dB of true-peak headroom after AAC encoding, then AAC-LC mono 128 kbps 44.1 kHz .m4a using
@@ -29,12 +29,13 @@ def main():
     ap.add_argument("voice")
     ap.add_argument("out_dir", type=pathlib.Path)
     ap.add_argument("--work-dir", type=pathlib.Path, default=WORK)
+    ap.add_argument("--ext", default="mp3", help="extension of the raw clips (mp3 from ElevenLabs, wav from Kokoro)")
     ap.add_argument("--keys", help="comma-separated clip keys; leave other bundled files untouched")
     a = ap.parse_args()
     src = a.work_dir / "out" / a.voice
     dst = a.out_dir
     dst.mkdir(parents=True, exist_ok=True)
-    clips = sorted(src.glob("*.mp3"))
+    clips = sorted(src.glob(f"*.{a.ext}"))
     if a.keys:
         keys = set(a.keys.split(","))
         clips = [f for f in clips if f.stem in keys]
