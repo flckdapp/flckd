@@ -26,6 +26,9 @@ struct KokoroVoiceView: View {
     @State private var modelProgress: Double = 0
     @State private var modelError: String?
     @State private var previewing: String?
+    /// Bumped when the page goes away or the engine is deleted, so a preview
+    /// that finishes afterwards neither plays nor counts as a measurement.
+    @State private var previewGeneration = 0
 
     private var tripRunning: Bool { navigationController.isActive || navigationController.isStarting }
     private var presets: [KokoroPreset] { KokoroPreset.all(store?.descriptor) }
@@ -49,7 +52,12 @@ struct KokoroVoiceView: View {
         .navigationBarTitleDisplayMode(.inline)
         .disabled(tripRunning)
         .onAppear(perform: refresh)
-        .onDisappear { KokoroNameRenderer.shared.endPreview() }
+        .onDisappear {
+            previewGeneration += 1
+            previewing = nil
+            KokoroNameRenderer.shared.endPreview()
+            VoicePromptPlayer.shared.cancel(.sample)
+        }
         .confirmationDialog("Delete the Kokoro voice?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete Kokoro", role: .destructive, action: deleteAll)
         } message: {
@@ -239,8 +247,10 @@ struct KokoroVoiceView: View {
             return
         }
         previewing = preset.id
+        let generation = previewGeneration
         Task {
             let result = await KokoroNameRenderer.shared.renderPreview(text: sentence, preset: preset)
+            guard generation == previewGeneration else { return }
             KokoroSupport.record(result, descriptor: store.descriptor)
             switch result {
             case let .rendered(samples, _):
@@ -274,6 +284,8 @@ struct KokoroVoiceView: View {
     }
 
     private func deleteModel() {
+        previewGeneration += 1
+        previewing = nil
         KokoroNameRenderer.shared.endPreview()
         KokoroSupport.clearMeasurement()
         do {
@@ -303,6 +315,8 @@ struct KokoroVoiceView: View {
 
     private func deleteAll() {
         engineRaw = VoiceEngine.recorded.rawValue
+        previewGeneration += 1
+        previewing = nil
         KokoroNameRenderer.shared.endPreview()
         KokoroSupport.clearMeasurement()
         do {

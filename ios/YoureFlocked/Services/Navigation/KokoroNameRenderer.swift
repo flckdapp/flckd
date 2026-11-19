@@ -277,9 +277,9 @@ final class KokoroNameRenderer: @unchecked Sendable {
     private var cool: Bool { thermalState().rawValue < ProcessInfo.ThermalState.serious.rawValue }
 
     private func kick() {
-        let cool = cool
+        let isCool = cool
         let job: (request: Request, generation: Int)? = locked {
-            guard inFlight == nil, active, !tripBlocked, engineReady, cool else { return nil }
+            guard inFlight == nil, active, !tripBlocked, engineReady, isCool else { return nil }
             while !queue.isEmpty {
                 let request = queue.removeFirst()
                 if cache[request.key] == nil, !attempted.contains(request.key) {
@@ -293,10 +293,10 @@ final class KokoroNameRenderer: @unchecked Sendable {
         synthesizer.queue.async { [self] in
             // Conditions can change while the job waits for the queue: a render
             // starts only in the foreground, cool, in the trip that asked for it.
-            let cool = cool
+            let coolNow = self.cool
             let state: (proceed: Bool, stale: Bool) = locked {
                 let stale = generation != job.generation
-                let proceed = !stale && active && !tripBlocked && engineReady && cool
+                let proceed = !stale && active && !tripBlocked && engineReady && coolNow
                 if !proceed {
                     inFlight = nil
                     if !stale, window.contains(job.request.key) { queue.insert(job.request, at: 0) }

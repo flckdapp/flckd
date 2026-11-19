@@ -517,3 +517,34 @@ final class KokoroNameRendererReviewTests: XCTestCase {
         XCTAssertNotNil(renderer.audio(preset: preset, firstKey: a.key.firstKey, name: a.key.name))
     }
 }
+
+final class KokoroNameRendererThermalTests: XCTestCase {
+    func testAJobQueuedBeforeTheHeatRisesDoesNotStart() {
+        let engine = HoldableEngine()
+        let lexicon = KokoroLexicon(words: ["in", "five", "hundred", "feet", "turn", "right", "onto", "main", "street"])
+        let synthesizer = KokoroSynthesizer(factory: { engine.load(lexicon: lexicon) })
+        let thermal = Box(ProcessInfo.ThermalState.nominal)
+        let center = NotificationCenter()
+        let renderer = KokoroNameRenderer(synthesizer: synthesizer, thermalState: { thermal.value },
+                                          nameFreeDuration: { _, _ in 1.0 }, namesEnabled: { true },
+                                          storeRTF: { _ in }, notificationCenter: center)
+        func settle() { for _ in 0..<8 { synthesizer.queue.sync {} } }
+        renderer.setActive(true)
+        renderer.beginTrip()
+        settle()
+        let preset = KokoroPreset(id: "heart", name: "Heart", sid: 3, gainDB: 0)
+        let request = KokoroNameRenderer.Request(key: .init(preset: "heart", firstKey: "500ft.turn_right", name: "Main Street"),
+                                                 text: "In five hundred feet, turn right onto Main Street.", preset: preset)
+        let blocker = DispatchSemaphore(value: 0)
+        synthesizer.queue.async { blocker.wait() }
+        renderer.prepare([request])
+        thermal.value = .serious
+        blocker.signal()
+        settle()
+        XCTAssertEqual(engine.calls, [])
+        thermal.value = .nominal
+        center.post(name: ProcessInfo.thermalStateDidChangeNotification, object: nil)
+        settle()
+        XCTAssertEqual(engine.calls, [request.text])
+    }
+}

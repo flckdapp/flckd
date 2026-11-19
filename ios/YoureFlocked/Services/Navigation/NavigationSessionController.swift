@@ -345,7 +345,9 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
     private func planNames(route: Route, from completed: Int) {
         namesPlannedStep = completed
         guard KokoroSupport.namesEnabled(), let preset = KokoroSelection.requested() else { return }
-        let steps = KokoroNamePlanner.steps(Array(route.steps.dropFirst(completed)))
+        // Three steps to plan, plus the next one for its roundabout exit number:
+        // no more of the route's road names than that are handed over.
+        let steps = KokoroNamePlanner.steps(Array(route.steps.dropFirst(completed).prefix(4)))
         KokoroNameRenderer.shared.plan(steps: steps, units: .selected(), preset: preset)
     }
 
