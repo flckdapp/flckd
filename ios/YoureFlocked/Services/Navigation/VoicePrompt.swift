@@ -20,17 +20,28 @@ struct VoiceUtterance: Equatable, Sendable {
     /// The turn card's road name, set on approach prompts when Kokoro may say
     /// names. Only ever used to look up audio already rendered in memory.
     var roadName: String? = nil
+    /// A live-rendered first clip for a Kokoro preview; replaces the first clip.
+    var previewFirstClip: [Float]? = nil
 
     static func preview(voice: PromptVoice, now: TimeInterval, units: DistanceUnits = .imperial) -> Self {
         Self(clips: [units == .metric ? "200m.turn_right" : "500ft.turn_right", "lane_right", "cam.flock.ahead"], voice: voice,
              priority: .sample, kind: .preview, createdAt: now)
     }
 
-    static func kokoroPreview(preset: KokoroPreset, now: TimeInterval, units: DistanceUnits = .imperial) -> Self {
+    static func kokoroPreview(preset: KokoroPreset, now: TimeInterval, units: DistanceUnits = .imperial,
+                              firstClip: [Float]? = nil) -> Self {
         var utterance = preview(voice: .selected, now: now, units: units)
         utterance.kokoro = preset
         utterance.kokoroOnly = true
+        utterance.previewFirstClip = firstClip
         return utterance
+    }
+
+    /// The sentence a live Kokoro preview renders: the preview's first prompt
+    /// with a generic street name.
+    static func kokoroPreviewSentence(units: DistanceUnits = .imperial) -> String? {
+        let key = preview(voice: .male, now: 0, units: units).clips[0]
+        return SpokenRoadName.sentence(firstKey: key, bannerText: "Main Street", knows: { _ in true })?.text
     }
 }
 

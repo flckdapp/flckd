@@ -247,6 +247,11 @@ struct VoiceClipLoader {
                 let clips = try zip(utterance.clips, urls).map { key, url in
                     try decode("kokoro.\(preset.id)/\(key)", url!)
                 }
+                if utterance.kokoroOnly, let first = utterance.previewFirstClip, !first.isEmpty {
+                    var previewed = clips
+                    previewed[0] = first
+                    return (previewed, true, false)
+                }
                 if let roadName = utterance.roadName, let first = utterance.clips.first,
                    let name = SpokenRoadName.candidate(from: roadName).flatMap(SpokenRoadName.spoken),
                    let audio = namedAudio?(preset, first, name), !audio.isEmpty {

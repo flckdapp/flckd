@@ -10,6 +10,7 @@ struct KokoroVoiceView: View {
     @AppStorage(VoiceEngine.storageKey) private var engineRaw: String = VoiceEngine.recorded.rawValue
     @AppStorage(KokoroPreset.storageKey) private var presetID: String = KokoroPreset.defaultID
     @AppStorage(PromptVoice.storageKey) private var promptVoice: String = PromptVoice.male.rawValue
+    @AppStorage(KokoroSupport.sayNamesKey) private var sayNames = true
 
     private let store = KokoroVoiceStore.standard
 
@@ -19,6 +20,12 @@ struct KokoroVoiceView: View {
     @State private var downloadError: String?
     @State private var previewError: String?
     @State private var confirmDelete = false
+    @State private var modelInstalled = false
+    @State private var namesStatus = KokoroSupport.NamesStatus.notInstalled
+    @State private var isDownloadingModel = false
+    @State private var modelProgress: Double = 0
+    @State private var modelError: String?
+    @State private var previewing: String?
 
     private var tripRunning: Bool { navigationController.isActive || navigationController.isStarting }
     private var presets: [KokoroPreset] { KokoroPreset.all(store?.descriptor) }
@@ -32,13 +39,17 @@ struct KokoroVoiceView: View {
                 Section { Text("This build has no Kokoro voice.").foregroundStyle(.secondary) }
             } else {
                 downloadSection
-                if clipsInstalled { presetSection }
+                if clipsInstalled {
+                    presetSection
+                    namesSection
+                }
             }
         }
         .navigationTitle("Kokoro")
         .navigationBarTitleDisplayMode(.inline)
         .disabled(tripRunning)
         .onAppear(perform: refresh)
+        .onDisappear { KokoroNameRenderer.shared.endPreview() }
         .confirmationDialog("Delete the Kokoro voice?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete Kokoro", role: .destructive, action: deleteAll)
         } message: {
@@ -114,10 +125,16 @@ struct KokoroVoiceView: View {
                     .accessibilityLabel(preset.name)
                     .accessibilityAddTraits(isSelected(preset) ? .isSelected : [])
                     Button { preview(preset) } label: {
-                        Image(systemName: "play.circle")
-                            .font(.title2)
-                            .frame(minWidth: 44, minHeight: 44)
+                        Group {
+                            if previewing == preset.id {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "play.circle").font(.title2)
+                            }
+                        }
+                        .frame(minWidth: 44, minHeight: 44)
                     }
+                    .disabled(previewing != nil)
                     .buttonStyle(.borderless)
                     .accessibilityLabel("Preview \(preset.name)")
                 }
@@ -133,6 +150,64 @@ struct KokoroVoiceView: View {
         }
     }
 
+    @ViewBuilder
+    private var namesSection: some View {
+        Section {
+            Toggle("Say Street Names", isOn: $sayNames)
+            switch namesStatus {
+            case .needsMoreMemory:
+                Text("Street names need a phone with more memory.")
+                    .foregroundStyle(.secondary)
+            case .notInstalled:
+                HStack {
+                    Button("Download Street-Name Engine", action: downloadModel)
+                        .disabled(isDownloadingModel)
+                    Spacer()
+                    if isDownloadingModel {
+                        ProgressView(value: modelProgress).frame(width: 80)
+                        Text("\(Int(modelProgress * 100))%")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 38, alignment: .trailing)
+                    } else if let store {
+                        Text(ByteCountFormatter.string(fromByteCount: store.descriptor.modelBytes, countStyle: .file))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            case .tooSlow:
+                Text("Street names were too slow on this phone.")
+                    .foregroundStyle(.secondary)
+                Button("Test Again") { preview(selectedPreset) }
+                    .disabled(previewing != nil)
+                deleteModelButton
+            case .ready:
+                HStack {
+                    Text("Street-Name Engine")
+                    Spacer()
+                    Text("Downloaded").foregroundStyle(.secondary)
+                }
+                deleteModelButton
+            }
+            if let modelError {
+                Text(modelError).font(.caption).foregroundStyle(.red)
+            }
+        } header: {
+            Text("Street Names")
+        } footer: {
+            Text("Kokoro can add the street name to turn prompts, rendered on this phone a few seconds ahead while the app is on screen. If a name isn't ready, or has a word Kokoro doesn't know, the prompt plays without it.")
+        }
+    }
+
+    private var deleteModelButton: some View {
+        Button("Delete Engine", role: .destructive, action: deleteModel)
+            .disabled(isDownloadingModel || previewing != nil)
+    }
+
+    private var selectedPreset: KokoroPreset {
+        KokoroPreset.named(presetID, in: store?.descriptor) ?? presets.first
+            ?? KokoroPreset(id: KokoroPreset.defaultID, name: "", sid: 0, gainDB: 0)
+    }
+
     // MARK: Actions
 
     private func isSelected(_ preset: KokoroPreset) -> Bool {
@@ -142,16 +217,71 @@ struct KokoroVoiceView: View {
     private func refresh() {
         guard let store else { return }
         installedPresets = Set(presets.filter { store.clipsInstalled(preset: $0) }.map(\.id))
+        modelInstalled = store.modelInstalled()
+        namesStatus = KokoroSupport.namesStatus(physicalMemory: ProcessInfo.processInfo.physicalMemory,
+                                                modelInstalled: modelInstalled,
+                                                measuredRTF: KokoroSupport.measuredRTF(descriptor: store.descriptor))
     }
 
     private func preview(_ preset: KokoroPreset) {
         previewError = nil
-        let utterance = VoiceUtterance.kokoroPreview(preset: preset, now: 0, units: .selected())
+        let units = DistanceUnits.selected()
+        let utterance = VoiceUtterance.kokoroPreview(preset: preset, now: 0, units: units)
         guard let store, utterance.clips.allSatisfy({ store.clipURL(preset: preset, key: $0) != nil }) else {
             previewError = "Voice files are missing. Download them again."
             return
         }
-        navigationController.playKokoroSample(preset)
+        // With the engine installed the preview says a street name, rendered
+        // live, so testers hear exactly what a trip will sound like.
+        guard namesStatus == .ready || namesStatus == .tooSlow,
+              let sentence = VoiceUtterance.kokoroPreviewSentence(units: units) else {
+            navigationController.playKokoroSample(preset)
+            return
+        }
+        previewing = preset.id
+        Task {
+            let result = await KokoroNameRenderer.shared.renderPreview(text: sentence, preset: preset)
+            KokoroSupport.record(result, descriptor: store.descriptor)
+            switch result {
+            case let .rendered(samples, _):
+                navigationController.playKokoroSample(preset, firstClip: samples)
+            case .failed:
+                previewError = "Kokoro couldn't render the preview."
+            case .cancelled:
+                break
+            }
+            previewing = nil
+            refresh()
+        }
+    }
+
+    private func downloadModel() {
+        modelError = nil
+        isDownloadingModel = true
+        modelProgress = 0
+        KokoroSupport.clearMeasurement()
+        Task {
+            do {
+                try await VoiceModelService().downloadModel { value in
+                    Task { @MainActor in modelProgress = value }
+                }
+            } catch {
+                modelError = error.localizedDescription
+            }
+            isDownloadingModel = false
+            refresh()
+        }
+    }
+
+    private func deleteModel() {
+        KokoroNameRenderer.shared.endPreview()
+        KokoroSupport.clearMeasurement()
+        do {
+            try store?.deleteModel()
+        } catch {
+            modelError = error.localizedDescription
+        }
+        refresh()
     }
 
     private func downloadClips() {
@@ -173,6 +303,8 @@ struct KokoroVoiceView: View {
 
     private func deleteAll() {
         engineRaw = VoiceEngine.recorded.rawValue
+        KokoroNameRenderer.shared.endPreview()
+        KokoroSupport.clearMeasurement()
         do {
             try store?.delete()
         } catch {

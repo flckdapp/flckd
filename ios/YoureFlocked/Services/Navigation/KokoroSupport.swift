@@ -45,6 +45,22 @@ enum KokoroSupport {
         return namesSupported(physicalMemory: physicalMemory, measuredRTF: measuredRTF(defaults, descriptor: store.descriptor))
     }
 
+    enum NamesStatus: Equatable, Sendable { case needsMoreMemory, notInstalled, tooSlow, ready }
+
+    /// What the street-names section of the Kokoro page shows, checked in this order.
+    static func namesStatus(physicalMemory: UInt64, modelInstalled: Bool, measuredRTF: Double?) -> NamesStatus {
+        if physicalMemory < memoryFloor { return .needsMoreMemory }
+        if !modelInstalled { return .notInstalled }
+        if let measuredRTF, measuredRTF > 1.0 { return .tooSlow }
+        return .ready
+    }
+
+    /// A live preview is a measurement too. Cancelled or failed renders record nothing.
+    static func record(_ result: KokoroNameRenderer.PreviewResult, _ defaults: UserDefaults = .standard,
+                       descriptor: KokoroPackDescriptor? = .bundled) {
+        if case let .rendered(_, rtf) = result { storeMeasurement(rtf, defaults, descriptor: descriptor) }
+    }
+
     static func median(_ values: [Double]) -> Double? {
         guard !values.isEmpty else { return nil }
         let sorted = values.sorted()
