@@ -204,6 +204,7 @@ struct SettingsView: View {
             }
             #if DEBUG
             Toggle("Routing Latency HUD", isOn: $showRoutingSpikeOverlay)
+            NavigationLink("Kokoro Bench") { KokoroBenchView() }
             #endif
         } footer: {
             Text("Download road data so routes are computed on this device and your destination never leaves it.")
