@@ -5,6 +5,9 @@ import os
 
 /// All audio objects, decoded buffers and queue state are confined to `queue`.
 /// No route, instruction, or position is retained after its utterance drains.
+/// The one exception is Kokoro's street names: upcoming road names exist as
+/// rendered audio in `KokoroNameRenderer`'s memory for at most three steps,
+/// and are dropped when those steps pass or the trip ends. Never on disk.
 final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesizerDelegate {
     static let shared = VoicePromptPlayer()
     private static let log = Logger(subsystem: "io.vws.app.flckd", category: "voice")
@@ -150,7 +153,7 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
                 self?.queue.async { [weak self] in self?.finished(token: token) }
             }
             node.play()
-            kokoroStatistics.record(utterance, playedKokoro: loaded.kokoro)
+            kokoroStatistics.record(utterance, playedKokoro: loaded.kokoro, named: loaded.named)
         } catch {
             engine.stop()
             node.stop()
@@ -170,7 +173,9 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
     private var loader: VoiceClipLoader {
         VoiceClipLoader(store: .standard, decode: { [unowned self] cacheKey, url in
             try self.decoded(cacheKey: cacheKey, url: url)
-        })
+        }, namedAudio: { preset, firstKey, name in
+            KokoroNameRenderer.shared.audio(preset: preset, firstKey: firstKey, name: name)
+        }, sampleRate: sampleRate)
     }
 
     func resetKokoroStats() {

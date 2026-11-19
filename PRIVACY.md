@@ -129,12 +129,20 @@ corridor comes through the same tile and grid-cell requests described below,
 never through a request built around your position.
 
 **Spoken directions and camera alerts.** The app plays pre-recorded audio
-files bundled with it, on your device. Nothing is synthesized over the network
-at runtime. Two voices, Eric and Jessica, are available in Settings.
+files bundled with it, on your device. Nothing is synthesized over the network;
+the only speech made at runtime is made on the phone. Two voices, Eric and Jessica, are available in Settings.
 An optional third voice, Kokoro (experimental), plays the same generic
 prompts from audio files downloaded once from the tile server (see the
 table below) and stored on the phone. They play on the device like the
 bundled recordings; if one is missing, the recorded voice says that prompt.
+With Kokoro selected you can also download its speech model and have it say
+street names ("turn left onto Main Street"). The name is the one on the turn
+card. During a trip, while the app is on screen, the model turns the next few
+names into speech on the phone, a few seconds ahead. That audio is held in
+memory only for the next few steps, is never written to disk and is never
+sent anywhere, and the model is unloaded when the trip ends. A name with any
+word the model's word list doesn't know is not spoken at all; the prompt plays
+without it.
 When a direction has no matching recording, Apple's `AVSpeechSynthesizer`
 speaks Ferrostar's instruction text on the device using an installed voice.
 That text is never sent anywhere. The master Voice switch silences all automatic
@@ -172,6 +180,8 @@ itself rather than through Apple's push service, and it ends with the trip.
 
 **The arrival card.** When you arrive, the app shows how long the trip took,
 how far it was, how many cameras you passed and how many reroutes happened.
+With the Kokoro voice it also says how many prompts Kokoro spoke, of how many,
+and how many carried a street name.
 Those numbers are held in memory while the card is on screen and discarded
 when you dismiss it. Nothing is written down.
 

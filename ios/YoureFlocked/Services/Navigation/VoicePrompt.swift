@@ -17,6 +17,9 @@ struct VoiceUtterance: Equatable, Sendable {
     var kokoro: KokoroPreset? = nil
     /// Previews of a Kokoro preset never fall back to another voice.
     var kokoroOnly = false
+    /// The turn card's road name, set on approach prompts when Kokoro may say
+    /// names. Only ever used to look up audio already rendered in memory.
+    var roadName: String? = nil
 
     static func preview(voice: PromptVoice, now: TimeInterval, units: DistanceUnits = .imperial) -> Self {
         Self(clips: [units == .metric ? "200m.turn_right" : "500ft.turn_right", "lane_right", "cam.flock.ahead"], voice: voice,

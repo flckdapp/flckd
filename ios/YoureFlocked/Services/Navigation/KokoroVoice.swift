@@ -227,15 +227,36 @@ struct VoiceClipLoader {
     var recordedURL: (PromptVoice, String) -> URL? = { voice, key in voice.url(for: key) }
     /// Decodes one clip; the first argument is a cache key.
     var decode: (String, URL) throws -> [Float]
+    /// Street-name audio rendered ahead (preset, first clip key, spoken name).
+    /// A cache read: playback never waits for a render.
+    var namedAudio: ((KokoroPreset, String, String) -> [Float]?)? = nil
+    var sampleRate = 44_100.0
+    /// A named utterance must fit before a waiting camera alert expires (plan P5b).
+    static let namedUtteranceLimit: TimeInterval = 5.0
 
-    func samples(for utterance: VoiceUtterance) throws -> (clips: [[Float]], kokoro: Bool) {
+    static func duration(_ clips: [[Float]], sampleRate: Double) -> TimeInterval {
+        guard !clips.isEmpty else { return 0 }
+        return Double(clips.reduce(0) { $0 + $1.count }) / sampleRate
+            + VoiceTimeline.sentenceGap * Double(clips.count - 1)
+    }
+
+    func samples(for utterance: VoiceUtterance) throws -> (clips: [[Float]], kokoro: Bool, named: Bool) {
         if let preset = utterance.kokoro, let store {
             let urls = utterance.clips.map { store.clipURL(preset: preset, key: $0) }
             if !urls.isEmpty, urls.allSatisfy({ $0 != nil }) {
                 let clips = try zip(utterance.clips, urls).map { key, url in
                     try decode("kokoro.\(preset.id)/\(key)", url!)
                 }
-                return (clips, true)
+                if let roadName = utterance.roadName, let first = utterance.clips.first,
+                   let name = SpokenRoadName.candidate(from: roadName).flatMap(SpokenRoadName.spoken),
+                   let audio = namedAudio?(preset, first, name), !audio.isEmpty {
+                    var named = clips
+                    named[0] = audio
+                    if Self.duration(named, sampleRate: sampleRate) <= Self.namedUtteranceLimit {
+                        return (named, true, true)
+                    }
+                }
+                return (clips, true, false)
             }
         }
         if utterance.kokoroOnly { throw LoadError.kokoroUnavailable }
@@ -243,7 +264,7 @@ struct VoiceClipLoader {
             guard let url = recordedURL(utterance.voice, key) else { throw LoadError.missingClip }
             return try decode("\(utterance.voice.rawValue)/\(key)", url)
         }
-        return (clips, false)
+        return (clips, false, false)
     }
 }
 

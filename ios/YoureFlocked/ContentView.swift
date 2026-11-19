@@ -105,6 +105,7 @@ struct ContentView: View {
             locationManager.requestAuthorizationIfNeeded()
         }
         .onChange(of: scenePhase, initial: true) { _, phase in
+            KokoroNameRenderer.shared.setActive(phase == .active)
             guard phase == .active else { return }
             Task { await offlineUpdater.checkIfDue(cameraStore: cameraStore) }
         }

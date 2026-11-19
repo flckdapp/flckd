@@ -20,6 +20,13 @@ struct TripSummaryView: View {
             header
             statsRow
             camerasSection
+            if let kokoro = summary.kokoro {
+                Text(Self.kokoroLine(kokoro))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .accessibilityIdentifier("trip-summary-kokoro")
+            }
             doneButton
         }
         .padding(24)
@@ -31,6 +38,12 @@ struct TripSummaryView: View {
         }
         .shadow(color: .black.opacity(0.25), radius: 20, y: 8)
         .padding(.horizontal, 20)
+    }
+
+    /// "Kokoro spoke N of M prompts, K with a street name." For testers to
+    /// report; held in memory with the rest of the card.
+    static func kokoroLine(_ stats: KokoroStats) -> String {
+        "Kokoro spoke \(stats.spoken) of \(stats.requested) prompts, \(stats.named) with a street name."
     }
 
     // MARK: - Sections
