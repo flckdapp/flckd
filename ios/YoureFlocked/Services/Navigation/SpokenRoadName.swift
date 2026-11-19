@@ -161,15 +161,56 @@ enum SpokenRoadName {
     /// `name` is the spoken name, the render cache's key.
     static func sentence(firstKey: String, bannerText: String, knows: (String) -> Bool,
                          prompt: (String) -> String? = PromptText.sentence(for:)) -> (text: String, name: String)? {
+        sentences(firstKey: firstKey, bannerText: bannerText, exitNumber: nil, knows: knows, prompt: prompt).first
+    }
+
+    // MARK: Exit numbers
+
+    /// "12" is "twelve", "12B" is "twelve B", "235A" is "two thirty five A".
+    /// Anything else (ranges, words, five digits) is nil.
+    static func exitWords(_ raw: String) -> String? {
+        let text = raw.trimmingCharacters(in: .whitespaces)
+        let digits = text.prefix { $0.isASCII && $0.isNumber }
+        let rest = text.dropFirst(digits.count)
+        guard (1...4).contains(digits.count), let value = Int(digits), rest.count <= 1,
+              rest.allSatisfy({ $0.isASCII && $0.isLetter }) else { return nil }
+        return rest.isEmpty ? cardinal(value) : "\(cardinal(value)) \(rest.uppercased())"
+    }
+
+    private static func isExit(_ action: String) -> Bool { action == "exit_left" || action == "exit_right" }
+
+    /// The labels a rendered prompt can be cached under, best first: exit
+    /// number with the road name, exit number alone, road name alone. Needs no
+    /// word list, so the player can look audio up with the same labels the
+    /// planner rendered under.
+    static func labels(firstKey: String, bannerText: String?, exitNumber: String?) -> [String] {
+        let action = firstKey.split(separator: ".", maxSplits: 1).dropFirst().first.map(String.init) ?? ""
+        let name = bannerText.flatMap(candidate(from:)).flatMap(spoken)
+        if isExit(action), let exit = exitNumber.flatMap(exitWords) {
+            return (name.map { ["exit \(exit) onto \($0)"] } ?? []) + ["exit \(exit)"]
+        }
+        return name.map { [$0] } ?? []
+    }
+
+    /// Every speakable approach sentence for this prompt, best first, each with
+    /// its cache label. An exit with a number gets the number, with the road
+    /// name when that can be said too, and on its own otherwise.
+    static func sentences(firstKey: String, bannerText: String, exitNumber: String?, knows: (String) -> Bool,
+                          prompt: (String) -> String? = PromptText.sentence(for:)) -> [(text: String, name: String)] {
         let parts = firstKey.split(separator: ".", maxSplits: 1).map(String.init)
         guard parts.count == 2, approachDistances.contains(parts[0]),
               let connector = connector(forAction: parts[1]),
-              let base = prompt(firstKey), base.hasSuffix("."),
-              let candidate = candidate(from: bannerText),
-              let name = spoken(candidate) else { return nil }
-        let text = "\(base.dropLast()) \(connector) \(name)."
-        guard SpokenText.isSpeakable(text, knows: knows) else { return nil }
-        return (text, name)
+              let base = prompt(firstKey), base.hasSuffix(".") else { return [] }
+        let name = candidate(from: bannerText).flatMap(spoken)
+        var options: [(text: String, name: String)] = []
+        if isExit(parts[1]), let exit = exitNumber.flatMap(exitWords), base.contains("take the exit on the") {
+            let numbered = base.dropLast().replacingOccurrences(of: "take the exit on the", with: "take exit \(exit) on the")
+            if let name { options.append(("\(numbered) \(connector) \(name).", "exit \(exit) onto \(name)")) }
+            options.append(("\(numbered).", "exit \(exit)"))
+        } else if let name {
+            options.append(("\(base.dropLast()) \(connector) \(name).", name))
+        }
+        return options.filter { SpokenText.isSpeakable($0.text, knows: knows) }
     }
 
     /// Every word stages 3 and 4 and the connectors can produce.
@@ -182,6 +223,8 @@ enum SpokenRoadName {
         add("Highway")
         add("onto")
         add("to take")
+        add("exit")
+        "abcdefghijklmnopqrstuvwxyz".forEach { add(String($0)) }
         return words
     }()
 }

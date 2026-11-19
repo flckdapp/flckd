@@ -328,14 +328,15 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
     }
 
     private func speak(_ clips: [String], fallback: String = "", kind: VoicePromptKind = .directions,
-                       roadName: String? = nil) {
+                       roadName: String? = nil, exitNumber: String? = nil) {
         guard VoiceSettings.fromDefaults().allows(kind, context: voiceContext) else { return }
         VoicePromptPlayer.shared.enqueue(VoiceUtterance(
             clips: clips, fallbackText: fallback, voice: .selected,
             kind: kind,
             createdAt: ProcessInfo.processInfo.systemUptime,
             kokoro: KokoroSelection.requested(),
-            roadName: roadName
+            roadName: roadName,
+            exitNumber: exitNumber
         ))
     }
 
@@ -401,9 +402,10 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         // the way in, say it in the selected voice rather than Apple's.
         if clips.isEmpty, steps.count == 1, !approach { clips = ["arrive"] }
         if clips.first?.hasPrefix("arrive") == true { announcedArrival = true }
-        let roadName = approach && KokoroSupport.namesEnabled() ? banner?.primaryContent.text : nil
+        let names = approach && KokoroSupport.namesEnabled()
         speak(clips, fallback: spoken?.text ?? banner?.primaryContent.text ?? next?.instruction ?? step.instruction,
-              roadName: roadName)
+              roadName: names ? banner?.primaryContent.text : nil,
+              exitNumber: names ? banner?.primaryContent.exitNumbers.first : nil)
     }
 
     private func loadSignals(for route: Route) {

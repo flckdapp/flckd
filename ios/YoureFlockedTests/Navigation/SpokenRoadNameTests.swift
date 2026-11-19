@@ -14,7 +14,16 @@ final class SpokenRoadNameTests: XCTestCase {
         let name: String?
     }
 
+    private struct ExitSentenceCase: Decodable {
+        let firstKey: String
+        let banner: String
+        let exitNumber: String?
+        let outputs: [[String]]
+    }
+
     private struct Fixture: Decodable {
+        let exitNumber: [Case]
+        let exitSentence: [ExitSentenceCase]
         let candidate: [Case]
         let spoken: [Case]
         let connector: [Case]
@@ -56,6 +65,25 @@ final class SpokenRoadNameTests: XCTestCase {
         }
     }
 
+    func testExitNumberCases() throws {
+        for c in try fixture().exitNumber {
+            XCTAssertEqual(SpokenRoadName.exitWords(c.input), c.output, c.input)
+        }
+    }
+
+    func testExitSentencesAndTheLabelsThePlayerLooksUp() throws {
+        let fixture = try fixture()
+        let known = Set(fixture.sentenceKnownWords)
+        for c in fixture.exitSentence {
+            let sentences = SpokenRoadName.sentences(firstKey: c.firstKey, bannerText: c.banner, exitNumber: c.exitNumber,
+                                                     knows: known.contains)
+            XCTAssertEqual(sentences.map { [$0.text, $0.name] }, c.outputs, c.firstKey)
+            // Every label the planner renders under is one the player will try.
+            let labels = SpokenRoadName.labels(firstKey: c.firstKey, bannerText: c.banner, exitNumber: c.exitNumber)
+            for sentence in sentences { XCTAssertTrue(labels.contains(sentence.name), sentence.name) }
+        }
+    }
+
     func testAnUnknownWordDropsTheWholeName() {
         let known: Set<String> = ["in", "five", "hundred", "feet", "turn", "right", "onto", "street"]
         XCTAssertNil(SpokenRoadName.sentence(firstKey: "500ft.turn_right", bannerText: "Main Street", knows: known.contains))
@@ -68,6 +96,10 @@ final class SpokenRoadNameTests: XCTestCase {
         var emitted = Set<String>()
         for n in 0...9999 { emitted.formUnion(words(SpokenRoadName.cardinal(n))) }
         for n in 1...999 { emitted.formUnion(words(SpokenRoadName.ordinal(n))) }
+        for exit in ["1A", "9Z", "12"] {
+            emitted.formUnion(words(SpokenRoadName.exitWords(exit) ?? ""))
+        }
+        emitted.insert("exit")
         for prefix in ["I", "US", "CR", "SR", "XX"] {
             emitted.formUnion(words(SpokenRoadName.spoken("\(prefix) 1") ?? ""))
         }

@@ -136,7 +136,8 @@ prompts from audio files downloaded once from the tile server (see the
 table below) and stored on the phone. They play on the device like the
 bundled recordings; if one is missing, the recorded voice says that prompt.
 On phones with enough memory the same download includes Kokoro's speech
-model, which says street names ("turn left onto Main Street"). The name is the one on the turn
+model, which says street names and exit numbers ("turn left onto Main Street",
+"take exit twelve B"). The name is the one on the turn
 card. During a trip, while the app is on screen, the model turns the next few
 names into speech on the phone, a few seconds ahead. That audio is held in
 memory only for the next few steps, is never written to disk and is never

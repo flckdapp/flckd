@@ -15,6 +15,7 @@ struct KokoroNameRequest: Equatable, Sendable {
 enum KokoroNamePlanner {
     struct Step {
         let banner: VisualInstructionContent?
+        var exitNumber: String? { banner?.exitNumbers.first }
         let distance: Double
         let roundaboutExitNumber: UInt8?
     }
@@ -34,8 +35,10 @@ enum KokoroNamePlanner {
             guard let action = GuidancePromptSelector.action(banner, roundaboutExit: exit) else { continue }
             for threshold in GuidancePromptSchedule.approachThresholds(length: steps[offset].distance, units: units) {
                 let key = "\(threshold.key).\(action)"
-                guard let sentence = SpokenRoadName.sentence(firstKey: key, bannerText: banner.text, knows: knows) else { continue }
-                requests.append(KokoroNameRequest(stepOffset: offset, firstKey: key, name: sentence.name, text: sentence.text))
+                for sentence in SpokenRoadName.sentences(firstKey: key, bannerText: banner.text,
+                                                         exitNumber: steps[offset].exitNumber, knows: knows) {
+                    requests.append(KokoroNameRequest(stepOffset: offset, firstKey: key, name: sentence.name, text: sentence.text))
+                }
             }
         }
         return requests

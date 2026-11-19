@@ -20,6 +20,8 @@ struct VoiceUtterance: Equatable, Sendable {
     /// The turn card's road name, set on approach prompts when Kokoro may say
     /// names. Only ever used to look up audio already rendered in memory.
     var roadName: String? = nil
+    /// The exit number on the turn card, for Kokoro approach prompts to exits.
+    var exitNumber: String? = nil
     /// A live-rendered first clip for a Kokoro preview; replaces the first clip.
     var previewFirstClip: [Float]? = nil
 

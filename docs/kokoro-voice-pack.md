@@ -135,6 +135,15 @@ Android tests should read too:
 
 A name is never spoken in part.
 
+**Exit numbers.** An approach prompt to an exit (`exit_left`, `exit_right`)
+with an exit number on the turn card says it: "In one mile, take exit twelve B
+on the right onto U S nine ninety nine." The number is 1 to 4 digits with an
+optional letter, read as a road number plus the letter's name; anything else
+is left out. If the road name can't be said, the number is said alone ("take
+exit twelve B on the right"). Both versions are rendered; the player tries the
+one with the name first. The cache labels are `exit <words> onto <name>` and
+`exit <words>`; see `SpokenRoadName.labels`.
+
 ## When names are spoken
 
 - Approach prompts only (the ones with a distance), never the final "Turn

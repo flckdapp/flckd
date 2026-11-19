@@ -513,7 +513,10 @@ agree, and only when the named first clip is at most 2.5 s longer than the
 name-free one and the whole utterance is at most 5 s, so a waiting camera
 alert does not expire. `SpokenRoadName` turns the card text into words (route
 prefixes, road numbers read the local way, ordinals) or into nothing; a name
-is never spoken in part. Its rules are pinned by a JSON fixture shared with
+is never spoken in part. Approach prompts to an exit also say the exit number
+from the turn card ("take exit twelve B on the right"), with the road name when
+it can be said and alone when it can't. The recorded voices have no number
+clips, so only Kokoro says exit numbers. Its rules are pinned by a JSON fixture shared with
 the future Android app.
 
 `KokoroNameRenderer` loads the engine at trip start and unloads it at trip

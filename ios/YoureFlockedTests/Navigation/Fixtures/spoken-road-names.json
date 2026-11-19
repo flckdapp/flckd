@@ -199,48 +199,50 @@
   }
  ],
  "sentenceKnownWords": [
-  "in",
-  "five",
-  "hundred",
-  "feet",
   "a",
-  "quarter",
-  "mile",
-  "half",
-  "one",
-  "two",
-  "miles",
-  "turn",
-  "right",
-  "left",
-  "onto",
-  "keep",
-  "to",
-  "take",
-  "the",
-  "exit",
-  "on",
-  "main",
-  "street",
-  "oak",
-  "avenue",
-  "north",
-  "park",
-  "road",
-  "example",
-  "boulevard",
   "at",
-  "roundabout",
-  "second",
+  "avenue",
+  "b",
+  "boulevard",
+  "example",
+  "exit",
+  "feet",
+  "five",
+  "half",
+  "hundred",
+  "in",
   "interstate",
-  "nine",
-  "ninety",
-  "u",
-  "s",
+  "keep",
+  "kilometer",
+  "kilometers",
+  "left",
+  "main",
   "make",
   "meters",
-  "kilometer",
-  "kilometers"
+  "mile",
+  "miles",
+  "nine",
+  "ninety",
+  "north",
+  "oak",
+  "on",
+  "one",
+  "onto",
+  "park",
+  "quarter",
+  "right",
+  "road",
+  "roundabout",
+  "s",
+  "second",
+  "street",
+  "take",
+  "the",
+  "to",
+  "turn",
+  "twelve",
+  "two",
+  "u"
  ],
  "sentence": [
   {
@@ -294,7 +296,12 @@
   }
  ],
  "vocabulary": [
+  "a",
+  "b",
+  "c",
   "county",
+  "d",
+  "e",
   "eight",
   "eighteen",
   "eighteenth",
@@ -303,6 +310,8 @@
   "eighty",
   "eleven",
   "eleventh",
+  "exit",
+  "f",
   "fifteen",
   "fifteenth",
   "fifth",
@@ -316,19 +325,31 @@
   "fourteen",
   "fourteenth",
   "fourth",
+  "g",
+  "h",
   "highway",
   "hundred",
   "hundredth",
+  "i",
   "interstate",
+  "j",
+  "k",
+  "l",
+  "m",
+  "n",
   "nine",
   "nineteen",
   "nineteenth",
   "ninetieth",
   "ninety",
   "ninth",
+  "o",
   "oh",
   "one",
   "onto",
+  "p",
+  "q",
+  "r",
   "road",
   "route",
   "s",
@@ -346,6 +367,7 @@
   "sixtieth",
   "sixty",
   "state",
+  "t",
   "take",
   "ten",
   "tenth",
@@ -362,6 +384,99 @@
   "twenty",
   "two",
   "u",
+  "v",
+  "w",
+  "x",
+  "y",
+  "z",
   "zero"
+ ],
+ "exitNumber": [
+  {
+   "input": "12",
+   "output": "twelve"
+  },
+  {
+   "input": "12B",
+   "output": "twelve B"
+  },
+  {
+   "input": "235a",
+   "output": "two thirty five A"
+  },
+  {
+   "input": " 9 ",
+   "output": "nine"
+  },
+  {
+   "input": "12A-B",
+   "output": null
+  },
+  {
+   "input": "12AB",
+   "output": null
+  },
+  {
+   "input": "99999",
+   "output": null
+  },
+  {
+   "input": "North",
+   "output": null
+  },
+  {
+   "input": "",
+   "output": null
+  }
+ ],
+ "exitSentence": [
+  {
+   "firstKey": "1mi.exit_right",
+   "banner": "US 999",
+   "exitNumber": "12B",
+   "outputs": [
+    [
+     "In one mile, take exit twelve B on the right onto U S nine ninety nine.",
+     "exit twelve B onto U S nine ninety nine"
+    ],
+    [
+     "In one mile, take exit twelve B on the right.",
+     "exit twelve B"
+    ]
+   ]
+  },
+  {
+   "firstKey": "half_mi.exit_left",
+   "banner": "Zzyzxq Road",
+   "exitNumber": "12",
+   "outputs": [
+    [
+     "In half a mile, take exit twelve on the left.",
+     "exit twelve"
+    ]
+   ]
+  },
+  {
+   "firstKey": "1mi.exit_right",
+   "banner": "US 999",
+   "exitNumber": null,
+   "outputs": [
+    [
+     "In one mile, take the exit on the right onto U S nine ninety nine.",
+     "U S nine ninety nine"
+    ]
+   ]
+  },
+  {
+   "firstKey": "1mi.turn_right",
+   "banner": "Main Street",
+   "exitNumber": "12",
+   "outputs": [
+    [
+     "In one mile, turn right onto Main Street.",
+     "Main Street"
+    ]
+   ]
+  }
  ]
 }

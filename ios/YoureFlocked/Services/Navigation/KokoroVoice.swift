@@ -252,13 +252,15 @@ struct VoiceClipLoader {
                     previewed[0] = first
                     return (previewed, true, false)
                 }
-                if let roadName = utterance.roadName, let first = utterance.clips.first,
-                   let name = SpokenRoadName.candidate(from: roadName).flatMap(SpokenRoadName.spoken),
-                   let audio = namedAudio?(preset, first, name), !audio.isEmpty {
-                    var named = clips
-                    named[0] = audio
-                    if Self.duration(named, sampleRate: sampleRate) <= Self.namedUtteranceLimit {
-                        return (named, true, true)
+                if utterance.roadName != nil || utterance.exitNumber != nil, let first = utterance.clips.first {
+                    for label in SpokenRoadName.labels(firstKey: first, bannerText: utterance.roadName,
+                                                       exitNumber: utterance.exitNumber) {
+                        guard let audio = namedAudio?(preset, first, label), !audio.isEmpty else { continue }
+                        var named = clips
+                        named[0] = audio
+                        if Self.duration(named, sampleRate: sampleRate) <= Self.namedUtteranceLimit {
+                            return (named, true, true)
+                        }
                     }
                 }
                 return (clips, true, false)
