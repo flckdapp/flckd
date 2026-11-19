@@ -56,6 +56,16 @@ struct GuidancePromptSchedule {
         speed.isFinite && speed >= 0 ? max(1, speed) : 13.4
     }
 
+    /// The approach prompts a step of this length can produce, farthest first.
+    /// Shared with the Kokoro name planner so the two cannot drift.
+    static func approachThresholds(length: Double, units: DistanceUnits) -> [(key: String, meters: Double)] {
+        let countdown = units == .metric ? Self.metricCountdown : Self.countdown
+        let shortApproach = units == .metric ? (key: "100m", meters: 100.0) : (key: "500ft", meters: 152.4)
+        return length < (countdown.last?.meters ?? 0)
+            ? [shortApproach].filter { $0.meters < length }
+            : countdown.filter { $0.meters < length }
+    }
+
     mutating func update(step: Int, length: Double, remaining: Double, speed: Double,
                          units: DistanceUnits = .imperial) -> Prompt? {
         guard length.isFinite, remaining.isFinite, length >= 0, remaining >= 0 else { return nil }
@@ -70,11 +80,7 @@ struct GuidancePromptSchedule {
         guard !finalSpoken else { return nil }
         let velocity = Self.effectiveSpeed(speed)
         let final = Self.finalDistance(speed: speed)
-        let countdown = units == .metric ? Self.metricCountdown : Self.countdown
-        let shortApproach = units == .metric ? (key: "100m", meters: 100.0) : (key: "500ft", meters: 152.4)
-        let thresholds = length < (countdown.last?.meters ?? 0)
-            ? [shortApproach].filter { $0.meters < length }
-            : countdown.filter { $0.meters < length }
+        let thresholds = Self.approachThresholds(length: length, units: units)
         // Switching units mid-step must not replay already-passed countdowns.
         if unitsChanged, !entering {
             for threshold in thresholds where remaining <= threshold.meters { consumed.insert(threshold.key) }

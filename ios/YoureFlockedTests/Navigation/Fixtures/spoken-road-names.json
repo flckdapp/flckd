@@ -1,0 +1,367 @@
+{
+ "_note": "Shared by the iOS tests and the future Android app. Generic names and route numbers that do not exist only.",
+ "candidate": [
+  {
+   "input": "Main Street",
+   "output": "Main Street"
+  },
+  {
+   "input": "  Oak Avenue ",
+   "output": "Oak Avenue"
+  },
+  {
+   "input": "US 999 North: Example City",
+   "output": "US 999 North"
+  },
+  {
+   "input": "Park Road, Oak Avenue",
+   "output": "Park Road"
+  },
+  {
+   "input": "I 999; US 999",
+   "output": "I 999"
+  },
+  {
+   "input": "Oak Avenue / Park Road",
+   "output": "Oak Avenue"
+  },
+  {
+   "input": "Main Street (Old Main)",
+   "output": "Main Street"
+  },
+  {
+   "input": "You have arrived at your destination.",
+   "output": null
+  },
+  {
+   "input": "",
+   "output": null
+  },
+  {
+   "input": "Main \"Old\" Street",
+   "output": null
+  },
+  {
+   "input": "Exam!ple Street",
+   "output": null
+  }
+ ],
+ "spoken": [
+  {
+   "input": "Main Street",
+   "output": "Main Street"
+  },
+  {
+   "input": "North 39th Street",
+   "output": "North thirty ninth Street"
+  },
+  {
+   "input": "East 102nd Avenue",
+   "output": "East one hundred second Avenue"
+  },
+  {
+   "input": "Example 100th Road",
+   "output": "Example one hundredth Road"
+  },
+  {
+   "input": "I 999",
+   "output": "Interstate nine ninety nine"
+  },
+  {
+   "input": "US 999",
+   "output": "U S nine ninety nine"
+  },
+  {
+   "input": "CR 999",
+   "output": "County Road nine ninety nine"
+  },
+  {
+   "input": "SR 999",
+   "output": "State Route nine ninety nine"
+  },
+  {
+   "input": "XX 999",
+   "output": "Highway nine ninety nine"
+  },
+  {
+   "input": "US 999 North",
+   "output": "U S nine ninety nine North"
+  },
+  {
+   "input": "Example 905 Road",
+   "output": "Example nine oh five Road"
+  },
+  {
+   "input": "Example 900 Road",
+   "output": "Example nine hundred Road"
+  },
+  {
+   "input": "Example 9920 Road",
+   "output": "Example ninety nine twenty Road"
+  },
+  {
+   "input": "Example 9905 Road",
+   "output": "Example ninety nine oh five Road"
+  },
+  {
+   "input": "Example 35 Road",
+   "output": "Example thirty five Road"
+  },
+  {
+   "input": "Example 12B Road",
+   "output": null
+  },
+  {
+   "input": "Example 12.5 Road",
+   "output": null
+  },
+  {
+   "input": "Example 99999 Road",
+   "output": null
+  },
+  {
+   "input": "N Main Street",
+   "output": null
+  },
+  {
+   "input": "Main St. North",
+   "output": null
+  },
+  {
+   "input": "OAK Street",
+   "output": null
+  },
+  {
+   "input": "I Street",
+   "output": null
+  },
+  {
+   "input": "Example 21th Street",
+   "output": null
+  }
+ ],
+ "connector": [
+  {
+   "input": "turn_left",
+   "output": "onto"
+  },
+  {
+   "input": "slight_right",
+   "output": "onto"
+  },
+  {
+   "input": "sharp_left",
+   "output": "onto"
+  },
+  {
+   "input": "end_right",
+   "output": "onto"
+  },
+  {
+   "input": "roundabout_2",
+   "output": "onto"
+  },
+  {
+   "input": "continue",
+   "output": "onto"
+  },
+  {
+   "input": "merge_left",
+   "output": "onto"
+  },
+  {
+   "input": "ramp_right",
+   "output": "onto"
+  },
+  {
+   "input": "exit_right",
+   "output": "onto"
+  },
+  {
+   "input": "keep_left",
+   "output": "to take"
+  },
+  {
+   "input": "keep_straight",
+   "output": "to take"
+  },
+  {
+   "input": "uturn",
+   "output": null
+  },
+  {
+   "input": "arrive",
+   "output": null
+  },
+  {
+   "input": "depart",
+   "output": null
+  }
+ ],
+ "sentenceKnownWords": [
+  "in",
+  "five",
+  "hundred",
+  "feet",
+  "a",
+  "quarter",
+  "mile",
+  "half",
+  "one",
+  "two",
+  "miles",
+  "turn",
+  "right",
+  "left",
+  "onto",
+  "keep",
+  "to",
+  "take",
+  "the",
+  "exit",
+  "on",
+  "main",
+  "street",
+  "oak",
+  "avenue",
+  "north",
+  "park",
+  "road",
+  "example",
+  "boulevard",
+  "at",
+  "roundabout",
+  "second",
+  "interstate",
+  "nine",
+  "ninety",
+  "u",
+  "s",
+  "make",
+  "meters",
+  "kilometer",
+  "kilometers"
+ ],
+ "sentence": [
+  {
+   "firstKey": "500ft.turn_right",
+   "banner": "Main Street",
+   "output": "In five hundred feet, turn right onto Main Street.",
+   "name": "Main Street"
+  },
+  {
+   "firstKey": "quarter_mi.roundabout_2",
+   "banner": "Example Boulevard",
+   "output": "In a quarter mile, at the roundabout, take the second exit onto Example Boulevard.",
+   "name": "Example Boulevard"
+  },
+  {
+   "firstKey": "2mi.keep_left",
+   "banner": "I 999 North: Example City",
+   "output": "In two miles, keep left to take Interstate nine ninety nine North.",
+   "name": "Interstate nine ninety nine North"
+  },
+  {
+   "firstKey": "1mi.exit_right",
+   "banner": "US 999",
+   "output": "In one mile, take the exit on the right onto U S nine ninety nine.",
+   "name": "U S nine ninety nine"
+  },
+  {
+   "firstKey": "500ft.turn_right",
+   "banner": "Zzyzxq Street",
+   "output": null
+  },
+  {
+   "firstKey": "500ft.uturn",
+   "banner": "Main Street",
+   "output": null
+  },
+  {
+   "firstKey": "turn_right",
+   "banner": "Main Street",
+   "output": null
+  },
+  {
+   "firstKey": "at_light.turn_right",
+   "banner": "Main Street",
+   "output": null
+  },
+  {
+   "firstKey": "500ft.turn_right",
+   "banner": "You have arrived.",
+   "output": null
+  }
+ ],
+ "vocabulary": [
+  "county",
+  "eight",
+  "eighteen",
+  "eighteenth",
+  "eighth",
+  "eightieth",
+  "eighty",
+  "eleven",
+  "eleventh",
+  "fifteen",
+  "fifteenth",
+  "fifth",
+  "fiftieth",
+  "fifty",
+  "first",
+  "five",
+  "fortieth",
+  "forty",
+  "four",
+  "fourteen",
+  "fourteenth",
+  "fourth",
+  "highway",
+  "hundred",
+  "hundredth",
+  "interstate",
+  "nine",
+  "nineteen",
+  "nineteenth",
+  "ninetieth",
+  "ninety",
+  "ninth",
+  "oh",
+  "one",
+  "onto",
+  "road",
+  "route",
+  "s",
+  "second",
+  "seven",
+  "seventeen",
+  "seventeenth",
+  "seventh",
+  "seventieth",
+  "seventy",
+  "six",
+  "sixteen",
+  "sixteenth",
+  "sixth",
+  "sixtieth",
+  "sixty",
+  "state",
+  "take",
+  "ten",
+  "tenth",
+  "third",
+  "thirteen",
+  "thirteenth",
+  "thirtieth",
+  "thirty",
+  "three",
+  "to",
+  "twelfth",
+  "twelve",
+  "twentieth",
+  "twenty",
+  "two",
+  "u",
+  "zero"
+ ]
+}
