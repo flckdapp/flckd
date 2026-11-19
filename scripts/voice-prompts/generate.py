@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import urllib.error
@@ -62,6 +63,39 @@ def clips():
     return out
 
 
+ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+        "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen",
+        "nineteen"]
+TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+
+# Wording the Kokoro word list cannot say, keyed by clip key or by phrase.
+# Applied to the exported text only; ElevenLabs keeps rendering clips().
+kokoro_overrides = {}
+
+
+def number_words(n):
+    """Cardinal words for 0-9999, spaces only (the Kokoro word list has no hyphenated numbers)."""
+    if n < 20:
+        return ONES[n]
+    if n < 100:
+        return TENS[n // 10] + ("" if n % 10 == 0 else " " + ONES[n % 10])
+    if n < 1000:
+        rest = n % 100
+        return ONES[n // 100] + " hundred" + ("" if rest == 0 else " " + number_words(rest))
+    rest = n % 1000
+    return number_words(n // 1000) + " thousand" + ("" if rest == 0 else " " + number_words(rest))
+
+
+def spoken_text(key, text):
+    """The clip's sentence with digits spelled out, for an engine that cannot read them."""
+    if key in kokoro_overrides:
+        return kokoro_overrides[key]
+    for phrase, replacement in kokoro_overrides.items():
+        text = text.replace(phrase, replacement)
+    return re.sub(r"\d{1,3}(?:,\d{3})*|\d+",
+                  lambda m: number_words(int(m.group(0).replace(",", ""))), text)
+
+
 def api_key():
     key = os.environ.get("ELEVENLABS_API_KEY")
     if key:
@@ -94,6 +128,8 @@ def request(method, path, key, body=None):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--plan", action="store_true")
+    ap.add_argument("--export-text", type=pathlib.Path,
+                    help="write key -> sentence JSON, numbers spelled out, for the Kokoro voice; no network")
     ap.add_argument("--voices", action="store_true")
     ap.add_argument("--voice")
     ap.add_argument("--model", default="eleven_multilingual_v2")
@@ -104,6 +140,12 @@ def main():
     a = ap.parse_args()
 
     all_clips = clips()
+    if a.export_text:
+        spoken = {k: spoken_text(k, t) for k, t in sorted(all_clips.items())}
+        a.export_text.parent.mkdir(parents=True, exist_ok=True)
+        a.export_text.write_text(json.dumps(spoken, indent=1, ensure_ascii=False, sort_keys=True) + "\n")
+        print(f"wrote {len(spoken)} sentences to {a.export_text}")
+        return
     if a.plan:
         for k, t in all_clips.items():
             print(f"{k:28} {t}")
