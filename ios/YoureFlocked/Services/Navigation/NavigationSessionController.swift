@@ -394,6 +394,12 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         VoicePromptPlayer.shared.enqueue(.preview(voice: voice, now: ProcessInfo.processInfo.systemUptime, units: .selected()))
     }
 
+    func playKokoroSample(_ preset: KokoroPreset) {
+        guard !isActive, !isStarting,
+              VoiceSettings.fromDefaults().allows(.preview, context: voiceContext) else { return }
+        VoicePromptPlayer.shared.enqueue(.kokoroPreview(preset: preset, now: ProcessInfo.processInfo.systemUptime, units: .selected()))
+    }
+
     /// Builds the summary, then stops immediately: a reroute that completes
     /// after arrival would otherwise restart guidance on a finished trip
     /// (Ferrostar issue #951).

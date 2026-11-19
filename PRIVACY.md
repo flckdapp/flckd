@@ -21,7 +21,8 @@ Please open an issue.
   sent anywhere. There is no routing server.
 - Turn-by-turn directions happen on your device too. Spoken prompts come
   from recorded audio bundled in the app, with on-device text-to-speech as
-  a fallback. A reroute is the same on-device planner run again. Nothing
+  a fallback. An optional third voice, Kokoro, plays generic prompts from
+  audio files you download once; they too play on the device. A reroute is the same on-device planner run again. Nothing
   about a trip is sent or kept.
 - No location history is written to disk, and no position ever leaves the
   device. Speed and red-light cameras come from one national file that is
@@ -112,6 +113,10 @@ never through a request built around your position.
 **Spoken directions and camera alerts.** The app plays pre-recorded audio
 files bundled with it, on your device. Nothing is synthesized over the network
 at runtime. Two voices, Eric and Jessica, are available in Settings.
+An optional third voice, Kokoro (experimental), plays the same generic
+prompts from audio files downloaded once from the tile server (see the
+table below) and stored on the phone. They play on the device like the
+bundled recordings; if one is missing, the recorded voice says that prompt.
 When a direction has no matching recording, Apple's `AVSpeechSynthesizer`
 speaks Ferrostar's instruction text on the device using an installed voice.
 That text is never sent anywhere. The master Voice switch silences all automatic

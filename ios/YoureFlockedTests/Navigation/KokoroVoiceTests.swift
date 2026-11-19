@@ -136,3 +136,11 @@ final class KokoroVoiceTests: XCTestCase {
         XCTAssertNil(store.clipURL(preset: heart, key: "turn_left"))
     }
 }
+
+final class LicenceResourceTests: XCTestCase {
+    func testKokoroLicenceShipsInTheApp() throws {
+        let url = try XCTUnwrap(Bundle(for: VoicePromptPlayer.self).url(forResource: "kokoro-82m", withExtension: "txt"))
+        let text = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(text.contains("Apache License"))
+    }
+}

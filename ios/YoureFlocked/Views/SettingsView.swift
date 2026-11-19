@@ -40,6 +40,8 @@ struct SettingsView: View {
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw: String = AppAppearance.system.rawValue
     @AppStorage(NavigationSessionController.voiceGuidanceKey) private var voiceGuidance: Bool = true
     @AppStorage(PromptVoice.storageKey) private var promptVoice: String = PromptVoice.male.rawValue
+    @AppStorage(VoiceEngine.storageKey) private var voiceEngine: String = VoiceEngine.recorded.rawValue
+    @AppStorage(KokoroPreset.storageKey) private var kokoroPreset: String = KokoroPreset.defaultID
     @AppStorage(VoiceSettings.masterKey) private var voiceEnabled = true
     @AppStorage(VoiceSettings.trafficLightsKey) private var trafficLights = true
     @AppStorage(VoiceSettings.reroutingKey) private var reroutingAnnouncements = true
@@ -227,12 +229,22 @@ struct SettingsView: View {
         } header: {
             Text("Voice")
         } footer: {
-            Text("Spoken directions and camera alerts, from recordings in the app.")
+            Text("Spoken directions and camera alerts, played on this device.")
         }
     }
 
     private var selectedVoiceName: String {
-        (PromptVoice(rawValue: promptVoice) ?? .male).name
+        voiceEngine == VoiceEngine.kokoro.rawValue ? "Kokoro" : (PromptVoice(rawValue: promptVoice) ?? .male).name
+    }
+
+    private var tripRunning: Bool { navigationController.isActive || navigationController.isStarting }
+
+    private var kokoroDetail: String {
+        guard let store = KokoroVoiceStore.standard else { return "" }
+        if voiceEngine == VoiceEngine.kokoro.rawValue {
+            return KokoroPreset.named(kokoroPreset)?.name ?? ""
+        }
+        return store.anyClipsInstalled ? "" : "Not downloaded"
     }
 
     private var voiceSettingsView: some View {
@@ -250,14 +262,16 @@ struct SettingsView: View {
         Section {
             ForEach(PromptVoice.allCases, id: \.rawValue) { voice in
                 HStack {
+                    let selected = voiceEngine == VoiceEngine.recorded.rawValue && promptVoice == voice.rawValue
                     Button {
                         promptVoice = voice.rawValue
+                        voiceEngine = VoiceEngine.recorded.rawValue
                     } label: {
                         HStack {
                             Text(voice.name)
                                 .foregroundStyle(.primary)
                             Spacer()
-                            if promptVoice == voice.rawValue {
+                            if selected {
                                 Image(systemName: "checkmark")
                             }
                         }
@@ -265,7 +279,8 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.borderless)
                     .accessibilityLabel(voice.name)
-                    .accessibilityAddTraits(promptVoice == voice.rawValue ? .isSelected : [])
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                    .disabled(tripRunning)
                     Button {
                         navigationController.playVoiceSample(voice)
                     } label: {
@@ -275,9 +290,22 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.borderless)
                     .accessibilityLabel("Preview \(voice.name)")
-                    .disabled(navigationController.isActive || navigationController.isStarting)
+                    .disabled(tripRunning)
                 }
             }
+            NavigationLink {
+                KokoroVoiceView()
+            } label: {
+                HStack {
+                    Text("Kokoro (experimental)")
+                    Spacer()
+                    Text(kokoroDetail).foregroundStyle(.secondary)
+                    if voiceEngine == VoiceEngine.kokoro.rawValue {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+            .accessibilityAddTraits(voiceEngine == VoiceEngine.kokoro.rawValue ? .isSelected : [])
         } header: {
             Text("Voice")
         } footer: {
@@ -617,6 +645,22 @@ struct SettingsView: View {
                     Text("Eric and Jessica. Generic prompts generated during development and shipped as audio files in the app. No ElevenLabs service runs in the app.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+                NavigationLink {
+                    LicenceTextView(title: "Kokoro-82M", resource: "kokoro-82m")
+                } label: {
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text("Kokoro-82M")
+                            Spacer()
+                            Text("Apache-2.0")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        Text("The optional Kokoro voice: the speech model, its voices and its word list. Downloaded only if you choose it.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
