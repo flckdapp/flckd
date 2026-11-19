@@ -143,4 +143,13 @@ final class LicenceResourceTests: XCTestCase {
         let text = try String(contentsOf: url, encoding: .utf8)
         XCTAssertTrue(text.contains("Apache License"))
     }
+
+    func testEngineLicencesShipInTheApp() throws {
+        let names = ["sherpa-onnx", "onnxruntime", "openfst", "kaldi-native-fbank", "kissfft", "kaldi-decoder",
+                     "simple-sentencepiece", "utf8proc", "nlohmann-json", "hclust-cpp", "eigen"]
+        for name in names {
+            let url = try XCTUnwrap(Bundle(for: VoicePromptPlayer.self).url(forResource: name, withExtension: "txt"), name)
+            XCTAssertGreaterThan(try String(contentsOf: url, encoding: .utf8).count, 200, name)
+        }
+    }
 }

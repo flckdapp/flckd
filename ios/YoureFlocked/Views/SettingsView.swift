@@ -636,8 +636,28 @@ struct SettingsView: View {
                     detail: "Turn-by-turn guidance. Bundles Mozilla\u{2019}s UniFFI runtime, which is MPL-2.0.",
                     url: URL(string: "https://github.com/stadiamaps/ferrostar")!
                 )
+
+                licenceTextRow(
+                    "sherpa-onnx",
+                    licence: "Apache-2.0",
+                    detail: "The speech engine for the optional Kokoro voice. Says street names on this device.",
+                    resource: "sherpa-onnx"
+                )
+
+                licenceTextRow(
+                    "ONNX Runtime",
+                    licence: "MIT",
+                    detail: "Runs the Kokoro speech model for sherpa-onnx.",
+                    resource: "onnxruntime"
+                )
+
+                NavigationLink {
+                    bundledComponentsView
+                } label: {
+                    Text("Components built into sherpa-onnx")
+                }
             } footer: {
-                Text("Neither library talks to a server in this app.")
+                Text("None of these libraries talks to a server in this app.")
             }
             Section("Voice Prompts") {
                 VStack(alignment: .leading, spacing: 5) {
@@ -666,6 +686,58 @@ struct SettingsView: View {
         }
         .navigationTitle("Open-source Licences")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private static let sherpaComponents: [(name: String, licence: String, resource: String)] = [
+        ("OpenFst", "Apache-2.0", "openfst"),
+        ("kaldi-native-fbank", "Apache-2.0", "kaldi-native-fbank"),
+        ("KISS FFT", "BSD-3-Clause", "kissfft"),
+        ("kaldi-decoder", "Apache-2.0", "kaldi-decoder"),
+        ("simple-sentencepiece", "Apache-2.0", "simple-sentencepiece"),
+        ("utf8proc", "MIT", "utf8proc"),
+        ("JSON for Modern C++", "MIT", "nlohmann-json"),
+        ("hclust-cpp (fastcluster)", "BSD-2-Clause", "hclust-cpp"),
+        ("Eigen", "MPL-2.0", "eigen"),
+    ]
+
+    private var bundledComponentsView: some View {
+        Form {
+            ForEach(Self.sherpaComponents, id: \.resource) { component in
+                NavigationLink {
+                    LicenceTextView(title: component.name, resource: component.resource)
+                } label: {
+                    HStack {
+                        Text(component.name)
+                        Spacer()
+                        Text(component.licence)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .navigationTitle("sherpa-onnx Components")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func licenceTextRow(_ name: String, licence: String, detail: String, resource: String) -> some View {
+        NavigationLink {
+            LicenceTextView(title: name, resource: resource)
+        } label: {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(name)
+                    Spacer()
+                    Text(licence)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private func licenceRow(

@@ -47,6 +47,8 @@ targets:
         product: Valhalla
       - package: Ferrostar
         product: FerrostarCore
+      - package: SherpaOnnx
+        product: sherpa-onnx
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.vws.app.flckd
@@ -131,6 +133,12 @@ packages:
   Ferrostar:
     url: https://github.com/stadiamaps/ferrostar.git
     exactVersion: 0.59.0
+  # Pinned exactly: 2.0.0 removed eSpeak-NG from the library, and the Kokoro
+  # pack (scripts/voice-model/) is built and checked with this version's
+  # word-list rules. Renders street names for the optional Kokoro voice.
+  SherpaOnnx:
+    url: https://github.com/k2-fsa/sherpa-onnx.git
+    exactVersion: 2.0.1
 
 schemes:
   YoureFlocked:

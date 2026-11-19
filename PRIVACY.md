@@ -74,7 +74,25 @@ than about the call graph, the app gives Ferrostar a request loader that
 always throws (`NoNetworkRequestLoader`): if guidance ever acquired a network
 path, it would fail loudly instead of quietly contacting a server.
 
-Those two libraries are the third-party code in the binary. Swift Package
+The optional Kokoro voice says street names with
+[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) 2.0.1 (Apache-2.0), a
+speech engine, running on
+[ONNX Runtime](https://onnxruntime.ai) (MIT), both compiled into the app.
+They turn text into audio on the phone and make no network calls in this
+app: the speech model they read is a file you downloaded (see the table
+below), and neither library imports any networking function. Once the
+project has built, this prints `0`:
+
+```bash
+nm -u ios/_dd/SourcePackages/artifacts/sherpa-onnx/SherpaOnnxIOS/sherpa-onnx.xcframework/ios-arm64/SherpaOnnxC.framework/SherpaOnnxC \
+      ios/_dd/SourcePackages/artifacts/onnxruntime-libs/OnnxruntimeIOS/onnxruntime.xcframework/ios-arm64/onnxruntime.framework/onnxruntime \
+  | grep -cE '_(socket|connect|getaddrinfo)$|CFNetwork'
+```
+
+ONNX Runtime's own privacy notice describes telemetry only for Microsoft's
+official Windows builds; this is a build from source for iOS, which has none.
+
+Those four libraries are the third-party code in the binary. Swift Package
 Manager also resolves three packages that Ferrostar's map-view products
 depend on, `maplibre/swiftui-dsl`, `maplibre-gl-native-distribution` and
 `swift-syntax`, because a package's dependencies resolve as a set. The app
