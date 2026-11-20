@@ -25,6 +25,13 @@ private let fallbackAlertRadius: Double = 200
 @MainActor
 @Observable
 final class LiveActivityManager {
+    private let activityRequestsEnabled: Bool
+
+    /// Tests can exercise navigation without registering an OS-owned activity
+    /// that can relaunch their host after XCTest has terminated it.
+    init(activityRequestsEnabled: Bool = true) {
+        self.activityRequestsEnabled = activityRequestsEnabled
+    }
 
     /// True while a Live Activity started by this manager is on screen.
     private(set) var isActivityRunning: Bool = false
@@ -62,7 +69,7 @@ final class LiveActivityManager {
 
     /// Whether the user has Live Activities enabled for this app.
     var isSupported: Bool {
-        ActivityAuthorizationInfo().areActivitiesEnabled
+        activityRequestsEnabled && ActivityAuthorizationInfo().areActivitiesEnabled
     }
 
     // MARK: - Lifecycle
@@ -71,7 +78,7 @@ final class LiveActivityManager {
     func startActivity(alertRadius: Double) {
         lastAlertRadius = alertRadius
 
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        guard isSupported else { return }
         guard currentActivityID == nil else {
             // Guidance got there first. Tracking now wants this activity too,
             // so the end of the trip must not take it away.
@@ -146,7 +153,7 @@ final class LiveActivityManager {
             // A trip can run with camera tracking switched off, in which case
             // nobody has requested an activity yet. The turn is worth a lock
             // screen on its own, and the camera row comes along with it.
-            guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+            guard isSupported else { return }
             guard let id = Self.requestActivity(
                 alertRadius: lastAlertRadius ?? Self.storedAlertRadius(),
                 initialState: composedState()
