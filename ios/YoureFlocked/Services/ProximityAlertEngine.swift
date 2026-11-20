@@ -453,7 +453,7 @@ final class ProximityAlertEngine {
             clips: [key], voice: .selected, priority: .camera, kind: .camera(type),
             createdAt: ProcessInfo.processInfo.systemUptime, cameraTargets: targets,
             cameraRequiresView: !entry || key.hasSuffix(".in_view"),
-            kokoro: KokoroSelection.requested()
+            liveVoice: NavigationVoice.selected()
         ))
     }
 

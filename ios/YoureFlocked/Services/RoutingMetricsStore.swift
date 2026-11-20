@@ -28,6 +28,23 @@ final class RoutingMetricsStore {
     private static let log = Logger(subsystem: "io.vws.app.flckd", category: "routing.metrics")
 
     private(set) var samples: [RoutePlanSample] = []
+    struct SpeechRenderSample: Codable {
+        let wallSeconds: Double
+        let background: Bool
+        let success: Bool
+        let errorType: String?
+        let deadlineMiss: Bool
+    }
+    private(set) var speechRenders: [SpeechRenderSample] = []
+    private(set) var speechFallbacks: [String: Int] = [:]
+
+    func recordSpeechRender(wall: Double, background: Bool, success: Bool, errorType: String?, deadlineMiss: Bool) {
+        speechRenders.append(SpeechRenderSample(wallSeconds: wall, background: background,
+            success: success, errorType: errorType, deadlineMiss: deadlineMiss))
+        if speechRenders.count > maxSamples { speechRenders.removeFirst(speechRenders.count - maxSamples) }
+    }
+
+    func recordSpeechFallback(_ reason: String) { speechFallbacks[reason, default: 0] += 1 }
 
     /// Set by `RerouteProbe` when a sweep starts; travels in the export so a
     /// cross-device comparison can be checked rather than assumed.
@@ -84,6 +101,8 @@ final class RoutingMetricsStore {
 
     func reset() {
         samples.removeAll()
+        speechRenders.removeAll()
+        speechFallbacks.removeAll()
         sweepContext = nil
         do {
             try handle?.close()
@@ -227,7 +246,9 @@ final class RoutingMetricsStore {
                 maxMs: maxMs,
                 withinBudgetFraction: withinBudgetFraction
             ),
-            samples: samples
+            samples: samples,
+            speechRenders: speechRenders,
+            speechFallbacks: speechFallbacks
         )
 
         let encoder = JSONEncoder()
@@ -265,6 +286,8 @@ final class RoutingMetricsStore {
         let sweepContext: SweepContext?
         let summary: Summary
         let samples: [RoutePlanSample]
+        let speechRenders: [SpeechRenderSample]
+        let speechFallbacks: [String: Int]
     }
 
     /// e.g. "iPhone16,2". CPU generation dominates these measurements, so the

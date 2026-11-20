@@ -21,7 +21,7 @@ OpenStreetMap. The app does five things:
 - gives turn-by-turn directions along that route, and replans around cameras
   if you leave it
 
-iOS ships first (SwiftUI, MapKit, CoreLocation, SwiftData, iOS 17+, Swift 6).
+iOS ships first (SwiftUI, MapKit, CoreLocation, SwiftData, iOS 26+, Swift 6).
 Android is planned but not started.
 
 ### Names and identifiers
@@ -103,7 +103,6 @@ ios/
       ValhallaRoutingService.swift  request building, avoidance, scoring
       LocalValhallaEngine.swift     the embedded Valhalla engine
       TilePackService.swift         manifest, pack and speed-camera file download, RegionStore
-      VoiceModelService.swift       optional Kokoro voice download, hash-checked against the bundled descriptor
       OfflineDataUpdater.swift      daily update check for packs and the camera file
       USStateBounds.swift           rough region boxes for preflight UX
       SuspectedLocationService.swift  optional CSV download
@@ -127,23 +126,25 @@ ios/
         CameraPromptSelector.swift         pure camera type, clip and preference gating
         RouteSignals.swift                 optional on-device trace_attributes and signal-to-turn mapping
         PromptText.swift                   the sentence each clip says, numbers spelled out
-        KokoroVoice.swift                  engine choice, pack descriptor and store, clip loader, trip counts
-        KokoroSynthesizer.swift            sherpa-onnx engine on its own queue; render, resample, level
-        KokoroNameRenderer.swift           pure name planner; renders street names ahead, in memory only
-        KokoroSupport.swift                pure memory and render-speed support rule and its settings
+        PhononSynthesizer.swift            actor-owned live speech, foreground load and fixed voice gains
+        PhononSpeechService.swift          render-ahead window, bounded cache and background breaker
+        SpeechAheadPlanner.swift           finite scheduled prompts for three steps
+        NavigationVoice.swift              four-voice selection, gender fallback and legacy migration
+        VoiceRenderPolicy.swift            deadline, duration limits and cache eviction
+        VoiceResampler.swift               mono PCM sample-rate conversion
+        PhononSentences.swift              sentence splitter, character gate and debug fixture examples
+        PhononLoudness.swift               mono BS.1770 calibration on VoicePCM
         SpokenText.swift                   the word check every sentence passes before the engine sees it
         SpokenRoadName.swift               pure turn-card name to speakable words, or nothing
       RoutePlanMetrics.swift        debug only: one timed record per plan
       RoutingMetricsStore.swift     debug only: session stats and JSON export
       RerouteProbe.swift            debug only: repeated planning while driving
-    Views/KokoroVoiceView.swift     the Kokoro page: downloads, presets, previews, street names
-    Views/KokoroBenchView.swift     debug only: Kokoro speed, memory and heat bench
+    Views/PhononEvaluationView.swift debug only: Phonon/recorded listening and short/long bench
     Resources/
       Info.plist, entitlements, assets
       VoicePrompts/{male,female}/     generic recorded prompts; one folder reference preserves both voices
-      PromptText.json                 every clip's sentence, for Kokoro
-      KokoroPack.json                 the Kokoro pack descriptor: the only hashes the download trusts
-      Licences/                       full licence texts for Kokoro, sherpa-onnx, ONNX Runtime and their parts
+      PromptText.json                 every clip's sentence, for live speech
+      Licences/                       full licence texts for Phonon 31m and xn-ptts
   YoureFlockedWidgets/              widget and Live Activity target
   YoureFlockedUITests/              gitignored; contains real coordinates
 ```
@@ -154,9 +155,9 @@ The `.xcodeproj` is generated and isn't in git. Edit `project.yml`, then run
 `scripts/voice-prompts/` holds the generic phrase script and development-only
 ElevenLabs generation and normalization tools. Raw output stays in gitignored
 `ai-docs/`; only the finished audio ships. See its README to regenerate it.
-`scripts/voice-model/` builds the optional Kokoro pack (model and pre-rendered
-clips) for the tile server; `docs/kokoro-voice-pack.md` describes the pack for
-other platforms.
+`scripts/voice-model/fetch_phonon.py` prepares the bundled offline speech model.
+Run it before building locally or in CI; the build fails if the verified model
+folder is absent. No speech assets are fetched by the app.
 
 ### Pattern
 
@@ -410,10 +411,10 @@ clips use 200/300/400 m in metric, versus the existing imperial forms.
 
 Both voices bundle 435 generic recordings, including 157 metric clips each
 (115 approaches, 30 continue distances and 12 camera distances). The recorded
-voices are never synthesized or downloaded at runtime. Runtime speech comes
-from two on-device sources only: Apple's `AVSpeechSynthesizer` for directions
-with no matching recording, and the optional Kokoro voice below, whose files
-are the only downloaded voice and which synthesizes street names. The lock screen receives the app's
+voices are never synthesized or downloaded at runtime. Runtime speech comes from the bundled Phonon model when Easton or Harper is
+selected, or the recordings when Eric or Jessica is selected. Apple's
+AVSpeechSynthesizer remains the existing last resort for instructions with no
+matching recording. The lock screen receives the app's
 unit choice as an optional Live Activity payload field; absent means imperial,
 including for payloads written by older builds. Both turn and camera distances
 use explicit formatter units, never the device region. No App Group is needed.
@@ -486,55 +487,51 @@ passing have specific clips. Ahead groups use the two/three/several recording.
 Settings shows one master Voice switch, default on, and a "Voice & Spoken
 Prompts" page that holds everything else. That page starts with a voice list:
 the recorded voices from `PromptVoice.allCases`, shown by name (Eric, Jessica),
-with a selection checkmark and a preview button per row, then a "Kokoro
-(experimental)" row that opens its own page. Previews use that row's voice and
-replace any previous preview, even with Voice off. They are refused while
-starting or navigating, so they never interrupt or wait behind a live
-direction, and every voice choice is disabled during a trip.
+with a selection checkmark and a preview button per row. Easton and Harper
+render live; Eric and Jessica play bundled clips. Every preview is explicit,
+works with Voice off, and is refused while starting or navigating. Live previews
+never silently fall back: Settings shows a fixed error message on failure.
 
-**Kokoro.** An optional third voice for A/B testing against the recordings.
-`PromptVoice` stays recorded-only; a separate `VoiceEngine` setting picks
-recorded or Kokoro, so the selected recorded voice is always the fallback.
-Kokoro speaks in two ways. The 435 fixed prompts are Kokoro audio files in
-six presets, rendered on a Mac by `scripts/voice-model/` and downloaded once
-from the tile server; they play exactly like the recordings, with no model in
-memory, inside and outside trips. Street names ("…onto Main Street") are
-rendered on the phone by Kokoro-82M through sherpa-onnx 2.0.1. One "Download
-Kokoro" fetches the clips and, on phones with the memory for street names,
-the model too. The download is hash-checked against `KokoroPack.json`,
-compiled into the app, never against anything the server says.
+**Live speech.** Phonon 31m English runs through xn-ptts 0.7.1 in every build.
+The verified Core ML bundle includes only Easton and Harper, copied intact by a
+build phase. Runtime calls are local file install/load/render only; no model
+fetch or telemetry exists in the app path. All supported phones get live speech,
+without a RAM threshold. A serious or critical thermal state uses recordings.
+Easton falls back to Eric; Harper to Jessica. A whole utterance is live or
+recorded, never a mixture. SpokenRoadName keeps route names/exit numbers in
+memory only, with the same shared fixture rules; the text gate no longer needs
+a word list. Unsupported names are omitted, not spoken in part.
 
-Per utterance the player tries, in order: Kokoro audio with the street name,
-Kokoro clips (only if every clip of the utterance exists), the recorded voice
-for the whole utterance. Voices are never mixed within an utterance, playback
-never waits for a render, and a Kokoro preview never falls back. Names are
-used on approach prompts only, taken from the turn card so voice and screen
-agree, and only when the named first clip is at most 2.5 s longer than the
-name-free one and the whole utterance is at most 5 s, so a waiting camera
-alert does not expire. `SpokenRoadName` turns the card text into words (route
-prefixes, road numbers read the local way, ordinals) or into nothing; a name
-is never spoken in part. Approach prompts to an exit also say the exit number
-from the turn card ("take exit twelve B on the right"), with the road name when
-it can be said and alone when it can't. The recorded voices have no number
-clips, so only Kokoro says exit numbers. Its rules are pinned by a JSON fixture shared with
-the future Android app.
+PhononSpeechService eagerly plans all scheduled approaches, final actions,
+lane/light variants and continue prompts for the current and next two steps.
+Accepted reroutes replace this window. A FIFO worker renders one utterance at a
+time through the engine's user-initiated queue; current-step work precedes generic
+camera/arrival/reroute warm-up. An 8 MiB PCM cache retains this window plus generic
+common prompts; window replacement removes route text immediately and trip end
+clears all text/audio, jobs and failures. A generation token rejects stale results.
+Playback checks the cache and waits at most 150 ms (3% of the camera alert's
+five-second lifetime), then chooses the same-gender recording for the entire
+utterance. It rechecks permissions, camera eligibility and expiry after that wait.
+When a camera has at most 200 ms of lifetime left (the render deadline plus
+50 ms of playback setup reserve), it skips live resolution and uses its
+recording immediately rather than spending its remaining lifetime waiting.
+Live audio must fit five seconds; names may add no more than 2.5 seconds versus
+the recording. The player never holds audio focus while waiting for a model.
 
-`KokoroNameRenderer` loads the engine at trip start and unloads it at trip
-end. On each step change and reroute it plans the named approach prompts of
-the current step and the next two and renders them one at a time, nearest
-first, while the app is in the foreground and the phone is below a serious
-thermal state; a render already running when the app leaves the foreground
-may finish, but none starts. A generation counter discards any result that
-arrives after its trip ended, a window discards names for steps already
-passed, and each request is tried at most once per window. A memory warning
-unloads the engine for the rest of the trip; Kokoro clips continue. Audio is
-held in memory only. Phones with at least 5 GB of memory say names. Render
-speed is not a gate: a name that isn't ready when its prompt fires plays
-without the name, for that prompt only. (An earlier rule switched names off
-for the whole trip after one slow measurement; on a real phone that silenced
-names a renderer seconds ahead had plenty of time for.) Previews and trips
-still record the measured speed, for diagnosis. The arrival card reports how many prompts Kokoro was asked for,
-spoke, and spoke with a name.
+Each sentence is generated separately with seed 42, resampled by VoiceResampler,
+trimmed, levelled with a fixed gain calibrated once per voice from a long generic
+passage, peak-limited to 0.66 with the shared 1 ms attack/50 ms release, and joined
+by VoicePCM.compose using VoiceTimeline.sentenceGap (350 ms) and 8 ms fades.
+The fixed gain avoids pumping on short turns and names. Calibration uses mono
+BS.1770 gated loudness targeting -16 LUFS; limiting may lower the achieved level.
+No prompt text, road name or rendered audio is written to disk or logged.
+Phonon uses VoicePromptPlayer, not its own player, so there is one audio session.
+The arrival summary counts Phonon prompts requested/spoken/with names in memory.
+
+The Debug Phonon page and bench remain for listening and timing only. Debug
+metrics exports add bounded render wall time, foreground/background, success,
+error type name (never description), deadline outcome and fallback-reason counts.
+Those measurements are compiled out of Release with the existing sentinel gate.
 
 Spoken prompts has separate directions, traffic-light, rerouting and camera
 switches, disabled under the master switch. The existing `voiceGuidanceEnabled`
@@ -644,8 +641,9 @@ Decisions:
   mismatch degrade to the primary route rather than navigate an alternate
   the user never saw.
 - **The app owns the audio session.** Ferrostar gets a muted no-op synthesizer
-  with `managesAudioSession: false`. `VoicePromptPlayer` confines all audio
-  work to one serial queue. It activates `.playback` / `.voicePrompt` with
+  with `managesAudioSession: false`. `VoicePromptPlayer` confines audio and
+  queue state to the main actor; synthesis runs off it on Phonon's serial
+  user-initiated queue. It activates `.playback` / `.voicePrompt` with
   `.duckOthers` and `.interruptSpokenAudioAndMixWithOthers` once per utterance
   and releases with `.notifyOthersOnDeactivation` after the final clip, never
   between an approach and its lane sentence. `AVAudioFile` decodes generic
@@ -659,17 +657,47 @@ Decisions:
   Interruptions and unplugged outputs stop speech instead of resuming an old
   instruction. Background audio is declared for locked-screen prompts; no
   silence is played to keep the app running.
-- **Kokoro is an optional second voice, not a replacement.** Nobody we found
-  keeps a large speech model loaded in the background, and iOS kills
-  background apps for sustained CPU, so the fixed prompts are pre-rendered
-  files and only street names are rendered live, ahead, in the foreground.
-  Mixing voices inside an utterance would spoil the comparison testers are
-  asked to make, so an utterance is all Kokoro or all recorded. The engine
-  logs any word it doesn't know whatever its debug setting, so only text in
-  which every word passed the app's own check ever reaches it, and a road
-  name cannot end up in a log. sherpa-onnx was chosen because the same C
-  library has a Kotlin API for Android and, since 2.0.0, contains no
-  eSpeak-NG; the pack ships no eSpeak data either.
+- **Foreground warm-up, opportunistic background speech.** Core ML's Neural
+  Engine behavior is unconfirmed on iOS 26. Apple's iOS 27 Background Inference
+  entitlement requires continued-processing authorization for background ANE
+  access; this app neither requests it nor assumes it can obtain approval.
+  Phonon uses cpuAndNeuralEngine (never all/GPU), with its vocoder CPU-only.
+  Loading and first compilation start only in the foreground at activation or
+  trip start, only with a live voice selected and the master Voice switch on.
+  An explicit live preview separately authorizes warm-up even with Voice off.
+  Installation and the synchronous C load run on an app-owned user-initiated
+  actor executor, not the main actor or an unchecked upstream work queue.
+  UIKit's active state and cancellation are checked immediately before
+  dispatch, then a lifecycle generation grant is rechecked on that executor
+  before both install and load. Already-running Core ML work cannot be forcibly
+  interrupted, but revoked queued work never starts. If unloaded while locked,
+  speech falls back to recordings rather
+  than loading or compiling. The warmed engine stays loaded across trips so a
+  later background prompt needs no load. Foreground eagerly renders the whole
+  upcoming window; background still attempts user-initiated renders, never
+  background-QoS work. Three consecutive background errors or playback deadline
+  misses open a pure circuit breaker until foreground activation. Rendering
+  uses one attempt identity for deadline and completion accounting, so a late
+  error cannot count the same attempt twice. The active render key is excluded
+  from the queue; success and failure both validate the route window before
+  storing anything, including failed-name records. An unchanged exact key is accepted even when
+  the window advances. Every waiting playback request owns its own deadline
+  identity; a miss counts according to foreground state at expiry, even while
+  queued behind a slow render. Completion suppresses an already-counted miss. Cached PCM
+  remains usable when the breaker is open. No foreground/background reload or
+  speculative CPU switch occurs. A locked-phone drive on the actual supported
+  OS/device is what settles whether background live speech works; until then,
+  automatic recordings are the safety path, not an assertion of ANE permission.
+  Sources: Apple's Background Inference entitlement documentation and WWDC22
+  session 10027, plus the pinned runtime's Core ML driver.
+- **Tests must not leave OS-owned Live Activities.** Production activity
+  creation, ownership transfer and foreground/background behavior are unchanged.
+  Navigation and tracking tests inject `LiveActivityManager` with
+  `activityRequestsEnabled: false`, including the Debug app host launched by
+  the test scheme or local UI tests. Synthetic-drive teardown awaits cleanup.
+  This avoids an orphan activity's relaunch racing XCTest's instrumented launch
+  after simulator reboot; changing user-visible Live Activity behavior is not
+  a test fix.
 - **Drive simulation is debug-only.** `Simulate drive` under the route card has
   15/25/35/45/55/70 mph Speed presets and a 1x/2x/4x/8x Time multiplier, persisted
   only in Debug and applied on the next Start. At 1x a fix arrives each second;

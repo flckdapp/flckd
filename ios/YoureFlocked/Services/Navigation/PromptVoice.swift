@@ -12,7 +12,7 @@ enum PromptVoice: String, CaseIterable, Sendable {
     }
 
     static var selected: Self {
-        Self(rawValue: UserDefaults.standard.string(forKey: storageKey) ?? "") ?? .male
+        NavigationVoice.selected().recorded
     }
 
     func url(for key: String, bundle: Bundle = .main) -> URL? {

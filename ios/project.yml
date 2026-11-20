@@ -2,7 +2,7 @@ name: YoureFlocked
 options:
   bundleIdPrefix: io.vws.app.flckd
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "26.0"
   xcodeVersion: "16.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
@@ -28,6 +28,8 @@ settings:
     # XcodeGen's preset applies the legacy "iPhone Developer" to the app only.
     CODE_SIGN_IDENTITY: "Apple Development"
     ENABLE_PREVIEWS: YES
+    # PhononCore supplies Apple-silicon simulator slices only.
+    EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
 
 targets:
   YoureFlocked:
@@ -47,8 +49,8 @@ targets:
         product: Valhalla
       - package: Ferrostar
         product: FerrostarCore
-      - package: SherpaOnnx
-        product: sherpa-onnx
+      - package: Phonon
+        product: ptts
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.vws.app.flckd
@@ -59,6 +61,20 @@ targets:
     entitlements:
       path: YoureFlocked/Resources/YoureFlocked.entitlements
     postBuildScripts:
+      - name: Bundle offline Phonon models
+        basedOnDependencyAnalysis: false
+        script: |
+          DEST="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Models"
+          rm -rf "$DEST"
+          rm -f "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/phonon-road-names.json"
+          SOURCE="$SRCROOT/_phonon/Models"
+          if [ ! -f "$SOURCE/bundle.json" ]; then
+            echo "error: run scripts/voice-model/fetch_phonon.py with uv before building or archiving."
+            exit 1
+          fi
+          ditto "$SOURCE" "$DEST"
+          [ "$CONFIGURATION" = "Debug" ] || exit 0
+          cp "$SRCROOT/YoureFlockedTests/Navigation/Fixtures/spoken-road-names.json" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/phonon-road-names.json"
       # The routing latency HUD, reroute probe and metrics store are wrapped
       # in #if DEBUG, so a Release build should not contain them. Verify the
       # artefact rather than trusting that the source is still gated: a stray
@@ -120,6 +136,11 @@ targets:
         CODE_SIGN_IDENTITY: "Apple Development"
 
 packages:
+  # Pinned exactly: the bundled models and Swift API match this runtime.
+  # The model is bundled for offline speech in every configuration.
+  Phonon:
+    url: https://github.com/gradium-ai/xn-ptts.git
+    exactVersion: 0.7.1
   # Pinned exactly: 0.6.4 moves the embedded engine from Valhalla 3.6.3 to
   # 3.9.1, and tiles are memory-mapped, so the builder and the engine have to
   # stay on the same version. `from:` let a fresh checkout resolve 0.6.4.
@@ -133,12 +154,6 @@ packages:
   Ferrostar:
     url: https://github.com/stadiamaps/ferrostar.git
     exactVersion: 0.59.0
-  # Pinned exactly: 2.0.0 removed eSpeak-NG from the library, and the Kokoro
-  # pack (scripts/voice-model/) is built and checked with this version's
-  # word-list rules. Renders street names for the optional Kokoro voice.
-  SherpaOnnx:
-    url: https://github.com/k2-fsa/sherpa-onnx.git
-    exactVersion: 2.0.1
 
 schemes:
   YoureFlocked:
@@ -151,6 +166,8 @@ schemes:
         allow: true
     test:
       config: Debug
+      environmentVariables:
+        FLCKD_TEST_DISABLE_ACTIVITY_REQUESTS: "1"
       targets:
         - YoureFlockedTests
         - YoureFlockedUITests

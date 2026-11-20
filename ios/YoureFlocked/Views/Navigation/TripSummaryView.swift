@@ -20,12 +20,12 @@ struct TripSummaryView: View {
             header
             statsRow
             camerasSection
-            if let kokoro = summary.kokoro {
-                Text(Self.kokoroLine(kokoro))
+            if let speech = summary.speech {
+                Text(Self.speechLine(speech))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .accessibilityIdentifier("trip-summary-kokoro")
+                    .accessibilityIdentifier("trip-summary-speech")
             }
             doneButton
         }
@@ -40,10 +40,10 @@ struct TripSummaryView: View {
         .padding(.horizontal, 20)
     }
 
-    /// "Kokoro spoke N of M prompts, K with a street name." For testers to
+    /// "Phonon spoke N of M prompts, K with a street name." For testers to
     /// report; held in memory with the rest of the card.
-    static func kokoroLine(_ stats: KokoroStats) -> String {
-        "Kokoro spoke \(stats.spoken) of \(stats.requested) prompts, \(stats.named) with a street name."
+    static func speechLine(_ stats: SpeechStats) -> String {
+        "Phonon spoke \(stats.spoken) of \(stats.requested) prompts, \(stats.named) with a street name."
     }
 
     // MARK: - Sections

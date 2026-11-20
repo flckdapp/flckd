@@ -12,39 +12,18 @@ struct VoiceUtterance: Equatable, Sendable {
     var createdAt: TimeInterval
     var cameraTargets = Set<Int64>()
     var cameraRequiresView = false
-    /// The Kokoro preset the user asked for. Whether its audio exists is
-    /// decided at playback, so a broken pack still counts as a request.
-    var kokoro: KokoroPreset? = nil
-    /// Previews of a Kokoro preset never fall back to another voice.
-    var kokoroOnly = false
-    /// The turn card's road name, set on approach prompts when Kokoro may say
-    /// names. Only ever used to look up audio already rendered in memory.
+    var liveVoice: NavigationVoice? = nil
     var roadName: String? = nil
-    /// The exit number on the turn card, for Kokoro approach prompts to exits.
     var exitNumber: String? = nil
-    /// A live-rendered first clip for a Kokoro preview; replaces the first clip.
-    var previewFirstClip: [Float]? = nil
+    /// Already-rendered whole utterance; never mixes with recorded clips.
+    var renderedPCM: [Float]? = nil
 
     static func preview(voice: PromptVoice, now: TimeInterval, units: DistanceUnits = .imperial) -> Self {
         Self(clips: [units == .metric ? "200m.turn_right" : "500ft.turn_right", "lane_right", "cam.flock.ahead"], voice: voice,
              priority: .sample, kind: .preview, createdAt: now)
     }
 
-    static func kokoroPreview(preset: KokoroPreset, now: TimeInterval, units: DistanceUnits = .imperial,
-                              firstClip: [Float]? = nil) -> Self {
-        var utterance = preview(voice: .selected, now: now, units: units)
-        utterance.kokoro = preset
-        utterance.kokoroOnly = true
-        utterance.previewFirstClip = firstClip
-        return utterance
-    }
 
-    /// The sentence a live Kokoro preview renders: the preview's first prompt
-    /// with a generic street name.
-    static func kokoroPreviewSentence(units: DistanceUnits = .imperial) -> String? {
-        let key = preview(voice: .male, now: 0, units: units).clips[0]
-        return SpokenRoadName.sentence(firstKey: key, bannerText: "Main Street", knows: { _ in true })?.text
-    }
 }
 
 struct VoicePromptQueue {

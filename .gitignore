@@ -73,6 +73,9 @@ __pycache__/
 ios/_build-logs/
 ios/_sim-shots/
 ios/_dd/
+# Verified Phonon model staging (copied into the app) and local build output.
+ios/_phonon/
+ios/_dd_phonon/
 
 # ---- Browser automation scratch ----
 .playwright-mcp/

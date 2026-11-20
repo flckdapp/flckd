@@ -3,15 +3,12 @@ import Foundation
 import os
 @preconcurrency import FerrostarCore
 
-/// All audio objects, decoded buffers and queue state are confined to `queue`.
-/// No route, instruction, or position is retained after its utterance drains.
-/// The one exception is Kokoro's street names: upcoming road names exist as
-/// rendered audio in `KokoroNameRenderer`'s memory for at most three steps,
-/// and are dropped when those steps pass or the trip ends. Never on disk.
-final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesizerDelegate {
+/// Audio objects and queue state are main-actor confined. Core ML never runs
+/// here; the speech service returns bounded, already-rendered whole utterances.
+@MainActor
+final class VoicePromptPlayer: NSObject, @preconcurrency AVSpeechSynthesizerDelegate {
     static let shared = VoicePromptPlayer()
     private static let log = Logger(subsystem: "io.vws.app.flckd", category: "voice")
-    private let queue = DispatchQueue(label: "app.flckd.voice", qos: .userInitiated)
     private let engine = AVAudioEngine()
     private let node = AVAudioPlayerNode()
     private let synth = AVSpeechSynthesizer()
@@ -23,10 +20,23 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
     private var fallbackToken: (utterance: ObjectIdentifier, generation: Int)?
     private var context = VoicePlaybackContext()
     private var cameraEligibility = CameraSpeechEligibility()
-    private var kokoroStatistics = KokoroStats()
+    private var speechStatistics = SpeechStats()
+    private var renderTask: Task<Void, Never>?
     private let sampleRate = 44_100.0
+    #if DEBUG
+    var debugNow: (() -> TimeInterval)?
+    var debugResolve: ((VoiceUtterance, Double) async -> PhononSpeechService.Resolution)?
+    var debugPlayback: ((VoiceUtterance, Bool) -> Void)?
+    func debugFinishCurrent() { finished(token: generation) }
+    #endif
+    private var now: TimeInterval {
+        #if DEBUG
+        if let debugNow { return debugNow() }
+        #endif
+        return ProcessInfo.processInfo.systemUptime
+    }
 
-    private override init() {
+    override init() {
         super.init()
         engine.attach(node)
         synth.delegate = self
@@ -36,82 +46,54 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
         ) { [weak self] notification in
             guard let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
                   AVAudioSession.InterruptionType(rawValue: raw) == .began else { return }
-            self?.stopAll()
+            Task { @MainActor [weak self] in self?.stopAll() }
         }
         NotificationCenter.default.addObserver(
             forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil
         ) { [weak self] notification in
             guard let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
                   AVAudioSession.RouteChangeReason(rawValue: raw) == .oldDeviceUnavailable else { return }
-            self?.stopAll()
+            Task { @MainActor [weak self] in self?.stopAll() }
         }
     }
 
-    func enqueue(_ utterance: VoiceUtterance) {
-        queue.async {
-            guard VoiceSettings.fromDefaults().allows(utterance, context: self.context) else { return }
-            guard self.cameraEligibility.allows(utterance) else { return }
-            if utterance.kind == .preview {
-                self.prompts.remove(.sample)
-                if self.active?.kind == .preview {
-                    self.stopCurrent()
-                    self.releaseSession()
-                }
-            }
-            self.prompts.enqueue(utterance)
-            self.playNext()
+    func enqueue(_ incoming: VoiceUtterance) {
+        var utterance = incoming
+        if utterance.renderedPCM == nil { utterance.renderedPCM = PhononSpeechService.shared.arrivalAudio(utterance) }
+        guard VoiceSettings.fromDefaults().allows(utterance, context: context), cameraEligibility.allows(utterance) else { return }
+        if utterance.kind == .preview {
+            prompts.remove(.sample)
+            if active?.kind == .preview { stopCurrent(); releaseSession() }
         }
+        prompts.enqueue(utterance)
+        playNext()
     }
 
-    func updateContext(_ context: VoicePlaybackContext) {
-        queue.async {
-            self.context = context
-            self.applyPermissions()
-        }
-    }
-
-    func settingsDidChange() {
-        queue.async { self.applyPermissions() }
-    }
-
-    func updateCameraEligibility(_ eligibility: CameraSpeechEligibility) {
-        queue.async {
-            self.cameraEligibility = eligibility
-            self.prompts.removeInvalidCameras(eligibility)
-            self.playNext()
-        }
+    func updateContext(_ value: VoicePlaybackContext) { context = value; applyPermissions() }
+    func settingsDidChange() { applyPermissions() }
+    func updateCameraEligibility(_ value: CameraSpeechEligibility) {
+        cameraEligibility = value
+        prompts.removeInvalidCameras(value)
+        playNext()
     }
 
     private func applyPermissions() {
         let settings = VoiceSettings.fromDefaults()
         prompts.removeDisallowed(settings: settings, context: context)
-        if let active, !settings.allows(active, context: context) {
-            stopCurrent()
-            releaseSession()
-        }
+        if let active, !settings.allows(active, context: context) { stopCurrent(); releaseSession() }
         playNext()
     }
 
     func cancel(_ priority: VoiceUtterance.Priority) {
-        queue.async {
-            self.prompts.remove(priority)
-            if self.active?.priority == priority {
-                self.stopCurrent()
-                self.playNext()
-            }
-        }
+        prompts.remove(priority)
+        if active?.priority == priority { stopCurrent(); releaseSession(); playNext() }
     }
 
-    func stopAll() {
-        queue.async {
-            self.prompts.clear()
-            self.stopCurrent()
-            self.releaseSession()
-        }
-    }
+    func stopAll() { prompts.clear(); stopCurrent(); releaseSession() }
 
     private func stopCurrent() {
         generation += 1
+        renderTask?.cancel(); renderTask = nil
         active = nil
         fallbackToken = nil
         node.stop()
@@ -123,17 +105,51 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
         guard active == nil else { return }
         prompts.removeDisallowed(settings: .fromDefaults(), context: context)
         prompts.removeInvalidCameras(cameraEligibility)
-        guard let utterance = prompts.next(now: ProcessInfo.processInfo.systemUptime) else {
+        guard let utterance = prompts.next(now: now) else {
             releaseSession()
             return
         }
         active = utterance
         generation += 1
         let token = generation
+        renderTask = Task { [weak self] in
+            guard let self else { return }
+            var resolved = utterance
+            var playedLive = utterance.renderedPCM != nil && utterance.liveVoice?.live == true
+            if resolved.renderedPCM == nil, resolved.liveVoice?.live == true,
+               VoiceRenderPolicy.canResolveLive(resolved, now: now) {
+                let recorded = (try? resolved.clips.map { key -> [Float] in
+                    guard let url = resolved.voice.url(for: key) else { throw PlaybackError.missingClip }
+                    return try decoded(cacheKey: "\(resolved.voice.rawValue)/\(key)", url: url)
+                }) ?? []
+                let duration = VoiceClipLoader.duration(recorded, sampleRate: sampleRate)
+                let result: PhononSpeechService.Resolution
+                #if DEBUG
+                if let debugResolve { result = await debugResolve(resolved, duration) }
+                else { result = await PhononSpeechService.shared.resolve(resolved, recordedDuration: duration) }
+                #else
+                result = await PhononSpeechService.shared.resolve(resolved, recordedDuration: duration)
+                #endif
+                resolved.renderedPCM = result.samples
+                playedLive = result.samples != nil
+            }
+            guard !Task.isCancelled, generation == token, active != nil,
+                  VoiceSettings.fromDefaults().allows(resolved, context: context), cameraEligibility.allows(resolved),
+                  resolved.priority != .camera || now - resolved.createdAt <= VoicePromptQueue.cameraLifetime else {
+                if generation == token { finished(token: token) }
+                return
+            }
+            playResolved(resolved, token: token, playedLive: playedLive)
+        }
+    }
+
+    private func playResolved(_ utterance: VoiceUtterance, token: Int, playedLive: Bool) {
+        #if DEBUG
+        if let debugPlayback { debugPlayback(utterance, playedLive); return }
+        #endif
         do {
             try activateSession()
-            let loaded = try loader.samples(for: utterance)
-            let clips = loaded.clips
+            let clips = try loader.samples(for: utterance)
             guard !clips.isEmpty, clips.allSatisfy({ !$0.isEmpty }),
                   let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) else {
                 throw PlaybackError.missingClip
@@ -150,18 +166,18 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
             // One scheduled PCM buffer contains the entire utterance, including
             // joins. Completion is used only to release focus / start another.
             node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
-                self?.queue.async { [weak self] in self?.finished(token: token) }
+                Task { @MainActor [weak self] in self?.finished(token: token) }
             }
             node.play()
-            kokoroStatistics.record(utterance, playedKokoro: loaded.kokoro, named: loaded.named)
+            speechStatistics.record(utterance, live: playedLive)
+            #if DEBUG
+            VoicePlaybackDiagnostics.record(live: playedLive, fallback: utterance.liveVoice?.live == true && !playedLive)
+            #endif
         } catch {
             engine.stop()
             node.stop()
-            if error as? VoiceClipLoader.LoadError == .kokoroUnavailable {
-                Self.log.error("Kokoro preview files are missing")
-                finished(token: token)
-            } else if !utterance.fallbackText.isEmpty {
-                kokoroStatistics.record(utterance, playedKokoro: false)
+            if !utterance.fallbackText.isEmpty {
+                speechStatistics.record(utterance, live: false)
                 speakFallback(utterance)
             } else {
                 Self.log.error("Recorded prompt could not play")
@@ -171,21 +187,11 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
     }
 
     private var loader: VoiceClipLoader {
-        VoiceClipLoader(store: .standard, decode: { [unowned self] cacheKey, url in
-            try self.decoded(cacheKey: cacheKey, url: url)
-        }, namedAudio: { preset, firstKey, name in
-            KokoroNameRenderer.shared.audio(preset: preset, firstKey: firstKey, name: name)
-        }, sampleRate: sampleRate)
+        VoiceClipLoader(decode: { [unowned self] cacheKey, url in try self.decoded(cacheKey: cacheKey, url: url) })
     }
 
-    func resetKokoroStats() {
-        queue.async { self.kokoroStatistics = KokoroStats() }
-    }
-
-    /// Read synchronously; the queue never calls back to the main thread.
-    func kokoroStats() -> KokoroStats {
-        queue.sync { kokoroStatistics }
-    }
+    func resetSpeechStats() { speechStatistics = SpeechStats() }
+    func speechStats() -> SpeechStats { speechStatistics }
 
     private func decoded(cacheKey: String, url: URL) throws -> [Float] {
         if let samples = cache[cacheKey] { return samples }
@@ -253,11 +259,8 @@ final class VoicePromptPlayer: NSObject, @unchecked Sendable, AVSpeechSynthesize
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        let id = ObjectIdentifier(utterance)
-        queue.async {
-            guard let token = self.fallbackToken, token.utterance == id else { return }
-            self.finished(token: token.generation)
-        }
+        guard let token = fallbackToken, token.utterance == ObjectIdentifier(utterance) else { return }
+        finished(token: token.generation)
     }
 
     private enum PlaybackError: Error { case missingClip, invalidFormat }
