@@ -39,7 +39,9 @@ struct CameraMapView: View {
     @State private var showDownloadAlert: Bool = false
     @State private var downloadAlertMessage: String = ""
     @AppStorage("alertMode") private var alertModeRaw: String = AlertMode.nearCamera.rawValue
+    #if DEBUG
     @AppStorage("showDebugOverlay") private var showDebugOverlay: Bool = false
+    #endif
     @AppStorage("offlineRadius") private var offlineRadius: Double = 20.0
     @State private var selectedMapStyle: MapStyleOption = .standard
     @State private var showMapStylePicker: Bool = false
@@ -54,7 +56,9 @@ struct CameraMapView: View {
             mapContent
             fetchStatusBanner
             overlayControls
+            #if DEBUG
             if showDebugOverlay { debugOverlay }
+            #endif
         }
         .sheet(isPresented: $viewModel.showCameraDetail) {
             if let camera = viewModel.selectedCamera {
@@ -337,6 +341,10 @@ struct CameraMapView: View {
 
     // MARK: - Debug Overlay
 
+    #if DEBUG
+    /// Prints the current position, so it must never reach a Release or
+    /// TestFlight build. The sentinel reference makes that enforceable: the
+    /// type is Debug-only, and the Release build phase fails on the string.
     @ViewBuilder
     private var debugOverlay: some View {
         VStack {
@@ -359,9 +367,11 @@ struct CameraMapView: View {
                 .background(.ultraThinMaterial)
                 .clipShape(Capsule())
                 .padding(.top, 4)
+                .accessibilityIdentifier(RoutingMetricsStore.buildSentinel)
             Spacer()
         }
     }
+    #endif
 
     @MainActor
     private func loadSuspectedLocations() async {
