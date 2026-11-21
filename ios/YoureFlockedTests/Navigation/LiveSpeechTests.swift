@@ -5,8 +5,8 @@ import XCTest
 final class LiveSpeechTests: XCTestCase {
     func testVoiceMappingAndLegacySelection() {
         XCTAssertEqual(NavigationVoice.allCases, [.easton, .harper, .eric, .jessica])
-        XCTAssertEqual(NavigationVoice.easton.recorded, .male)
-        XCTAssertEqual(NavigationVoice.harper.recorded, .female)
+        XCTAssertEqual(NavigationVoice.easton.recording, nil)
+        XCTAssertEqual(NavigationVoice.harper.recording, nil)
         XCTAssertFalse(NavigationVoice.eric.live)
         XCTAssertFalse(NavigationVoice.jessica.live)
         XCTAssertEqual(VoiceMigration.selection(current: nil, oldEngine: "kokoro", oldPreset: nil, recorded: "female"), .easton)
@@ -39,15 +39,15 @@ final class LiveSpeechTests: XCTestCase {
     func testReadyLateFailedThermalFallbackDecisions() {
         XCTAssertEqual(VoiceRenderPolicy.decide(liveVoice: true, state: .ready, elapsed: 0, thermal: .nominal), .live)
         XCTAssertEqual(VoiceRenderPolicy.decide(liveVoice: true, state: .pending, elapsed: 0, thermal: .nominal), .wait)
-        XCTAssertEqual(VoiceRenderPolicy.decide(liveVoice: true, state: .pending, elapsed: VoiceRenderPolicy.deadline, thermal: .nominal), .recorded)
-        XCTAssertEqual(VoiceRenderPolicy.decide(liveVoice: true, state: .failed, elapsed: 0, thermal: .nominal), .recorded)
-        for thermal: ProcessInfo.ThermalState in [.serious, .critical] {
-            XCTAssertEqual(VoiceRenderPolicy.decide(liveVoice: true, state: .ready, elapsed: 0, thermal: thermal), .recorded)
+        XCTAssertEqual(VoiceRenderPolicy.decide(liveVoice: true, state: .pending, elapsed: VoiceRenderPolicy.deadline, thermal: .nominal), .skip)
+        XCTAssertEqual(VoiceRenderPolicy.decide(liveVoice: true, state: .failed, elapsed: 0, thermal: .nominal), .skip)
+        for thermal: ProcessInfo.ThermalState in [.critical] {
+            XCTAssertEqual(VoiceRenderPolicy.decide(liveVoice: true, state: .ready, elapsed: 0, thermal: thermal), .skip)
         }
         XCTAssertEqual(VoiceRenderPolicy.decide(liveVoice: false, state: .ready, elapsed: 0, thermal: .nominal), .recorded)
-        XCTAssertFalse(VoiceRenderPolicy.fits(audio: 6, recorded: 4, named: false))
-        XCTAssertFalse(VoiceRenderPolicy.fits(audio: 4.6, recorded: 2, named: true))
-        XCTAssertTrue(VoiceRenderPolicy.fits(audio: 4, recorded: 2, named: true))
+        XCTAssertFalse(VoiceRenderPolicy.fits(audio: 6, priority: .guidance))
+        XCTAssertTrue(VoiceRenderPolicy.fits(audio: 4.6, priority: .guidance))
+        XCTAssertTrue(VoiceRenderPolicy.fits(audio: 2.5, priority: .guidance))
     }
 
     func testBackgroundBreakerErrorsMissesSuccessAndForegroundReset() {
@@ -114,7 +114,7 @@ final class LiveSpeechTests: XCTestCase {
         XCTAssertTrue(requests.contains { $0.clips == ["turn_right"] })
         XCTAssertTrue(requests.contains { $0.clips == ["quarter_mi.turn_right"] })
         XCTAssertTrue(requests.contains { $0.clips == ["at_light.turn_right"] })
-        XCTAssertTrue(requests.allSatisfy { $0.voice == .female && $0.liveVoice == .harper })
+        XCTAssertTrue(requests.allSatisfy { $0.liveVoice == .harper })
         XCTAssertTrue(requests.compactMap(PromptSpeech.sentences).flatMap { $0 }.allSatisfy(PhononSentences.accepts))
     }
 }

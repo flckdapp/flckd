@@ -75,6 +75,7 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
     @ObservationIgnored private var voiceCosting = "auto"
     @ObservationIgnored private var announcedArrival = false
     @ObservationIgnored private var namesPlannedStep: Int?
+    @ObservationIgnored private var speechRouteID = UUID()
 
     private(set) var isActive = false
     private(set) var isStarting = false
@@ -199,18 +200,24 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
             LocalValhallaEngine.shared.keepAliveInBackground = true
             plannedDistanceMeters = route.distance
             startedAt = Date()
-            statsAtStart = proximityEngine.tripStats
+            proximityEngine.beginNavigationTally()
+            statsAtStart = ProximityAlertEngine.TripStats()
             self.destination = destination
             currentRoute = route
             proximityEngine.setSpeechRoute(route.geometry.map(\.clLocationCoordinate2D),
-                                           cameras: cameraStore.cameras)
+                                           cameras: Array(Dictionary((routeCameras + cameraStore.cameras).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }).values))
             isActive = true
             isStarting = false
             VoicePromptPlayer.shared.updateContext(voiceContext)
             VoicePromptPlayer.shared.resetSpeechStats()
-            PhononSpeechService.shared.beginTrip()
+            speechRouteID = UUID()
+            let opening = VoiceUtterance(clips: ["depart"], voice: .selected,
+                createdAt: ProcessInfo.processInfo.systemUptime, liveVoice: NavigationVoice.selected(), isOpening: true,
+                guidanceContext: GuidanceContext(route: speechRouteID, step: 0))
+            VoicePromptPlayer.shared.updateGuidanceContext(GuidanceContext(route: speechRouteID, step: 0))
+            PhononSpeechService.shared.beginTrip(opening: opening)
             planNames(route: route, from: 0)
-            speak(["depart"])
+            VoicePromptPlayer.shared.enqueue(opening)
             loadSignals(for: route)
             Self.log.info("guidance started: \(Int(route.distance))m, \(route.steps.count) steps")
         } catch {
@@ -345,13 +352,15 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
             createdAt: ProcessInfo.processInfo.systemUptime,
             liveVoice: NavigationVoice.selected(),
             roadName: roadName,
-            exitNumber: exitNumber
+            exitNumber: exitNumber,
+            guidanceContext: kind == .directions ? GuidanceContext(route: speechRouteID, step: namesPlannedStep ?? 0) : nil
         ))
     }
 
     /// Replaces the current/next-two-step speech window on every accepted route.
     private func planNames(route: Route, from completed: Int) {
         namesPlannedStep = completed
+        VoicePromptPlayer.shared.updateGuidanceContext(GuidanceContext(route: speechRouteID, step: completed))
         let voice = NavigationVoice.selected()
         guard voice.live else { return }
         let settings = VoiceSettings.fromDefaults()
@@ -361,6 +370,9 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
     }
 
     private func speakInstruction(from state: NavigationState) {
+        // Do not create a two-second direction while the opening still owns
+        // the audio queue. The next progress update evaluates its real distance.
+        guard !VoicePromptPlayer.shared.openingPending else { return }
         guard case let .navigating(_, user, _, steps, _, progress, _, deviation, visual, spoken, _) = state.tripState,
               case .noDeviation = deviation, let step = steps.first, let route = currentRoute else { return }
         // Once arrival has been said, nothing more is: the route's last step is
@@ -370,7 +382,7 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         let completed = max(0, route.steps.count - steps.count)
         // The current banner can appear later than the first progress update;
         // the step's stored banner still describes the same upcoming maneuver.
-        let banner = visual ?? step.visualInstructions.first
+        let banner = step.visualInstructions.first ?? visual
         let speed = user.speed?.value ?? (step.duration > 0 ? step.distance / step.duration : 13.4)
         let units = DistanceUnits.selected()
         guard let prompt = promptSchedule.update(
@@ -442,7 +454,7 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
     private func finish() {
         guard isActive else { return }
         let now = Date()
-        let stats = proximityEngine.tripStats
+        let stats = proximityEngine.navigationStats
         let before = statsAtStart ?? ProximityAlertEngine.TripStats()
         let remaining = state?.currentProgress?.distanceRemaining ?? 0
 
@@ -485,6 +497,8 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         for camera in routeCameras where bounds.contains(camera.coordinate) {
             byID[camera.id] = camera
         }
+        let merged = Dictionary((routeCameras + Array(byID.values)).map { ($0.id, $0) }, uniquingKeysWith: { _, newer in newer })
+        routeCameras = Array(merged.values)
         return Array(byID.values)
     }
 
@@ -566,8 +580,9 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
             plannedDistanceMeters = max(0, plannedDistanceMeters - remaining) + route.distance
             currentRoute = route
             proximityEngine.setSpeechRoute(route.geometry.map(\.clLocationCoordinate2D),
-                                           cameras: cameraStore.cameras)
+                                           cameras: Array(Dictionary((routeCameras + cameraStore.cameras).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }).values))
             promptSchedule.reset()
+            speechRouteID = UUID()
             planNames(route: route, from: 0)
             rerouteCount += 1
             speak(["new_route"], kind: .rerouting)

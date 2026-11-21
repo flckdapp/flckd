@@ -129,7 +129,7 @@ ios/
         PhononSynthesizer.swift            actor-owned live speech, foreground load and fixed voice gains
         PhononSpeechService.swift          render-ahead window, bounded cache and background breaker
         SpeechAheadPlanner.swift           finite scheduled prompts for three steps
-        NavigationVoice.swift              four-voice selection, gender fallback and legacy migration
+        NavigationVoice.swift              four-voice selection and legacy migration; no cross-voice fallback
         VoiceRenderPolicy.swift            deadline, duration limits and cache eviction
         VoiceResampler.swift               mono PCM sample-rate conversion
         PhononSentences.swift              sentence splitter, character gate and debug fixture examples
@@ -413,8 +413,8 @@ Both voices bundle 435 generic recordings, including 157 metric clips each
 (115 approaches, 30 continue distances and 12 camera distances). The recorded
 voices are never synthesized or downloaded at runtime. Runtime speech comes from the bundled Phonon model when Easton or Harper is
 selected, or the recordings when Eric or Jessica is selected. Apple's
-AVSpeechSynthesizer remains the existing last resort for instructions with no
-matching recording. The lock screen receives the app's
+AVSpeechSynthesizer remains the recorded voices' existing last resort for
+instructions with no matching recording, never a live voice fallback. The lock screen receives the app's
 unit choice as an optional Live Activity payload field; absent means imperial,
 including for payloads written by older builds. Both turn and camera distances
 use explicit formatter units, never the device region. No App Group is needed.
@@ -486,19 +486,24 @@ passing have specific clips. Ahead groups use the two/three/several recording.
 
 Settings shows one master Voice switch, default on, and a "Voice & Spoken
 Prompts" page that holds everything else. That page starts with a voice list:
-the recorded voices from `PromptVoice.allCases`, shown by name (Eric, Jessica),
-with a selection checkmark and a preview button per row. Easton and Harper
-render live; Eric and Jessica play bundled clips. Every preview is explicit,
-works with Voice off, and is refused while starting or navigating. Live previews
-never silently fall back: Settings shows a fixed error message on failure.
+two plain groups: Live (Easton and Harper, generated on the phone with street
+names and exit numbers) and Recorded (Eric and Jessica, fixed clips without
+street names). One selection spans all four rows; each keeps the existing
+checkmark and preview button. Previews are explicit, work with Voice off, and
+are refused while starting or navigating. Live previews show an error instead
+of substituting another voice.
 
 **Live speech.** Phonon 31m English runs through xn-ptts 0.7.1 in every build.
 The verified Core ML bundle includes only Easton and Harper, copied intact by a
 build phase. Runtime calls are local file install/load/render only; no model
 fetch or telemetry exists in the app path. All supported phones get live speech,
-without a RAM threshold. A serious or critical thermal state uses recordings.
-Easton falls back to Eric; Harper to Jessica. A whole utterance is live or
-recorded, never a mixture. SpokenRoadName keeps route names/exit numbers in
+without a RAM threshold. The selected engine never changes during a trip:
+Easton and Harper never use recordings or system speech. A failed, late,
+unavailable or critical-thermal live prompt is skipped silently; the map,
+turn card and camera banners remain unchanged. Serious thermal state still
+permits short speech bursts; critical skips. Eric and Jessica keep their
+recorded-only behavior and existing system-speech last resort for unsupported
+instructions. SpokenRoadName keeps route names/exit numbers in
 memory only, with the same shared fixture rules; the text gate no longer needs
 a word list. Unsupported names are omitted, not spoken in part.
 
@@ -506,17 +511,40 @@ PhononSpeechService eagerly plans all scheduled approaches, final actions,
 lane/light variants and continue prompts for the current and next two steps.
 Accepted reroutes replace this window. A FIFO worker renders one utterance at a
 time through the engine's user-initiated queue; current-step work precedes generic
-camera/arrival/reroute warm-up. An 8 MiB PCM cache retains this window plus generic
+camera/arrival/reroute warm-up. A 64 MiB route PCM cache with a separate bounded camera PCM cache retains this window plus generic
 common prompts; window replacement removes route text immediately and trip end
 clears all text/audio, jobs and failures. A generation token rejects stale results.
-Playback checks the cache and waits at most 150 ms (3% of the camera alert's
-five-second lifetime), then chooses the same-gender recording for the entire
-utterance. It rechecks permissions, camera eligibility and expiry after that wait.
-When a camera has at most 200 ms of lifetime left (the render deadline plus
-50 ms of playback setup reserve), it skips live resolution and uses its
-recording immediately rather than spending its remaining lifetime waiting.
-Live audio must fit five seconds; names may add no more than 2.5 seconds versus
-the recording. The player never holds audio focus while waiting for a model.
+Navigation startup and location updates never wait for speech. At trip start,
+the opening is queued ahead of the entire render-ahead window and waits up to
+eight seconds, including foreground model load. The initially suggested five
+seconds proved marginal with per-voice first-load calibration in the simulator;
+eight permits calibration plus the first short sentence, while dropping an
+opening that is no longer useful. Ordinary guidance waits at most two seconds
+from creation (roughly 60 m at highway speed), never indefinitely. A route/step
+identity and latest-prompt token discard a waiting direction after step change,
+reroute or supersession. Queued time counts against every deadline.
+
+Camera alerts wait only within their existing five-second lifetime, then skip.
+A camera preempts guidance still waiting for PCM, so it cannot spend two seconds
+behind a model lookup. Active audio is not interrupted. All live utterances use the five-second audio
+ceiling: the former three-second guidance cap discarded ordinary named
+approaches even when already cached. Camera lifetime governs the camera, not the
+length of otherwise valid guidance; a camera may expire behind playing audio.
+For overlong named guidance, render-ahead lazily tries shorter variants: full,
+then exit-number-only when applicable, then the generic prompt without a name or
+exit number. Before rendering, a conservative character-count predictor selects the richest
+variant expected to fit; a render that still exceeds five seconds immediately
+queues its shorter variant ahead of ordinary render-ahead work. It preserves
+lane/light sentences and the selected live voice. This avoids
+tripling ordinary render work and cache pressure. Overlong PCM is discarded;
+only its duration verdict remains for the route window. Shorter variants share
+the existing PCM budget, route window, deadline and playback freshness identity.
+Resolution chooses the first (most informative) fitting variant, without starting
+a new deadline. If even generic speech is too long it still skips; unavailable
+or late rendering also retains the existing silent-skip policy. The player never
+holds audio focus while waiting. There is no same-gender mapping or recorded
+length comparison in the live path; the clip loader also refuses live requests
+without live PCM as a second barrier against accidental switching.
 
 Each sentence is generated separately with seed 42, resampled by VoiceResampler,
 trimmed, levelled with a fixed gain calibrated once per voice from a long generic
@@ -530,8 +558,19 @@ The arrival summary counts Phonon prompts requested/spoken/with names in memory.
 
 The Debug Phonon page and bench remain for listening and timing only. Debug
 metrics exports add bounded render wall time, foreground/background, success,
-error type name (never description), deadline outcome and fallback-reason counts.
-Those measurements are compiled out of Release with the existing sentinel gate.
+error type name (never description), deadline outcome and skip counts grouped by foreground/background and reason.
+Each prompt also has a text-free timeline: random prompt/render IDs, kind,
+application state, foreground/background, request/render times, resolution wait,
+audio duration, cache hit, breaker state, variant label (full/numberOnly/nameFree)
+and played/skipped outcome. Render-ahead
+and playback share a random render ID, never a text hash. Timeline and render
+rows append immediately to the existing session JSONL and recover after an app
+kill, including past a truncated line. The same timeline goes to unified logging
+under `speech.timeline`; only fixed labels, random IDs, counts and durations are
+public. The DEBUG latency HUD shows live played/skipped totals and last skip
+reason, even collapsed. These records have no text, clip key, road name, route
+identity or coordinates. They are compiled out of Release with the existing
+sentinel gate.
 
 Spoken prompts has separate directions, traffic-light, rerouting and camera
 switches, disabled under the master switch. The existing `voiceGuidanceEnabled`
@@ -671,12 +710,13 @@ Decisions:
   dispatch, then a lifecycle generation grant is rechecked on that executor
   before both install and load. Already-running Core ML work cannot be forcibly
   interrupted, but revoked queued work never starts. If unloaded while locked,
-  speech falls back to recordings rather
-  than loading or compiling. The warmed engine stays loaded across trips so a
+  speech is skipped rather than loading or compiling. The warmed engine stays loaded across trips so a
   later background prompt needs no load. Foreground eagerly renders the whole
   upcoming window; background still attempts user-initiated renders, never
   background-QoS work. Three consecutive background errors or playback deadline
-  misses open a pure circuit breaker until foreground activation. Rendering
+  misses open a pure circuit breaker. After sixty seconds one probe may run;
+  success closes it, failure starts another cooldown, and foreground activation
+  closes it immediately. Rendering
   uses one attempt identity for deadline and completion accounting, so a late
   error cannot count the same attempt twice. The active render key is excluded
   from the queue; success and failure both validate the route window before
@@ -687,7 +727,8 @@ Decisions:
   remains usable when the breaker is open. No foreground/background reload or
   speculative CPU switch occurs. A locked-phone drive on the actual supported
   OS/device is what settles whether background live speech works; until then,
-  automatic recordings are the safety path, not an assertion of ANE permission.
+  silent skips and text-free Debug counts expose failure, rather than hiding
+  missing ANE permission behind a different voice.
   Sources: Apple's Background Inference entitlement documentation and WWDC22
   session 10027, plus the pinned runtime's Core ML driver.
 - **Tests must not leave OS-owned Live Activities.** Production activity
@@ -842,3 +883,38 @@ places; see [AGENTS.md](AGENTS.md).
   telemetry.
 - If a change adds a network call, changes what is sent, or adds a
   dependency, update [PRIVACY.md](PRIVACY.md) in the same commit.
+
+### Exposure counts and locked speech diagnostics
+
+The route card, camera speech and trip counts use the same
+CameraObservability.RouteExposure windows. Route choice does not: the planner
+keeps scoring any camera within 35 m of a candidate, regardless of facing unless
+FOV avoidance is on, so avoidance stays conservative and planning cost is
+unchanged. Physical exclusion polygons keep their original full-circle behavior.
+The route card can therefore show fewer cameras than the planner avoided. Counts mean unique cameras whose
+observable window the car actually traversed, not the nearest camera inside a
+200 m banner radius. Navigation has its own tally (including ALPR/speed/other),
+while the map trip tally uses the same rule and the course-based predicate when
+not navigating. Banners, haptics, notifications and Live Activity camera fields
+retain their radius/Alert mode behavior. A planned count is a forecast: leaving
+the route, disabled speech or ending early can legitimately change actual or
+spoken totals. Exposure remains a geometric estimate, not proof of line of sight.
+
+Navigation seeds exposure with the planner's corridor cameras and merges nearby
+updates without discarding the seed. Per-route DEBUG camera diagnostics use
+ordinals along the route, never OSM IDs or coordinates: exposed, eligibility,
+entry/pass requested, played/skipped, and route-ended-before-entry. Nearby but
+not exposed is a separate count. These append to session JSONL and unified log;
+the HUD shows exposed/spoken unique ordinals. IDs and coordinates stay in memory.
+
+Loaded speech renders are not cancelled by an inactive transition. The opening
+owns the audio queue until completion; schedule updates wait rather than create
+an already-expiring direction behind it. Fixed camera sentences use their own
+bounded cache so a protected named-guidance window cannot starve them, and an
+on-demand camera request moves ahead of ordinary render-ahead. Continue-distance
+rounding variants are planned too, because the first fix may enter a step late.
+Stored step banners drive both planning and playback, avoiding text-key drift.
+The 24-render synthetic length fit is 0.8101 + 0.05352 * characters + 0.35 per
+extra sentence, with 0.65 seconds of safety margin. The existing field timeline
+has no text lengths, so it cannot validate prediction error; new DEBUG render
+rows include only counts/prediction, never text, for a future measured comparison.

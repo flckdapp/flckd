@@ -32,10 +32,10 @@ struct SpeechPlaybackRequest {
     let generation: Int
     private(set) var counted = false
 
-    mutating func deadline(breaker: inout BackgroundSpeechBreaker) -> Bool {
+    mutating func deadline(breaker: inout BackgroundSpeechBreaker, now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
         guard !counted, !breaker.foreground else { return false }
         counted = true
-        breaker.record(success: false, deadlineMiss: true)
+        breaker.record(success: false, deadlineMiss: true, now: now)
         return true
     }
 }

@@ -102,7 +102,7 @@ final class DebugLocationSourceTests: XCTestCase {
                                     alertRadius: 200, alertMode: .nearCamera, enableHaptics: false)
         XCTAssertEqual(engine.activeAlert?.cameraID, camera.id)
         XCTAssertEqual(engine.activeAlert?.relativeDirection, .ahead)
-        XCTAssertEqual(engine.tripStats.alprCount, 1)
+        XCTAssertEqual(engine.tripStats.alprCount, 0, "A nearby banner is not evidence the camera could see the car")
         XCTAssertEqual(store.nearbyCameras.count, 1)
         manager.endSimulatedSource(token)
         XCTAssertEqual(manager.currentLocation?.coordinate.latitude, 0.01)

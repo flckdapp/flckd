@@ -15,7 +15,7 @@ final class LiveSpeechDriveTests: XCTestCase {
         await LiveActivityManager.endAllActivities()
         try await super.tearDown()
     }
-    func testSyntheticSimulatedDrivePlaysLiveAndForcedWholeUtteranceFallback() async throws {
+    func testSyntheticSimulatedDriveColdOpeningNeverUsesRecordings() async throws {
         let defaults = UserDefaults.standard
         let keys = [NavigationVoice.storageKey, VoiceSettings.masterKey, VoiceSettings.directionsKey,
                     DebugDriveSimulationSettings.speedKey, DebugDriveSimulationSettings.timeKey]
@@ -34,12 +34,7 @@ final class LiveSpeechDriveTests: XCTestCase {
         defaults.set(35, forKey: DebugDriveSimulationSettings.speedKey)
         defaults.set(2, forKey: DebugDriveSimulationSettings.timeKey)
         PhononSpeechService.shared.setForeground(true)
-        let deadline = ProcessInfo.processInfo.systemUptime + 25
-        while !PhononSpeechService.shared.loaded, ProcessInfo.processInfo.systemUptime < deadline {
-            if UIApplication.shared.applicationState == .active { PhononSpeechService.shared.warmUp() }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        XCTAssertTrue(PhononSpeechService.shared.loaded)
+        try await PhononSpeechService.shared.unloadForTesting()
 
         // Null-island geometry only; no tile pack, external geocoder or real route.
         let a = CLLocationCoordinate2D(latitude: 0, longitude: 0)
@@ -60,25 +55,22 @@ final class LiveSpeechDriveTests: XCTestCase {
             proximityEngine: proximity, liveActivityManager: LiveActivityManager(activityRequestsEnabled: false), routingService: ValhallaRoutingService())
         controller.simulateDrive = true
         controller.debugNavigationResponse = response
-        let liveBefore = VoicePlaybackDiagnostics.liveCount
-        let fallbackBefore = VoicePlaybackDiagnostics.fallbackCount
-        PhononSpeechService.shared.forceFailure = true
+        let openingBefore = VoicePlaybackDiagnostics.openingCount
+        let recordedBefore = VoicePlaybackDiagnostics.recordedCount
         await controller.start(plan: plan, destination: .init(name: "Example destination", coordinate: c), routeCameras: [])
         defer { controller.stop() }
         XCTAssertNil(controller.startError)
-        let fallbackDeadline = ProcessInfo.processInfo.systemUptime + 5
-        while VoicePlaybackDiagnostics.fallbackCount == fallbackBefore, ProcessInfo.processInfo.systemUptime < fallbackDeadline {
+        let openingDeadline = ProcessInfo.processInfo.systemUptime + VoiceRenderPolicy.openingDeadline + 0.5
+        while VoicePlaybackDiagnostics.openingCount == openingBefore, ProcessInfo.processInfo.systemUptime < openingDeadline {
             try await Task.sleep(for: .milliseconds(25))
         }
-        XCTAssertGreaterThan(VoicePlaybackDiagnostics.fallbackCount, fallbackBefore, "No recorded fallback reached AVAudioPlayerNode")
-        PhononSpeechService.shared.forceFailure = false
-        let liveDeadline = ProcessInfo.processInfo.systemUptime + 25
-        while VoicePlaybackDiagnostics.liveCount == liveBefore, ProcessInfo.processInfo.systemUptime < liveDeadline {
-            try await Task.sleep(for: .milliseconds(25))
-        }
-        XCTAssertGreaterThan(VoicePlaybackDiagnostics.liveCount, liveBefore, "No live prompt reached AVAudioPlayerNode")
-        XCTAssertTrue(controller.isActive || controller.tripSummary != nil)
-        let attachment = XCTAttachment(string: "Synthetic simulated drive: live and forced recorded fallback both reached the normal AVAudioPlayerNode path. No text exported.")
+        XCTAssertGreaterThan(VoicePlaybackDiagnostics.openingCount, openingBefore)
+        XCTAssertEqual(VoicePlaybackDiagnostics.recordedCount, recordedBefore)
+        let stats = VoicePromptPlayer.shared.speechStats()
+        let detail = XCTAttachment(string: "Live trip requested \(stats.requested), spoke \(stats.spoken), skips \(stats.skipped)")
+        detail.lifetime = .keepAlways
+        add(detail)
+        let attachment = XCTAttachment(string: "Cold synthetic drive: selected live opening reached AVAudioPlayerNode; no recordings. No text exported.")
         attachment.lifetime = .keepAlways
         add(attachment)
     }

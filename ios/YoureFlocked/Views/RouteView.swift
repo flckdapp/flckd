@@ -1012,14 +1012,8 @@ struct RouteView: View {
     }
 
     private func camerasAlongCoordinates(_ coords: [CLLocationCoordinate2D], cameras: [SurveillanceCamera]) -> [SurveillanceCamera] {
-        // Same yardstick the planner optimizes: every camera within the
-        // buffer counts, regardless of which way it faces.
-        return cameras.filter { camera in
-            let camLoc = CLLocation(latitude: camera.latitude, longitude: camera.longitude)
-            return coords.contains { point in
-                camLoc.distance(from: CLLocation(latitude: point.latitude, longitude: point.longitude)) <= cameraBufferMeters
-            }
-        }
+        let exposed = CameraObservability.RouteExposure.build(path: coords, cameras: cameras).exposedIDs
+        return cameras.filter { exposed.contains($0.id) }
     }
 
     private func corridorBounds(from start: CLLocationCoordinate2D, to end: CLLocationCoordinate2D, bufferKm: Double) -> BoundingBox {

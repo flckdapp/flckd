@@ -31,6 +31,12 @@ struct RoutingDebugOverlay: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
+            Text("Live \(store.speechPlayed.values.reduce(0, +)) played / \(store.speechSkips.values.reduce(0, +)) skipped · \(store.lastSpeechSkip ?? "none")")
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(store.lastSpeechSkip == nil ? .white.opacity(0.7) : .orange)
+                .accessibilityIdentifier("live-speech-hud")
+            Text("Cameras \(store.exposedCameraCount) exposed / \(store.spokenCameraOrdinals.count) spoken")
+                .font(.system(.caption2, design: .monospaced))
 
             if isExpanded {
                 headline
@@ -195,7 +201,7 @@ struct RoutingDebugOverlay: View {
                     exportError = nil
                 }
                 Button("Export") { export() }
-                    .disabled(store.samples.isEmpty)
+                    .disabled(store.samples.isEmpty && store.speechEvents.isEmpty)
             }
         }
         .buttonStyle(SpikeButtonStyle())

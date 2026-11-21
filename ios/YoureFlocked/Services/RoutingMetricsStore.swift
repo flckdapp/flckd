@@ -26,6 +26,7 @@ final class RoutingMetricsStore {
     static let buildSentinel = "FLCKD_DIAGNOSTICS_PRESENT_DO_NOT_SHIP"
 
     private static let log = Logger(subsystem: "io.vws.app.flckd", category: "routing.metrics")
+    private static let speechLog = Logger(subsystem: "io.vws.app.flckd", category: "speech.timeline")
 
     private(set) var samples: [RoutePlanSample] = []
     struct SpeechRenderSample: Codable {
@@ -36,15 +37,58 @@ final class RoutingMetricsStore {
         let deadlineMiss: Bool
     }
     private(set) var speechRenders: [SpeechRenderSample] = []
-    private(set) var speechFallbacks: [String: Int] = [:]
+    private(set) var speechSkips: [String: Int] = [:]
+    private(set) var speechRequested: [String: Int] = [:]
+    private(set) var speechPlayed: [String: Int] = [:]
+    private(set) var speechEvents: [SpeechDiagnosticEvent] = []
+    private(set) var lastSpeechSkip: String?
+    private(set) var cameraEvents: [CameraDiagnosticEvent] = []
+    private(set) var exposedCameraCount = 0
+    private(set) var spokenCameraOrdinals = Set<Int>()
+
+    func recordCameraEvent(_ event: CameraDiagnosticEvent) {
+        acceptCameraEvent(event)
+        persist(event)
+    }
+
+    private func acceptCameraEvent(_ event: CameraDiagnosticEvent) {
+        cameraEvents.append(event)
+        if cameraEvents.count > maxSamples { cameraEvents.removeFirst(cameraEvents.count - maxSamples) }
+        if event.stage == "route" { exposedCameraCount = event.exposed; spokenCameraOrdinals.removeAll() }
+        if event.stage == "played", let ordinal = event.ordinal { spokenCameraOrdinals.insert(ordinal) }
+    }
+
+    func recordSpeechEvent(_ event: SpeechDiagnosticEvent) {
+        acceptSpeechEvent(event)
+        persist(event)
+        // Only fixed enums, random IDs and durations are public. The wall-clock
+        // timestamp is in the local DEBUG file, not interpolated into this log.
+        Self.speechLog.notice("speech id=\(event.promptID.uuidString, privacy: .public) render=\(event.renderID?.uuidString ?? "-", privacy: .public) kind=\(event.kind.rawValue, privacy: .public) stage=\(event.stage.rawValue, privacy: .public) variant=\(event.variant?.rawValue ?? "-", privacy: .public) app=\(event.applicationState, privacy: .public) background=\(event.background, privacy: .public) breaker=\(event.breaker, privacy: .public)/\(event.breakerFailures, privacy: .public) requested=\(event.requestedAt ?? 0) start=\(event.renderStart ?? 0) end=\(event.renderEnd ?? 0) wait=\(event.waitSeconds ?? 0, privacy: .public) audio=\(event.audioSeconds ?? 0, privacy: .public) reason=\(event.reason ?? "-", privacy: .public)")
+    }
+
+    private func acceptSpeechEvent(_ event: SpeechDiagnosticEvent) {
+        speechEvents.append(event)
+        if speechEvents.count > maxSamples { speechEvents.removeFirst(speechEvents.count - maxSamples) }
+        let context = event.background ? "background" : "foreground"
+        switch event.stage {
+        case .requested: speechRequested[context, default: 0] += 1
+        case .played: speechPlayed[context, default: 0] += 1
+        case .skipped:
+            let reason = event.reason ?? "other"
+            speechSkips["\(context).\(reason)", default: 0] += 1
+            lastSpeechSkip = reason
+        default: break
+        }
+    }
 
     func recordSpeechRender(wall: Double, background: Bool, success: Bool, errorType: String?, deadlineMiss: Bool) {
         speechRenders.append(SpeechRenderSample(wallSeconds: wall, background: background,
             success: success, errorType: errorType, deadlineMiss: deadlineMiss))
         if speechRenders.count > maxSamples { speechRenders.removeFirst(speechRenders.count - maxSamples) }
+        persist(SpeechRenderLine(recordType: "speechRender", render: speechRenders[speechRenders.count - 1]))
     }
 
-    func recordSpeechFallback(_ reason: String) { speechFallbacks[reason, default: 0] += 1 }
+    private struct SpeechRenderLine: Codable { let recordType: String; let render: SpeechRenderSample }
 
     /// Set by `RerouteProbe` when a sweep starts; travels in the export so a
     /// cross-device comparison can be checked rather than assumed.
@@ -55,6 +99,7 @@ final class RoutingMetricsStore {
     private let maxSamples = 2000
 
     private var handle: FileHandle?
+    private let sessionOverride: URL?
 
     private static let lineEncoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -68,7 +113,8 @@ final class RoutingMetricsStore {
         return decoder
     }()
 
-    private init() {
+    init(sessionURL: URL? = nil) {
+        sessionOverride = sessionURL
         recoverSession()
     }
 
@@ -102,12 +148,17 @@ final class RoutingMetricsStore {
     func reset() {
         samples.removeAll()
         speechRenders.removeAll()
-        speechFallbacks.removeAll()
+        speechSkips.removeAll()
+        speechRequested.removeAll()
+        speechPlayed.removeAll()
+        speechEvents.removeAll()
+        cameraEvents.removeAll(); exposedCameraCount = 0; spokenCameraOrdinals.removeAll()
+        lastSpeechSkip = nil
         sweepContext = nil
         do {
             try handle?.close()
             handle = nil
-            let url = try Self.sessionURL()
+            let url = try sessionOverride ?? Self.sessionURL()
             if FileManager.default.fileExists(atPath: url.path) {
                 try FileManager.default.removeItem(at: url)
             }
@@ -131,14 +182,14 @@ final class RoutingMetricsStore {
         return directory.appending(path: "session.jsonl")
     }
 
-    private func persist(_ sample: RoutePlanSample) {
+    private func persist<T: Encodable>(_ sample: T) {
         do {
             if handle == nil {
-                let url = try Self.sessionURL()
+                let url = try sessionOverride ?? Self.sessionURL()
                 if !FileManager.default.fileExists(atPath: url.path) {
                     FileManager.default.createFile(atPath: url.path, contents: nil)
                 }
-                let opened = try FileHandle(forWritingTo: url)
+                let opened = try FileHandle(forUpdating: url)
                 let end = try opened.seekToEnd()
                 // A run killed mid-write leaves a fragment with no terminator.
                 // Appending straight onto it merges the fragment and the next
@@ -162,11 +213,26 @@ final class RoutingMetricsStore {
 
     private func recoverSession() {
         do {
-            let url = try Self.sessionURL()
+            let url = try sessionOverride ?? Self.sessionURL()
             guard FileManager.default.fileExists(atPath: url.path) else { return }
             let data = try Data(contentsOf: url)
             var recovered: [RoutePlanSample] = []
             for line in data.split(separator: 0x0A) where !line.isEmpty {
+                if let event = try? Self.lineDecoder.decode(CameraDiagnosticEvent.self, from: Data(line)),
+                   event.recordType == "cameraTimeline", Data(line).range(of: Data("cameraTimeline".utf8)) != nil {
+                    acceptCameraEvent(event)
+                    continue
+                }
+                if let event = try? Self.lineDecoder.decode(SpeechDiagnosticEvent.self, from: Data(line)),
+                   event.recordType == "speechTimeline" {
+                    acceptSpeechEvent(event)
+                    continue
+                }
+                if let render = try? Self.lineDecoder.decode(SpeechRenderLine.self, from: Data(line)),
+                   render.recordType == "speechRender" {
+                    speechRenders.append(render.render)
+                    continue
+                }
                 // A kill part-way through a write leaves a truncated trailing
                 // line. Skipping it recovers the rest of the drive instead of
                 // throwing the whole session away.
@@ -176,6 +242,7 @@ final class RoutingMetricsStore {
                 recovered.append(sample)
             }
             samples = Array(recovered.suffix(maxSamples))
+            speechRenders = Array(speechRenders.suffix(maxSamples))
             if !recovered.isEmpty {
                 Self.log.info("recovered \(recovered.count, privacy: .public) samples from a previous session")
             }
@@ -248,7 +315,11 @@ final class RoutingMetricsStore {
             ),
             samples: samples,
             speechRenders: speechRenders,
-            speechFallbacks: speechFallbacks
+            speechSkips: speechSkips,
+            speechRequested: speechRequested,
+            speechPlayed: speechPlayed,
+            speechEvents: speechEvents,
+            cameraEvents: cameraEvents
         )
 
         let encoder = JSONEncoder()
@@ -287,7 +358,11 @@ final class RoutingMetricsStore {
         let summary: Summary
         let samples: [RoutePlanSample]
         let speechRenders: [SpeechRenderSample]
-        let speechFallbacks: [String: Int]
+        let speechSkips: [String: Int]
+        let speechRequested: [String: Int]
+        let speechPlayed: [String: Int]
+        let speechEvents: [SpeechDiagnosticEvent]
+        let cameraEvents: [CameraDiagnosticEvent]
     }
 
     /// e.g. "iPhone16,2". CPU generation dominates these measurements, so the

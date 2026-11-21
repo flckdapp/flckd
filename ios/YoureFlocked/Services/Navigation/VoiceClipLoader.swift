@@ -1,7 +1,7 @@
 import Foundation
 
 struct VoiceClipLoader {
-    enum LoadError: Error { case missingClip }
+    enum LoadError: Error { case missingClip, liveAudioUnavailable }
     var recordedURL: (PromptVoice, String) -> URL? = { voice, key in voice.url(for: key) }
     var decode: (String, URL) throws -> [Float]
 
@@ -12,6 +12,7 @@ struct VoiceClipLoader {
 
     func samples(for utterance: VoiceUtterance) throws -> [[Float]] {
         if let pcm = utterance.renderedPCM, !pcm.isEmpty { return [pcm] }
+        guard utterance.liveVoice?.live != true else { throw LoadError.liveAudioUnavailable }
         return try utterance.clips.map { key in
             guard let url = recordedURL(utterance.voice, key) else { throw LoadError.missingClip }
             return try decode("\(utterance.voice.rawValue)/\(key)", url)

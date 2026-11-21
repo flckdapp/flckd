@@ -7,7 +7,9 @@ enum NavigationVoice: String, CaseIterable, Sendable {
 
     var name: String { rawValue.capitalized }
     var live: Bool { self == .easton || self == .harper }
-    var recorded: PromptVoice { self == .harper || self == .jessica ? .female : .male }
+    var recording: PromptVoice? {
+        switch self { case .eric: .male; case .jessica: .female; case .easton, .harper: nil }
+    }
     var phononName: String? { live ? name : nil }
 
     static func selected(_ defaults: UserDefaults = .standard) -> Self {

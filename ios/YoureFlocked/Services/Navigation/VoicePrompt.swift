@@ -17,6 +17,14 @@ struct VoiceUtterance: Equatable, Sendable {
     var exitNumber: String? = nil
     /// Already-rendered whole utterance; never mixes with recorded clips.
     var renderedPCM: [Float]? = nil
+    var speechVariant: SpeechVariant? = nil
+    #if DEBUG
+    var cameraOrdinals: [Int] = []
+    var cameraEvent: String? = nil
+    #endif
+    var isOpening = false
+    var guidanceContext: GuidanceContext? = nil
+    let playbackID = UUID()
 
     static func preview(voice: PromptVoice, now: TimeInterval, units: DistanceUnits = .imperial) -> Self {
         Self(clips: [units == .metric ? "200m.turn_right" : "500ft.turn_right", "lane_right", "cam.flock.ahead"], voice: voice,
@@ -24,6 +32,10 @@ struct VoiceUtterance: Equatable, Sendable {
     }
 
 
+}
+
+enum SpeechVariant: String, Codable, Sendable {
+    case full, numberOnly, nameFree
 }
 
 struct VoicePromptQueue {
@@ -38,7 +50,9 @@ struct VoicePromptQueue {
     mutating func next(now: TimeInterval) -> VoiceUtterance? {
         pending.removeAll { $0.priority == .camera && now - $0.createdAt > Self.cameraLifetime }
         guard !pending.isEmpty else { return nil }
-        let index = pending.firstIndex { $0.priority == .guidance } ?? pending.startIndex
+        let liveGuidanceWaiting = pending.contains { $0.priority == .guidance && $0.liveVoice?.live == true }
+        let index = (liveGuidanceWaiting ? pending.firstIndex { $0.priority == .camera } : nil)
+            ?? pending.firstIndex { $0.priority == .guidance } ?? pending.startIndex
         return pending.remove(at: index)
     }
 
@@ -47,6 +61,18 @@ struct VoicePromptQueue {
     }
 
     mutating func clear() { pending.removeAll() }
+
+    mutating func removeLiveGuidance() -> [VoiceUtterance] {
+        let removed = pending.filter { $0.liveVoice?.live == true && $0.priority == .guidance }
+        pending.removeAll { $0.liveVoice?.live == true && $0.priority == .guidance }
+        return removed
+    }
+
+    mutating func removeLive() -> [VoiceUtterance] {
+        let removed = pending.filter { $0.liveVoice?.live == true }
+        pending.removeAll { $0.liveVoice?.live == true }
+        return removed
+    }
 
     mutating func removeDisallowed(settings: VoiceSettings, context: VoicePlaybackContext) {
         pending.removeAll { !settings.allows($0, context: context) }

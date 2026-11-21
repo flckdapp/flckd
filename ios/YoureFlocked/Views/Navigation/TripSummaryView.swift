@@ -149,9 +149,9 @@ struct TripSummaryView: View {
 
     private var camerasHeadline: String {
         switch summary.camerasEncountered {
-        case 0: return "No cameras on this trip"
-        case 1: return "1 camera encountered"
-        default: return "\(summary.camerasEncountered) cameras encountered"
+        case 0: return "No cameras could see you"
+        case 1: return "1 camera could see you"
+        default: return "\(summary.camerasEncountered) cameras could see you"
         }
     }
 

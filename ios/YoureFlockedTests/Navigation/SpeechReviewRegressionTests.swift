@@ -82,9 +82,9 @@ final class SpeechReviewRegressionTests: XCTestCase {
         XCTAssertEqual(queue.next(now: 0), guidance)
         queue.enqueue(camera)
         let next = try XCTUnwrap(queue.next(now: 5))
-        XCTAssertFalse(VoiceRenderPolicy.canResolveLive(next, now: 5))
+        XCTAssertEqual(VoiceRenderPolicy.remaining(next, now: 5), 0.01, accuracy: 0.001)
         XCTAssertTrue(5 - next.createdAt < VoicePromptQueue.cameraLifetime)
-        XCTAssertTrue(VoiceRenderPolicy.canResolveLive(next, now: 4.5))
+        XCTAssertGreaterThan(VoiceRenderPolicy.remaining(next, now: 4.5), 0)
     }
 
     func testEachBackgroundAttemptCountsOnlyOnceOnDeadlineThenError() {
@@ -133,7 +133,7 @@ final class SpeechReviewRegressionTests: XCTestCase {
     }
 
     private var named: VoiceUtterance {
-        VoiceUtterance(clips: ["500ft.turn_right"], createdAt: 0, liveVoice: .easton, roadName: "Main Street")
+        VoiceUtterance(clips: ["500ft.turn_right"], createdAt: ProcessInfo.processInfo.systemUptime, liveVoice: .easton, roadName: "Main Street")
     }
 
     private func readyService(_ engine: ControlledSpeechEngine) async throws -> PhononSpeechService {
@@ -156,7 +156,7 @@ final class SpeechReviewRegressionTests: XCTestCase {
         try await settle { service.debugState(for: prompt).active }
         let before = await engine.calls(containing: "Main Street")
         // resolve requests the active key without advancing the window.
-        let waiter = Task { await service.resolve(prompt, recordedDuration: 3) }
+        let waiter = Task { await service.resolve(prompt) }
         try await Task.sleep(for: .milliseconds(10))
         XCTAssertEqual(service.debugState(for: prompt).queued, 0)
         await engine.finish()
@@ -210,11 +210,11 @@ final class SpeechReviewRegressionTests: XCTestCase {
         let service = try await readyService(engine)
         service.beginTrip()
         let prompts = ["Main Street", "Oak Avenue", "Park Road"].map {
-            VoiceUtterance(clips: ["500ft.turn_right"], createdAt: 0, liveVoice: .easton, roadName: $0)
+            VoiceUtterance(clips: ["500ft.turn_right"], createdAt: ProcessInfo.processInfo.systemUptime - VoiceRenderPolicy.deadline + 0.02, liveVoice: .easton, roadName: $0)
         }
         service.setForeground(false)
         // The generic render stays held; all three playback requests queue.
-        for prompt in prompts { _ = await service.resolve(prompt, recordedDuration: 3) }
+        for prompt in prompts { _ = await service.resolve(prompt) }
         XCTAssertEqual(service.debugState(for: prompts[0]).failures, 3)
         service.endTrip()
         await engine.finish()
@@ -226,9 +226,13 @@ final class SpeechReviewRegressionTests: XCTestCase {
         service.beginTrip()
         let prompt = named
         service.plan([prompt])
+        for _ in 0..<5 where !service.debugState(for: prompt).active {
+            await engine.finish()
+            try await Task.sleep(for: .milliseconds(5))
+        }
         try await settle { service.debugState(for: prompt).active }
         service.setForeground(false)
-        _ = await service.resolve(prompt, recordedDuration: 3)
+        _ = await service.resolve(prompt)
         XCTAssertEqual(service.debugState(for: prompt).failures, 1)
         await engine.finish(failed: true)
         try await settle { !service.debugState(for: prompt).active }
@@ -273,7 +277,7 @@ final class SpeechReviewRegressionTests: XCTestCase {
         var resolutionCalls = 0
         var played: [(VoiceUtterance, Bool)] = []
         player.debugNow = { clock }
-        player.debugResolve = { _, _ in resolutionCalls += 1; return .init(samples: nil, reason: "test") }
+        player.debugResolve = { _ in resolutionCalls += 1; return .init(samples: nil, reason: "test") }
         player.debugPlayback = { played.append(($0, $1)) }
         player.enqueue(VoiceUtterance(clips: ["turn_right"], createdAt: 0))
         try await settle { played.count == 1 }
@@ -284,9 +288,10 @@ final class SpeechReviewRegressionTests: XCTestCase {
         player.enqueue(camera)
         clock = 5
         player.debugFinishCurrent()
-        try await settle { played.count == 2 }
-        XCTAssertEqual(resolutionCalls, 0)
-        XCTAssertEqual(played.last?.0.clips, camera.clips)
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(played.count, 1)
+        XCTAssertEqual(resolutionCalls, 1)
+        XCTAssertEqual(played.last?.0.clips, ["turn_right"])
         XCTAssertNil(played.last?.0.renderedPCM)
         XCTAssertEqual(played.last?.1, false)
     }

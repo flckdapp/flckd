@@ -5,6 +5,9 @@ import SwiftUI
 /// the navigation voice. Results and free text live only for this page.
 struct PhononEvaluationView: View {
     @Environment(NavigationSessionController.self) private var navigation
+    @Environment(ProximityAlertEngine.self) private var proximity
+    @Environment(LocationManager.self) private var locationManager
+    @Environment(CameraStore.self) private var cameraStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var evaluation = PhononEvaluation()
     @State private var items: [PhononSentences.Item] = []
@@ -126,39 +129,91 @@ struct PhononEvaluationView: View {
             defaults.set("easton", forKey: NavigationVoice.storageKey)
             defaults.set(true, forKey: VoiceSettings.masterKey)
             defaults.set(true, forKey: VoiceSettings.directionsKey)
-            defaults.set(35, forKey: DebugDriveSimulationSettings.speedKey)
-            defaults.set(2, forKey: DebugDriveSimulationSettings.timeKey)
+            let multi = ProcessInfo.processInfo.arguments.contains("-speechMultiPromptDrive")
+            defaults.set(multi ? 70 : 35, forKey: DebugDriveSimulationSettings.speedKey)
+            defaults.set(multi ? 1 : 2, forKey: DebugDriveSimulationSettings.timeKey)
             PhononSpeechService.shared.setForeground(true)
-            let end = ProcessInfo.processInfo.systemUptime + 25
-            while !PhononSpeechService.shared.loaded, ProcessInfo.processInfo.systemUptime < end {
+            try await PhononSpeechService.shared.unloadForTesting()
+            if multi {
                 PhononSpeechService.shared.warmUp()
-                try await Task.sleep(for: .milliseconds(20))
+                let end = ProcessInfo.processInfo.systemUptime + 20
+                while !PhononSpeechService.shared.loaded, ProcessInfo.processInfo.systemUptime < end {
+                    try await Task.sleep(for: .milliseconds(20))
+                }
+                guard PhononSpeechService.shared.loaded else { throw PhononSynthesizer.Failure.missingModels }
             }
-            guard PhononSpeechService.shared.loaded else { throw PhononSynthesizer.Failure.missingModels }
             evaluation.status = "Synthetic drive starting."
             let plan = RoutePlan(route: ValhallaRoute(coordinates: route.geometry.map(\.clLocationCoordinate2D),
                 distanceKm: route.distance / 1000, timeSeconds: 42, maneuvers: []),
                 avoidedCount: 0, totalCount: 0, requestJSON: Data("{}".utf8), candidateIndex: 0)
-            let fallback = VoicePlaybackDiagnostics.fallbackCount, live = VoicePlaybackDiagnostics.liveCount
+            let recorded = VoicePlaybackDiagnostics.recordedCount, opening = VoicePlaybackDiagnostics.openingCount
+            let checkCameras = ProcessInfo.processInfo.arguments.contains("-cameraExposureDrive")
+            var routeCameras: [SurveillanceCamera] = []
+            if checkCameras, let encodedCameras = ProcessInfo.processInfo.environment["FLCKD_SYNTHETIC_CAMERAS"],
+               let data = Data(base64Encoded: encodedCameras),
+               let values = try JSONSerialization.jsonObject(with: data) as? [[String: Double]] {
+                routeCameras = values.enumerated().map { index, value in
+                    SurveillanceCamera(osmID: Int64(index + 1), latitude: value["latitude"] ?? 0,
+                        longitude: value["longitude"] ?? 0, tags: ["surveillance:type": "ALPR", "brand": "Flock", "direction": "270"])
+                }
+            }
+            let expectedExposed = CameraObservability.RouteExposure.build(path: route.geometry.map(\.clLocationCoordinate2D), cameras: routeCameras).exposedIDs.count
             navigation.simulateDrive = true
             navigation.debugNavigationResponse = response
-            PhononSpeechService.shared.forceFailure = true
-            await navigation.start(plan: plan, destination: .init(name: "Example destination", coordinate: destination.clLocationCoordinate2D), routeCameras: [])
-            let fallbackEnd = ProcessInfo.processInfo.systemUptime + 5
-            while VoicePlaybackDiagnostics.fallbackCount == fallback, ProcessInfo.processInfo.systemUptime < fallbackEnd {
+            await navigation.start(plan: plan, destination: .init(name: "Example destination", coordinate: destination.clLocationCoordinate2D), routeCameras: routeCameras)
+            let liveEnd = ProcessInfo.processInfo.systemUptime + VoiceRenderPolicy.openingDeadline + 0.5
+            while VoicePlaybackDiagnostics.openingCount == opening, ProcessInfo.processInfo.systemUptime < liveEnd {
                 try await Task.sleep(for: .milliseconds(20))
             }
-            PhononSpeechService.shared.forceFailure = false
-            let liveEnd = ProcessInfo.processInfo.systemUptime + 25
-            while VoicePlaybackDiagnostics.liveCount == live, ProcessInfo.processInfo.systemUptime < liveEnd {
-                try await Task.sleep(for: .milliseconds(20))
+            guard VoicePlaybackDiagnostics.openingCount > opening, VoicePlaybackDiagnostics.recordedCount == recorded else {
+                navigation.stop()
+                await LiveActivityManager.endAllActivities()
+                evaluation.status = "Cold drive missing opening: \(VoicePromptPlayer.shared.speechStats().skipped); recordings \(VoicePlaybackDiagnostics.recordedCount - recorded)."
+                return
             }
-            guard VoicePlaybackDiagnostics.fallbackCount > fallback, VoicePlaybackDiagnostics.liveCount > live else {
-                throw PhononSynthesizer.Failure.emptyAudio
+            if multi {
+                let before = ProcessInfo.processInfo.systemUptime
+                let end = ProcessInfo.processInfo.systemUptime + 48
+                var cameraSent = false
+                while navigation.isActive, ProcessInfo.processInfo.systemUptime < end {
+                    if checkCameras, let fix = locationManager.currentLocation {
+                        proximity.updateCameraSpeech(location: fix, cameraStore: cameraStore, alertRadius: 100,
+                            inFieldOfView: false, alertsEnabled: true)
+                    }
+                    let events = RoutingMetricsStore.shared.speechEvents.filter { $0.uptime >= before }
+                    if !cameraSent, events.contains(where: { $0.kind == .guidance && $0.stage == .completed }) {
+                        // Exercise the normal camera queue between route directions.
+                        VoicePromptPlayer.shared.enqueue(.init(clips: ["cam.flock.ahead"], priority: .camera,
+                            kind: .camera(.flock), createdAt: ProcessInfo.processInfo.systemUptime, liveVoice: .easton))
+                        cameraSent = true
+                    }
+                    try await Task.sleep(for: .milliseconds(20))
+                }
+                try await Task.sleep(for: .seconds(2))
+                let events = RoutingMetricsStore.shared.speechEvents.filter { $0.uptime >= before }
+                let guidance = events.filter { $0.kind == .guidance && $0.stage == .played }.count
+                let cameras = events.filter { $0.kind == .camera && $0.stage == .played }.count
+                let skipped = events.filter { $0.stage == .skipped }.count
+                let finished = !navigation.isActive
+                if checkCameras {
+                    let count = navigation.tripSummary?.camerasEncountered ?? -1
+                    evaluation.status = finished && expectedExposed == 2 && count == expectedExposed
+                        ? "Camera drive: preview 2, summary 2."
+                        : "Camera drive failed: preview \(expectedExposed), summary \(count)."
+                    await LiveActivityManager.endAllActivities()
+                    return
+                }
+                navigation.stop()
+                await LiveActivityManager.endAllActivities()
+                evaluation.status = finished && guidance >= 4 && cameras >= 1 && skipped == 0
+                    && VoicePlaybackDiagnostics.recordedCount == recorded
+                    ? "Multi-step drive: four directions and camera played; no skips or recordings."
+                    : "Multi-step drive failed: guidance \(guidance), cameras \(cameras), skips \(skipped), finished \(finished)."
+                return
             }
             navigation.stop()
             await LiveActivityManager.endAllActivities()
-            evaluation.status = "Synthetic drive: live and recorded playback verified; stopped and cleaned up."
+            evaluation.status = "Cold opening played in Phonon; no recordings; stopped and cleaned up."
         } catch {
             navigation.stop()
             await LiveActivityManager.endAllActivities()

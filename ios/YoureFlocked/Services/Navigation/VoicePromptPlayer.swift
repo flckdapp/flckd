@@ -1,6 +1,7 @@
 @preconcurrency import AVFoundation
 import Foundation
 import os
+import UIKit
 @preconcurrency import FerrostarCore
 
 /// Audio objects and queue state are main-actor confined. Core ML never runs
@@ -14,6 +15,7 @@ final class VoicePromptPlayer: NSObject, @preconcurrency AVSpeechSynthesizerDele
     private let synth = AVSpeechSynthesizer()
     private var prompts = VoicePromptQueue()
     private var active: VoiceUtterance?
+    private var activeSkipped = false
     private var generation = 0
     private var cache: [String: [Float]] = [:]
     private var sessionActive = false
@@ -22,10 +24,13 @@ final class VoicePromptPlayer: NSObject, @preconcurrency AVSpeechSynthesizerDele
     private var cameraEligibility = CameraSpeechEligibility()
     private var speechStatistics = SpeechStats()
     private var renderTask: Task<Void, Never>?
+    private var playing = false
+    private var freshness = LiveGuidanceFreshness()
+    var openingPending: Bool { active?.isOpening == true || prompts.pending.contains(where: \.isOpening) }
     private let sampleRate = 44_100.0
     #if DEBUG
     var debugNow: (() -> TimeInterval)?
-    var debugResolve: ((VoiceUtterance, Double) async -> PhononSpeechService.Resolution)?
+    var debugResolve: ((VoiceUtterance) async -> PhononSpeechService.Resolution)?
     var debugPlayback: ((VoiceUtterance, Bool) -> Void)?
     func debugFinishCurrent() { finished(token: generation) }
     #endif
@@ -57,6 +62,11 @@ final class VoicePromptPlayer: NSObject, @preconcurrency AVSpeechSynthesizerDele
         }
     }
 
+    private func drainLive(_ reason: String, guidanceOnly: Bool = false) {
+        let removed = guidanceOnly ? prompts.removeLiveGuidance() : prompts.removeLive()
+        for utterance in removed { recordSkip(utterance, reason: reason) }
+    }
+
     func enqueue(_ incoming: VoiceUtterance) {
         var utterance = incoming
         if utterance.renderedPCM == nil { utterance.renderedPCM = PhononSpeechService.shared.arrivalAudio(utterance) }
@@ -65,36 +75,72 @@ final class VoicePromptPlayer: NSObject, @preconcurrency AVSpeechSynthesizerDele
             prompts.remove(.sample)
             if active?.kind == .preview { stopCurrent(); releaseSession() }
         }
+        if utterance.liveVoice?.live == true, utterance.priority == .guidance {
+            freshness.latest = utterance.playbackID
+            for old in prompts.removeLiveGuidance() { recordSkip(old, reason: "superseded") }
+            if let active, active.liveVoice?.live == true, active.priority == .guidance, !active.isOpening, !playing {
+                recordSkip(active, reason: "superseded"); stopCurrent(); releaseSession()
+            }
+        }
+        speechStatistics.request(utterance)
+        #if DEBUG
+        for ordinal in utterance.cameraOrdinals { CameraDiagnostics.record(ordinal: ordinal, stage: "requested", reason: utterance.cameraEvent ?? "entry") }
+        if utterance.liveVoice?.live == true, utterance.priority != .sample {
+            PhononSpeechService.shared.diagnose(utterance, stage: .scheduled)
+            PhononSpeechService.shared.diagnose(utterance, stage: .requested)
+        }
+        #endif
+        if let active, VoiceRenderPolicy.shouldYield(waiting: active, isPlaying: playing, incoming: utterance) {
+            recordSkip(active, reason: "cameraPriority"); stopCurrent(); releaseSession()
+        }
         prompts.enqueue(utterance)
         playNext()
+    }
+
+    func updateGuidanceContext(_ context: GuidanceContext) {
+        guard freshness.context != context else { return }
+        freshness.context = context
+        freshness.latest = nil
+        for old in prompts.removeLiveGuidance() { recordSkip(old, reason: "stepChanged") }
+        if let active, active.liveVoice?.live == true, active.priority == .guidance, !playing {
+            recordSkip(active, reason: "stepChanged"); stopCurrent(); releaseSession(); playNext()
+        }
     }
 
     func updateContext(_ value: VoicePlaybackContext) { context = value; applyPermissions() }
     func settingsDidChange() { applyPermissions() }
     func updateCameraEligibility(_ value: CameraSpeechEligibility) {
         cameraEligibility = value
+        for utterance in prompts.pending where !value.allows(utterance) { recordSkip(utterance, reason: "cameraIneligible") }
         prompts.removeInvalidCameras(value)
         playNext()
     }
 
     private func applyPermissions() {
         let settings = VoiceSettings.fromDefaults()
+        for utterance in prompts.pending where !settings.allows(utterance, context: context) { recordSkip(utterance, reason: "disallowed") }
         prompts.removeDisallowed(settings: settings, context: context)
-        if let active, !settings.allows(active, context: context) { stopCurrent(); releaseSession() }
+        if let active, !settings.allows(active, context: context) {
+            if !playing { recordSkip(active, reason: "disallowed") }
+            stopCurrent(); releaseSession()
+        }
         playNext()
     }
 
     func cancel(_ priority: VoiceUtterance.Priority) {
+        for utterance in prompts.pending where utterance.priority == priority { recordSkip(utterance, reason: "cancelled") }
         prompts.remove(priority)
         if active?.priority == priority { stopCurrent(); releaseSession(); playNext() }
     }
 
-    func stopAll() { prompts.clear(); stopCurrent(); releaseSession() }
+    func stopAll() { drainLive("stopped"); prompts.clear(); stopCurrent(); releaseSession() }
 
     private func stopCurrent() {
+        if let active, !playing { recordSkip(active, reason: "cancelled") }
         generation += 1
         renderTask?.cancel(); renderTask = nil
         active = nil
+        playing = false
         fallbackToken = nil
         node.stop()
         synth.stopSpeaking(at: .immediate)
@@ -103,6 +149,13 @@ final class VoicePromptPlayer: NSObject, @preconcurrency AVSpeechSynthesizerDele
 
     private func playNext() {
         guard active == nil else { return }
+        for utterance in prompts.pending where utterance.priority == .camera && now - utterance.createdAt > VoicePromptQueue.cameraLifetime {
+            recordSkip(utterance, reason: "cameraExpired")
+        }
+        for utterance in prompts.pending where !VoiceSettings.fromDefaults().allows(utterance, context: context) {
+            recordSkip(utterance, reason: "disallowed")
+        }
+        for utterance in prompts.pending where !cameraEligibility.allows(utterance) { recordSkip(utterance, reason: "cameraIneligible") }
         prompts.removeDisallowed(settings: .fromDefaults(), context: context)
         prompts.removeInvalidCameras(cameraEligibility)
         guard let utterance = prompts.next(now: now) else {
@@ -110,33 +163,39 @@ final class VoicePromptPlayer: NSObject, @preconcurrency AVSpeechSynthesizerDele
             return
         }
         active = utterance
+        activeSkipped = false
         generation += 1
         let token = generation
         renderTask = Task { [weak self] in
             guard let self else { return }
             var resolved = utterance
             var playedLive = utterance.renderedPCM != nil && utterance.liveVoice?.live == true
-            if resolved.renderedPCM == nil, resolved.liveVoice?.live == true,
-               VoiceRenderPolicy.canResolveLive(resolved, now: now) {
-                let recorded = (try? resolved.clips.map { key -> [Float] in
-                    guard let url = resolved.voice.url(for: key) else { throw PlaybackError.missingClip }
-                    return try decoded(cacheKey: "\(resolved.voice.rawValue)/\(key)", url: url)
-                }) ?? []
-                let duration = VoiceClipLoader.duration(recorded, sampleRate: sampleRate)
+            if resolved.renderedPCM == nil, resolved.liveVoice?.live == true {
                 let result: PhononSpeechService.Resolution
                 #if DEBUG
-                if let debugResolve { result = await debugResolve(resolved, duration) }
-                else { result = await PhononSpeechService.shared.resolve(resolved, recordedDuration: duration) }
+                if let debugResolve { result = await debugResolve(resolved) }
+                else { result = await PhononSpeechService.shared.resolve(resolved) }
                 #else
-                result = await PhononSpeechService.shared.resolve(resolved, recordedDuration: duration)
+                result = await PhononSpeechService.shared.resolve(resolved)
                 #endif
-                resolved.renderedPCM = result.samples
-                playedLive = result.samples != nil
+                guard !Task.isCancelled, generation == token else { return }
+                guard let pcm = result.samples else {
+                    recordSkip(resolved, reason: result.reason ?? "renderFailed")
+                    finished(token: token)
+                    return
+                }
+                resolved.renderedPCM = pcm
+                resolved.speechVariant = result.variant
+                active = resolved
+                playedLive = true
+            }
+            guard freshness.allows(resolved) else {
+                recordSkip(resolved, reason: "staleGuidance"); finished(token: token); return
             }
             guard !Task.isCancelled, generation == token, active != nil,
                   VoiceSettings.fromDefaults().allows(resolved, context: context), cameraEligibility.allows(resolved),
                   resolved.priority != .camera || now - resolved.createdAt <= VoicePromptQueue.cameraLifetime else {
-                if generation == token { finished(token: token) }
+                if generation == token { recordSkip(resolved, reason: "expiredOrDisallowed"); finished(token: token) }
                 return
             }
             playResolved(resolved, token: token, playedLive: playedLive)
@@ -144,6 +203,14 @@ final class VoicePromptPlayer: NSObject, @preconcurrency AVSpeechSynthesizerDele
     }
 
     private func playResolved(_ utterance: VoiceUtterance, token: Int, playedLive: Bool) {
+        if utterance.liveVoice?.live == true, ProcessInfo.processInfo.thermalState == .critical {
+            recordSkip(utterance, reason: "thermalCritical"); finished(token: token); return
+        }
+        // Defense in depth: live selection has no recorded or system-TTS path.
+        if utterance.liveVoice?.live == true, utterance.renderedPCM == nil {
+            recordSkip(utterance, reason: "missingLiveAudio"); finished(token: token); return
+        }
+        playing = true
         #if DEBUG
         if let debugPlayback { debugPlayback(utterance, playedLive); return }
         #endif
@@ -171,12 +238,18 @@ final class VoicePromptPlayer: NSObject, @preconcurrency AVSpeechSynthesizerDele
             node.play()
             speechStatistics.record(utterance, live: playedLive)
             #if DEBUG
-            VoicePlaybackDiagnostics.record(live: playedLive, fallback: utterance.liveVoice?.live == true && !playedLive)
+            if playedLive, utterance.priority != .sample {
+                PhononSpeechService.shared.diagnose(utterance, stage: .played)
+            }
+            VoicePlaybackDiagnostics.record(live: playedLive, recorded: !playedLive, opening: utterance.isOpening)
+            for ordinal in utterance.cameraOrdinals { CameraDiagnostics.record(ordinal: ordinal, stage: "played", reason: utterance.cameraEvent ?? "entry") }
             #endif
         } catch {
             engine.stop()
             node.stop()
-            if !utterance.fallbackText.isEmpty {
+            if utterance.liveVoice?.live == true {
+                recordSkip(utterance, reason: "playbackError"); finished(token: token)
+            } else if !utterance.fallbackText.isEmpty {
                 speechStatistics.record(utterance, live: false)
                 speakFallback(utterance)
             } else {
@@ -184,6 +257,19 @@ final class VoicePromptPlayer: NSObject, @preconcurrency AVSpeechSynthesizerDele
                 finished(token: token)
             }
         }
+    }
+
+    private func recordSkip(_ utterance: VoiceUtterance, reason: String) {
+        if active?.playbackID == utterance.playbackID {
+            guard !activeSkipped else { return }
+            activeSkipped = true
+        }
+        speechStatistics.skip(utterance, reason: reason)
+        #if DEBUG
+        for ordinal in utterance.cameraOrdinals { CameraDiagnostics.record(ordinal: ordinal, stage: "skipped", reason: reason) }
+        PhononSpeechService.shared.diagnose(utterance, stage: .skipped, reason: reason)
+        VoicePlaybackDiagnostics.skipCount += 1
+        #endif
     }
 
     private var loader: VoiceClipLoader {
@@ -250,7 +336,11 @@ final class VoicePromptPlayer: NSObject, @preconcurrency AVSpeechSynthesizerDele
 
     private func finished(token: Int) {
         guard generation == token, active != nil else { return }
+        #if DEBUG
+        if let active, playing { PhononSpeechService.shared.diagnose(active, stage: .completed) }
+        #endif
         active = nil
+        playing = false
         fallbackToken = nil
         node.stop()
         engine.stop()

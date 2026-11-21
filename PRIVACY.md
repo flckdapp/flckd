@@ -21,7 +21,8 @@ Please open an issue.
   sent anywhere. There is no routing server.
 - Turn-by-turn directions happen on your device too. Easton and Harper are
   generated live by the bundled Phonon model; Eric and Jessica are bundled
-  recordings and the automatic same-gender fallback. No speech download or
+  recordings. A live voice that is not ready is skipped, never replaced by
+  a recording. No speech download or
   network synthesis occurs. A reroute runs the same on-device planner.
 - No location history is written to disk, and no position ever leaves the
   device. Speed and red-light cameras come from one national file that is
@@ -133,13 +134,15 @@ street names and exit numbers on the phone using the model bundled in the app.
 The name comes from the turn card and is processed locally. The app renders the
 current and next few steps ahead, including while navigating in the background
 when the engine/OS permits it. It never loads or compiles a model in the
-background. If rendering fails, misses its short deadline, exceeds the spoken
-length limit, or the phone is too hot, the whole utterance uses Eric for Easton
-or Jessica for Harper. Repeated background failures stop further attempts until
-the app returns to the foreground. Choosing Eric or Jessica directly uses the
-same recorded prompts as before. No input text or generated audio leaves the
+background. If rendering fails, misses its bounded deadline, exceeds the spoken
+length limit, or the phone reaches critical thermal state, that live prompt is
+skipped silently. Easton and Harper never switch to Eric or Jessica during a
+trip. Serious thermal state still permits rendering. Repeated background misses
+open a breaker with a sixty-second single-probe retry; foreground activation
+resets it. Choosing Eric or Jessica directly uses the same recorded prompts as
+before. No input text or generated audio leaves the
 phone; names and PCM are held in memory only and discarded with the trip.
-When a direction has no matching recording, Apple's `AVSpeechSynthesizer`
+With Eric or Jessica selected, when a direction has no matching recording, Apple's `AVSpeechSynthesizer`
 speaks Ferrostar's instruction text on the device using an installed voice.
 That text is never sent anywhere. The master Voice switch silences all automatic
 speech. Separate switches control directions, traffic lights,
@@ -176,7 +179,7 @@ The activity is requested without a push token, so the app updates it
 itself rather than through Apple's push service, and it ends with the trip.
 
 **The arrival card.** When you arrive, the app shows how long the trip took,
-how far it was, how many cameras you passed and how many reroutes happened.
+how far it was, how many cameras could see you and how many reroutes happened.
 With a live voice it also says how many prompts Phonon spoke, of how many,
 and how many carried a street name.
 Those numbers are held in memory while the card is on screen and discarded
@@ -184,10 +187,24 @@ when you dismiss it. Nothing is written down.
 
 **Development measurements.** Debug builds can include speech timing rows in
 the existing routing metrics export: wall time, foreground/background, success,
-error type name only, deadline hit/miss and fallback counts by reason. No input
-text, road names or audio are included. The rows are bounded and held in memory
-until the developer exports the report by hand. This measurement code is absent
-from Release and TestFlight; the existing binary sentinel check enforces that.
+error type name only, deadline hit/miss and skips by foreground/background and reason. No input
+text, road names or audio are included. Text-free prompt timelines include kind,
+application state, request/render times, wait, audio duration, cache hit, breaker
+state, a fixed full/number-only/name-free variant label and played/skipped
+reason, linked by random local IDs (not text hashes). Shorter live variants are
+rendered and cached only in memory, with the same route-window cleanup.
+Speech rows append to the same local session JSONL as routing measurements so an
+app kill does not lose them; bounded in-memory rows are recovered on launch.
+They are mirrored to the device's unified log for manual recovery with log
+collect. There is no upload. Fixed labels, random IDs, counts and durations are
+public in that DEBUG log; request/render clock values retain default privacy.
+Camera diagnostics use only route-local ordinals, stage/reason and aggregate
+exposed/nearby-not-exposed counts, never OSM IDs or coordinates. Speech render
+rows also include character/word counts and predicted duration, never text.
+The DEBUG HUD shows played/skipped totals, last skip reason and exposed/spoken
+camera counts. This measurement
+code is absent from Release and TestFlight; the existing binary sentinel check
+enforces that.
 
 ---
 
@@ -427,7 +444,7 @@ Runtime service URLs in the results are covered by the table above or by
 network requests.
 
 Any build output under `ios/` holds the checked-out packages and will swamp
-that list — this built tree (with `_dd` and `_build`) answers with 2,013 lines instead of the 33 tracked
+that list — this built tree (with `_dd_phonon`) answers with 1,853 lines instead of the 31 tracked
 source lines, two of which are a test's made-up server address. Those counts depend on resolved package sources. Skip
 it with `--exclude-dir`, naming whichever derived-data directory you have
 (`_dd` is what the commands below use, `_build` and `DerivedData` are the

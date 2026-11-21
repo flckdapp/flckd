@@ -248,7 +248,8 @@ struct SettingsView: View {
 
     private var voiceSettingsView: some View {
         Form {
-            voicePickerSection
+            voicePickerSection(live: true)
+            voicePickerSection(live: false)
             spokenPromptsSection
             cameraVoiceSection
         }
@@ -261,9 +262,9 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private var voicePickerSection: some View {
+    private func voicePickerSection(live: Bool) -> some View {
         Section {
-            ForEach(NavigationVoice.allCases, id: \.rawValue) { voice in
+            ForEach(NavigationVoice.allCases.filter { $0.live == live }, id: \.rawValue) { voice in
                 HStack {
                     let selected = promptVoice == voice.rawValue
                     Button {
@@ -295,13 +296,12 @@ struct SettingsView: View {
                     .disabled(tripRunning || previewing != nil)
                 }
             }
-            if let previewError { Text(previewError).font(.caption).foregroundStyle(.red) }
+            if live, let previewError { Text(previewError).font(.caption).foregroundStyle(.red) }
         } header: {
-            Text("Voice")
+            Text(live ? "Live" : "Recorded")
         } footer: {
-            Text(voiceEnabled
-                ? "Previews play the voice you tap. They are unavailable during navigation."
-                : "Voice is off in Settings, so nothing is spoken automatically. Previews still play.")
+            Text(live ? "Generated on this phone, including street names and exit numbers."
+                      : "Pre-recorded fixed prompts, without street names.")
         }
     }
 
@@ -313,12 +313,12 @@ struct SettingsView: View {
         previewing = voice.rawValue
         previewTask = Task {
             defer { previewing = nil }
-            if !voice.live { navigationController.playVoiceSample(voice.recorded); return }
+            if !voice.live { navigationController.playVoiceSample(voice.recording ?? .male); return }
             do {
                 let pcm = try await PhononSpeechService.shared.preview(voice)
                 try Task.checkCancellation()
                 guard !tripRunning else { return }
-                var utterance = VoiceUtterance.preview(voice: voice.recorded, now: ProcessInfo.processInfo.systemUptime)
+                var utterance = VoiceUtterance.preview(voice: voice.recording ?? .male, now: ProcessInfo.processInfo.systemUptime)
                 utterance.renderedPCM = pcm
                 VoicePromptPlayer.shared.enqueue(utterance)
             } catch {
