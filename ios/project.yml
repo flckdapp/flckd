@@ -168,6 +168,7 @@ schemes:
       config: Debug
       environmentVariables:
         FLCKD_TEST_DISABLE_ACTIVITY_REQUESTS: "1"
+        FLCKD_TEST_SILENT_AUDIO: "1"
       targets:
         - YoureFlockedTests
         - YoureFlockedUITests

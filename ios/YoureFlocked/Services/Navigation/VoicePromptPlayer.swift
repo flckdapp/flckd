@@ -229,6 +229,13 @@ final class VoicePromptPlayer: NSObject, @preconcurrency AVSpeechSynthesizerDele
                 if let base = source.baseAddress { channel.update(from: base, count: source.count) }
             }
             engine.connect(node, to: engine.mainMixerNode, format: format)
+            #if DEBUG
+            // Test runs still render and complete every buffer, so playback is
+            // proven, but nothing comes out of the developer's speakers.
+            if ProcessInfo.processInfo.environment["FLCKD_TEST_SILENT_AUDIO"] == "1" {
+                engine.mainMixerNode.outputVolume = 0
+            }
+            #endif
             try engine.start()
             // One scheduled PCM buffer contains the entire utterance, including
             // joins. Completion is used only to release focus / start another.
