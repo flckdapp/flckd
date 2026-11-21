@@ -3,12 +3,14 @@ import SwiftData
 
 // MARK: - Settings View
 
-/// App settings for alert configuration, data sources, and about info.
+/// App settings: alerts, camera filters, voice, navigation, display,
+/// permissions, stored camera data and about info.
 struct SettingsView: View {
     @Environment(LocationManager.self) private var locationManager
     @Environment(CameraStore.self) private var cameraStore
     @Environment(NotificationManager.self) private var notificationManager
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(NavigationSessionController.self) private var navigationController
     @Environment(\.modelContext) private var modelContext
 
@@ -29,7 +31,9 @@ struct SettingsView: View {
     @AppStorage(CameraStore.showSpeedCamerasKey) private var showSpeedCameras: Bool = true
     @AppStorage("showGenericCameras") private var showGenericCameras: Bool = true
     @AppStorage("alertMode") private var alertModeRaw: String = AlertMode.nearCamera.rawValue
+    #if DEBUG
     @AppStorage("showDebugOverlay") private var showDebugOverlay: Bool = false
+    #endif
     #if DEBUG
     @AppStorage("showRoutingSpikeOverlay") private var showRoutingSpikeOverlay: Bool = false
     #endif
@@ -50,22 +54,21 @@ struct SettingsView: View {
     @AppStorage(VoiceSettings.camerasKey) private var cameraAlerts = true
     @AppStorage(VoiceSettings.outsideNavigationKey) private var camerasOutsideNavigation = false
 
+    // Section order is the order on screen: what the app does (alerts, filters,
+    // voice, navigation), then how it looks, then permissions and stored data.
     var body: some View {
         Form {
-            appearanceSection
-            unitsSection
-            screenSection
-            alertSection
-            routingSection
+            alertsSection
+            cameraFiltersSection
             voiceSection
-            filterSection
-            suspectedLocationsSection
-            cameraDataSection
-            locationSection
+            navigationSection
+            displaySection
+            permissionsSection
+            dataSection
             aboutSection
-        }
-        .task {
-            await refreshDataStats()
+            #if DEBUG
+            developerSection
+            #endif
         }
         .onChange(of: [voiceEnabled, voiceGuidance, trafficLights,
                        reroutingAnnouncements, cameraAlerts, camerasOutsideNavigation]) { _, _ in
@@ -80,102 +83,19 @@ struct SettingsView: View {
 
     // MARK: - Units
 
-    private func formatMeters(_ meters: Double) -> String {
-        if useMetric {
-            return "\(Int(meters))m"
-        } else {
-            let feet = meters * 3.28084
-            return "\(Int(feet))ft"
-        }
-    }
+    private var units: DistanceUnits { useMetric ? .metric : .imperial }
 
-    private func formatKm(_ km: Double) -> String {
-        if useMetric {
-            return String(format: "%.1f km", km)
-        } else {
-            let miles = km * 0.621371
-            return String(format: "%.1f mi", miles)
-        }
-    }
-
-    // MARK: - Appearance
+    // MARK: - Alerts
 
     @ViewBuilder
-    private var appearanceSection: some View {
-        Section {
-            Picker("Theme", selection: $appearanceRaw) {
-                ForEach(AppAppearance.allCases, id: \.rawValue) { appearance in
-                    Text(appearance.displayName).tag(appearance.rawValue)
-                }
-            }
-        } header: {
-            Text("Appearance")
-        } footer: {
-            Text("Automatic follows your device's Light or Dark setting.")
-        }
-    }
-
-    // MARK: - Units
-
-    @ViewBuilder
-    private var unitsSection: some View {
-        Section("Units") {
-            Picker("Distance Units", selection: $useMetric) {
-                Text("Metric (km, m)").tag(true)
-                Text("Standard (mi, ft)").tag(false)
-            }
-        }
-    }
-
-    // MARK: - Map
-
-    @ViewBuilder
-    private var screenSection: some View {
-        Section {
-            Toggle("Keep Screen Awake", isOn: $keepScreenAwake)
-        } header: {
-            Text("Screen")
-        } footer: {
-            Text("Stops the screen locking while the map or a route is open. Uses more battery, so keep the phone on a charger for long drives.")
-        }
-    }
-
-    // MARK: - Alert Settings
-
-    @ViewBuilder
-    private var alertSection: some View {
-        Section("Proximity Alerts") {
+    private var alertsSection: some View {
+        Section("Alerts") {
             Toggle("Enable Alerts", isOn: Bindable(notificationManager).alertsEnabled)
-
-            if notificationManager.mutedCount > 0 {
-                HStack {
-                    Text("Muted Cameras")
-                    Spacer()
-                    Text("\(notificationManager.mutedCount)")
-                        .foregroundStyle(.secondary)
-                }
-                Button("Unmute All", role: .destructive) {
-                    notificationManager.unmuteAll()
-                }
-            }
 
             Picker("Alert Mode", selection: $alertModeRaw) {
                 ForEach(AlertMode.allCases, id: \.rawValue) { mode in
                     Text(mode.displayName).tag(mode.rawValue)
                 }
-            }
-
-            VStack(alignment: .leading) {
-                HStack {
-                    Text("Alert Radius")
-                    Spacer()
-                    Text(formatMeters(alertRadius))
-                        .foregroundStyle(.secondary)
-                }
-                Slider(value: $alertRadius, in: 50...500, step: 25)
-            }
-            .onChange(of: alertRadius) { _, newValue in
-                locationManager.alertRadius = newValue
             }
 
             if alertModeRaw == AlertMode.inFieldOfView.rawValue {
@@ -184,18 +104,21 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Toggle("Haptic Feedback", isOn: $enableHaptics)
-
-            HStack {
-                Text("Notification Status")
-                Spacer()
-                Text(notificationManager.isAuthorized ? "Enabled" : "Disabled")
-                    .foregroundStyle(notificationManager.isAuthorized ? .green : .red)
+            DistanceSettingRow(
+                title: "Alert Radius",
+                scale: DistanceSetting.alertRadius.scale(for: units),
+                stored: $alertRadius
+            )
+            .onChange(of: alertRadius) { _, newValue in
+                locationManager.alertRadius = newValue
             }
 
-            if !notificationManager.isAuthorized {
-                Button("Enable Notifications") {
-                    Task { await notificationManager.requestAuthorization() }
+            Toggle("Haptic Feedback", isOn: $enableHaptics)
+
+            if notificationManager.mutedCount > 0 {
+                LabeledContent("Muted Cameras", value: "\(notificationManager.mutedCount)")
+                Button("Unmute All", role: .destructive) {
+                    notificationManager.unmuteAll()
                 }
             }
         }
@@ -205,32 +128,21 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Routing
+    // MARK: - Camera Filters
 
     @ViewBuilder
-    private var routingSection: some View {
+    private var cameraFiltersSection: some View {
         Section {
-            NavigationLink {
-                OfflineRoutingView()
-            } label: {
-                HStack {
-                    Label("Offline Routing", systemImage: "map")
-                    Spacer()
-                    if RegionStore.installedRegions().isEmpty {
-                        Text("No regions")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("\(RegionStore.installedRegions().count) region\(RegionStore.installedRegions().count == 1 ? "" : "s")")
-                            .foregroundStyle(.secondary)
-                    }
-                }
+            Toggle("ALPR Cameras Only", isOn: $showALPROnly)
+            if !showALPROnly {
+                Toggle("Show Speed Cameras", isOn: $showSpeedCameras)
+                Toggle("Show Generic Cameras", isOn: $showGenericCameras)
             }
-            #if DEBUG
-            Toggle("Routing Latency HUD", isOn: $showRoutingSpikeOverlay)
-            NavigationLink("Phonon Bench") { PhononEvaluationView() }
-            #endif
+            Toggle("Show Suspected Locations", isOn: $showSuspectedLocations)
+        } header: {
+            Text("Camera Filters")
         } footer: {
-            Text("Download road data so routes are computed on this device and your destination never leaves it.")
+            Text("Filters change the map and alerts, but routing still avoids all camera types. Suspected locations appear on the map only.")
         }
     }
 
@@ -243,12 +155,7 @@ struct SettingsView: View {
             NavigationLink {
                 voiceSettingsView
             } label: {
-                HStack {
-                    Text("Voice & Spoken Prompts")
-                    Spacer()
-                    Text(voiceEnabled ? selectedVoiceName : "Off")
-                        .foregroundStyle(.secondary)
-                }
+                LabeledContent("Voice & Spoken Prompts", value: voiceEnabled ? selectedVoiceName : "Off")
             }
         } header: {
             Text("Voice")
@@ -353,7 +260,7 @@ struct SettingsView: View {
             Toggle("Also when not navigating", isOn: $camerasOutsideNavigation)
                 .disabled(!cameraAlerts)
         } header: {
-            Text("Spoken prompts")
+            Text("Spoken Prompts")
         } footer: {
             Text("Camera alerts are independent of directions. The trip mute silences all speech for that trip.")
         }
@@ -366,30 +273,119 @@ struct SettingsView: View {
                 CameraVoiceTypeToggle(type: type)
             }
         } header: {
-            Text("Spoken camera types")
+            Text("Spoken Camera Types")
         } footer: {
             Text("Banners, haptics and notifications are unchanged.")
         }
         .disabled(!voiceEnabled || !cameraAlerts)
     }
 
-    // MARK: - Filter Settings
+    // MARK: - Navigation
 
     @ViewBuilder
-    private var filterSection: some View {
-        Section("Camera Filters") {
-            Toggle("ALPR Cameras Only", isOn: $showALPROnly)
-            if !showALPROnly {
-                Toggle("Show Speed Cameras", isOn: $showSpeedCameras)
-                Toggle("Show Generic Cameras", isOn: $showGenericCameras)
+    private var navigationSection: some View {
+        Section {
+            NavigationLink {
+                OfflineRoutingView()
+            } label: {
+                let regionCount = RegionStore.installedRegions().count
+                LabeledContent(
+                    "Offline Routing",
+                    value: regionCount == 0 ? "No regions" : "\(regionCount) region\(regionCount == 1 ? "" : "s")"
+                )
+            }
+        } header: {
+            Text("Navigation")
+        } footer: {
+            Text("Download road data so routes are computed on this device and your destination never leaves it.")
+        }
+    }
+
+    // MARK: - Display
+
+    @ViewBuilder
+    private var displaySection: some View {
+        Section {
+            Picker("Theme", selection: $appearanceRaw) {
+                ForEach(AppAppearance.allCases, id: \.rawValue) { appearance in
+                    Text(appearance.displayName).tag(appearance.rawValue)
+                }
+            }
+
+            Picker("Distance Units", selection: $useMetric) {
+                Text("Metric (km, m)").tag(true)
+                Text("Standard (mi, ft)").tag(false)
+            }
+
+            Toggle("Keep Screen Awake", isOn: $keepScreenAwake)
+        } header: {
+            Text("Display")
+        } footer: {
+            Text("Keep Screen Awake stops the screen locking while the map or a route is open. It uses more battery, so keep the phone on a charger for long drives.")
+        }
+    }
+
+    // MARK: - Permissions
+
+    @ViewBuilder
+    private var permissionsSection: some View {
+        Section("Permissions") {
+            LabeledContent("Location Status") {
+                Text(authStatusText)
+                    .foregroundStyle(authStatusColor)
+            }
+
+            Button("Open Location Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+
+            LabeledContent("Notification Status") {
+                Text(notificationManager.isAuthorized ? "Enabled" : "Disabled")
+                    .foregroundStyle(notificationManager.isAuthorized ? .green : .red)
+            }
+
+            if !notificationManager.isAuthorized {
+                Button("Enable Notifications") {
+                    Task { await notificationManager.requestAuthorization() }
+                }
             }
         }
     }
 
-    // MARK: - Camera Data
+    // MARK: - Data & Storage
 
     @ViewBuilder
-    private var cameraDataSection: some View {
+    private var dataSection: some View {
+        Section {
+            NavigationLink("Camera Data") {
+                cameraDataView
+            }
+        } header: {
+            Text("Data & Storage")
+        } footer: {
+            Text("Where camera data comes from, how much is downloaded and what is stored on this device.")
+        }
+    }
+
+    private var cameraDataView: some View {
+        Form {
+            cameraSourcesSection
+            cameraCoverageSection
+            cameraStorageSection
+            suspectedLocationsSection
+        }
+        .task {
+            await refreshCDNStatus()
+            await refreshDataStats()
+        }
+        .navigationTitle("Camera Data")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @ViewBuilder
+    private var cameraSourcesSection: some View {
         Section {
             sourceRow(
                 "ALPR Cameras",
@@ -409,29 +405,30 @@ struct SettingsView: View {
                     cameraStore.speedCameraDataDate.map { "Data from \(ReleaseDate.label($0))" },
                 ]
             )
+        } header: {
+            Text("Sources")
+        } footer: {
+            Text("Bulk ALPR locations come from DeFlock's hourly snapshots and are cached on this device, so the map works during outages and offline. Speed and red-light cameras come from a national file downloaded with your first routing region; until then, and whenever DeFlock is down, the app asks OpenStreetMap's Overpass servers for one whole-degree grid cell at a time. Apple Maps tiles are not available for offline caching. Camera data \u{00A9} OpenStreetMap contributors (ODbL), via DeFlock and the tile server.")
+        }
+    }
 
-            VStack(alignment: .leading) {
-                HStack {
-                    Text("Fetch Radius")
-                    Spacer()
-                    Text(formatKm(fetchRadius))
-                        .foregroundStyle(.secondary)
-                }
-                Slider(value: $fetchRadius, in: 1...20, step: 0.5)
-            }
+    @ViewBuilder
+    private var cameraCoverageSection: some View {
+        Section("Coverage") {
+            DistanceSettingRow(
+                title: "Fetch Radius",
+                scale: DistanceSetting.fetchRadius.scale(for: units),
+                stored: $fetchRadius
+            )
             .onChange(of: fetchRadius) { _, newValue in
                 cameraStore.fetchRadiusKm = newValue
             }
 
-            VStack(alignment: .leading) {
-                HStack {
-                    Text("Offline Download Radius")
-                    Spacer()
-                    Text(formatKm(offlineRadius))
-                        .foregroundStyle(.secondary)
-                }
-                Slider(value: $offlineRadius, in: 5...50, step: 5)
-            }
+            DistanceSettingRow(
+                title: "Offline Download Radius",
+                scale: DistanceSetting.offlineRadius.scale(for: units),
+                stored: $offlineRadius
+            )
 
             Button {
                 Task { await downloadOfflineData() }
@@ -454,32 +451,23 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
 
-            HStack {
-                Text("Cached Cameras")
-                Spacer()
-                Text("\(cacheCount)")
-                    .foregroundStyle(.secondary)
-            }
+    @ViewBuilder
+    private var cameraStorageSection: some View {
+        Section("Storage") {
+            LabeledContent("Cached Cameras", value: "\(cacheCount)")
 
-            HStack {
-                Text("Downloaded Area Data")
-                Spacer()
-                Text(ByteCountFormatter.string(fromByteCount: cacheSizeBytes, countStyle: .file))
-                    .foregroundStyle(.secondary)
-            }
+            LabeledContent(
+                "Downloaded Area Data",
+                value: ByteCountFormatter.string(fromByteCount: cacheSizeBytes, countStyle: .file)
+            )
 
-            HStack {
-                Text("Offline Tile Cache")
-                Spacer()
-                Text(cdnCacheSummary)
-                    .foregroundStyle(.secondary)
-            }
+            LabeledContent("Offline Tile Cache", value: cdnCacheSummary)
 
             if cameraStore.pendingCount > 0 {
-                HStack {
-                    Text("Pending Uploads")
-                    Spacer()
+                LabeledContent("Pending Uploads") {
                     Text("\(cameraStore.pendingCount)")
                         .foregroundStyle(.orange)
                 }
@@ -506,13 +494,18 @@ struct SettingsView: View {
             } message: {
                 Text("This removes all camera data stored on this device — downloaded areas and offline tiles. Cameras will reload from the network next time they're needed.")
             }
-        } header: {
-            Text("Camera Data")
-        } footer: {
-            Text("Bulk ALPR locations come from DeFlock's hourly snapshots and are cached on this device, so the map works during outages and offline. Speed and red-light cameras come from a national file downloaded with your first routing region; until then, and whenever DeFlock is down, the app asks OpenStreetMap's Overpass servers for one whole-degree grid cell at a time. Apple Maps tiles are not available for offline caching. Camera data \u{00A9} OpenStreetMap contributors (ODbL), via DeFlock and the tile server.")
         }
-        .task {
-            await refreshCDNStatus()
+    }
+
+    @ViewBuilder
+    private var suspectedLocationsSection: some View {
+        Section("Suspected Locations") {
+            LabeledContent("Loaded Suspected Locations", value: "\(suspectedCount)")
+
+            LabeledContent(
+                "Last Download",
+                value: suspectedLastDownload?.formatted(date: .abbreviated, time: .shortened) ?? "Never"
+            )
         }
     }
 
@@ -529,8 +522,12 @@ struct SettingsView: View {
         cdnSnapshotDate = status.snapshotDate
     }
 
+    /// Title and details on the left, source on the right; stacked at
+    /// accessibility text sizes, where two columns would hyphenate both.
     private func sourceRow(_ title: String, icon: String, source: String, details: [String?]) -> some View {
-        HStack {
+        let stacked = dynamicTypeSize.isAccessibilitySize
+        let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout())
+        return layout {
             Label {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
@@ -543,60 +540,11 @@ struct SettingsView: View {
             } icon: {
                 Image(systemName: icon)
             }
-            Spacer()
+            if !stacked { Spacer() }
             Text(source)
                 .foregroundStyle(.secondary)
         }
-    }
-
-    // MARK: - Location
-
-    @ViewBuilder
-    private var locationSection: some View {
-        Section("Location") {
-            HStack {
-                Text("Location Status")
-                Spacer()
-                Text(authStatusText)
-                    .foregroundStyle(authStatusColor)
-            }
-
-            Button("Open Location Settings") {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
-            }
-
-            Toggle("Debug Overlay", isOn: $showDebugOverlay)
-        }
-    }
-
-    // MARK: - Suspected Locations
-
-    @ViewBuilder
-    private var suspectedLocationsSection: some View {
-        Section("Suspected Locations") {
-            Toggle("Show Suspected Locations", isOn: $showSuspectedLocations)
-
-            HStack {
-                Text("Loaded Suspected Locations")
-                Spacer()
-                Text("\(suspectedCount)")
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack {
-                Text("Last Download")
-                Spacer()
-                if let suspectedLastDownload {
-                    Text(suspectedLastDownload.formatted(date: .abbreviated, time: .shortened))
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Never")
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - About
@@ -604,12 +552,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var aboutSection: some View {
         Section {
-            HStack {
-                Text("Version")
-                Spacer()
-                Text("1.0.0")
-                    .foregroundStyle(.secondary)
-            }
+            LabeledContent("Version", value: "1.0.0")
 
             Link(destination: URL(string: "https://deflock.me")!) {
                 Label("DeFlock Project", systemImage: "globe")
@@ -731,6 +674,23 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Developer
+
+    #if DEBUG
+    @ViewBuilder
+    private var developerSection: some View {
+        Section {
+            Toggle("Routing Latency HUD", isOn: $showRoutingSpikeOverlay)
+            NavigationLink("Phonon Bench") { PhononEvaluationView() }
+            Toggle("Debug Overlay", isOn: $showDebugOverlay)
+        } header: {
+            Text("Developer")
+        } footer: {
+            Text("Shown in Debug builds only.")
+        }
+    }
+    #endif
+
     // MARK: - Helpers
 
     private var authStatusText: String {
@@ -763,7 +723,8 @@ struct SettingsView: View {
                 radiusKm: offlineRadius,
                 context: modelContext
             )
-            downloadMessage = "Downloaded \(count) cameras within \(formatKm(offlineRadius))"
+            let radius = DistanceSetting.offlineRadius.scale(for: units).step(nearest: offlineRadius).label
+            downloadMessage = "Downloaded \(count) cameras within \(radius)"
             await refreshDataStats()
         } catch {
             downloadMessage = "Download failed: \(error.localizedDescription)"
@@ -779,6 +740,33 @@ struct SettingsView: View {
         let stats = cameraStore.cacheStats(context: modelContext)
         cacheCount = stats.count
         cacheSizeBytes = stats.sizeBytes
+    }
+}
+
+/// A distance slider that moves between the steps of its scale. The stored
+/// value stays metric and is only written when the slider reaches another step.
+private struct DistanceSettingRow: View {
+    let title: String
+    let scale: DistanceSettingScale
+    @Binding var stored: Double
+
+    var body: some View {
+        let shown = scale.step(nearest: stored)
+        VStack(alignment: .leading) {
+            LabeledContent(title, value: shown.label)
+            Slider(value: position, in: 0...Double(scale.steps.count - 1), step: 1)
+                .accessibilityLabel(title)
+                .accessibilityValue(shown.spokenLabel)
+        }
+    }
+
+    private var position: Binding<Double> {
+        Binding(
+            get: { Double(scale.index(nearest: stored)) },
+            set: { newValue in
+                if let value = scale.stored(movingTo: Int(newValue.rounded()), from: stored) { stored = value }
+            }
+        )
     }
 }
 

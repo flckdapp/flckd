@@ -79,13 +79,14 @@ ios/
       CachedCamera.swift            SwiftData model for the offline cache
       OverpassResponse.swift        Overpass JSON types
       SuspectedLocation.swift       unconfirmed locations from permit data
+      DistanceSettingScale.swift    pure slider steps for distance settings, per unit system
     Views/
       CameraMapView.swift           the main map
       CameraDetailView.swift        camera info sheet
       AddCameraView.swift           report a new camera
       RouteView.swift               route planner
       OfflineRoutingView.swift      tile server and region pack settings
-      SettingsView.swift            settings
+      SettingsView.swift            settings, with Voice and Camera Data sub-pages
       ProximityBannerView.swift     the in-app proximity warning
       OfflineUpdateBanner.swift     "update available" / "updated" notice
       SplashView.swift                launch screen
@@ -486,6 +487,50 @@ the existing Alert mode in exactly the same way during and outside navigation;
 they do not use the speech predicate. Trip counts use actual observability,
 not the banner radius.
 
+**Settings layout.** One native Form, ordered by what the app does, then how
+it looks, then what it holds:
+
+| Section | Contents |
+|---|---|
+| Alerts | Enable Alerts, Alert Mode, Alert Radius, Haptic Feedback, and Muted Cameras with Unmute All when anything is muted |
+| Camera Filters | ALPR Cameras Only, Show Speed Cameras, Show Generic Cameras, Show Suspected Locations |
+| Voice | the master switch and the "Voice & Spoken Prompts" page |
+| Navigation | Offline Routing |
+| Display | Theme, Distance Units, Keep Screen Awake |
+| Permissions | location and notification status, with the button that fixes each |
+| Data & Storage | the "Camera Data" page: Sources, Coverage (Fetch Radius, Offline Download Radius, the offline download), Storage (cache figures, Clear Camera Data) and Suspected Locations figures |
+| About | version, links, licences |
+| Developer | Debug builds only: Routing Latency HUD, Phonon Bench, Debug Overlay |
+
+The Developer section is inside `#if DEBUG`, and so is everything it controls.
+The Debug Overlay prints the current position on the map; it shipped in every
+build until November 2026 and is now compiled out of Release and TestFlight.
+It references `RoutingMetricsStore.buildSentinel`, so un-gating it breaks the
+Release build. Value rows use `LabeledContent`, which stacks the value under
+its label at accessibility text sizes.
+
+**Distance settings.** Alert Radius is stored in metres, Fetch Radius and
+Offline Download Radius in kilometres, under the keys they have always had,
+because every reader expects metric. `DistanceSettingScale` holds one list of
+steps per setting and unit system, and the sliders move between steps rather
+than over the stored number:
+
+| Setting | Metric | Standard |
+|---|---|---|
+| Alert Radius | 50-500 m in 25 m steps | 150-1,650 ft in 50 ft steps |
+| Fetch Radius | 1-20 km in 0.5 km steps | ¾ mi, then 1-12½ mi in ½ mi steps |
+| Offline Download Radius | 5-50 km in 5 km steps | 3-31 mi in 1 mi steps |
+
+A Standard step is stored as its exact metric equivalent (feet × 0.3048,
+miles × 1.609344). A stored value that is not on the current scale, such as
+the 200 m default in Standard units, shows as the nearest step (650 ft) and is
+left alone until the slider moves to a different step, so the readout can
+differ from the value in use by up to half a step. Fetch Radius starts at
+¾ mi so Standard units cannot set it below the 1 km metric minimum, which
+is what leaves room for the largest alert radius between refetches. Live
+distances (to a camera, to a turn, remaining) are formatted separately and do
+not use these scales.
+
 **Alert settings.** Camera Filters (ALPR only, speed, generic) decide what the
 user sees and hears: `CameraTypeFilter.allows(_:)` gates the map markers and,
 in `ProximityAlertEngine`, the nearby list, the exit-radius hysteresis list
@@ -600,7 +645,7 @@ reason, even collapsed. These records have no text, clip key, road name, route
 identity or coordinates. They are compiled out of Release with the existing
 sentinel gate.
 
-Spoken prompts has separate directions, traffic-light, rerouting and camera
+Spoken Prompts has separate directions, traffic-light, rerouting and camera
 switches, disabled under the master switch. The existing `voiceGuidanceEnabled`
 key still controls directions only; camera alerts and rerouting are independent.
 Camera alerts default to while navigating. Also when not navigating enables
