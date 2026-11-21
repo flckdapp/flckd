@@ -74,6 +74,9 @@ ios/_build-logs/
 ios/_sim-shots/
 ios/_dd/
 
+# ---- TestFlight feedback (tester comments and screenshots stay local) ----
+feedback/
+
 # ---- Browser automation scratch ----
 .playwright-mcp/
 
