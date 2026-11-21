@@ -182,9 +182,6 @@ final class CameraStore {
         // `double(forKey:)` yields 0 when the key was never written.
         let stored = UserDefaults.standard.double(forKey: Self.fetchRadiusKey)
         if stored > 0 { fetchRadiusKm = stored }
-        if let show = UserDefaults.standard.object(forKey: Self.showSpeedCamerasKey) as? Bool {
-            speedCamerasEnabled = show
-        }
     }
 
     // MARK: - Speed Camera File
@@ -359,7 +356,8 @@ final class CameraStore {
     func checkProximity(
         location: CLLocation,
         alertRadius: CLLocationDistance,
-        alertMode: AlertMode = .nearCamera
+        alertMode: AlertMode = .nearCamera,
+        filter: CameraTypeFilter = .all
     ) -> [(camera: SurveillanceCamera, distance: CLLocationDistance)] {
         // Bounding-box prefilter. Building a CLLocation and computing a
         // haversine distance for thousands of cameras on every location
@@ -369,7 +367,8 @@ final class CameraStore {
         let lonWindow = latWindow / max(0.2, cos(location.coordinate.latitude * .pi / 180))
         let nearby = cameras.compactMap { camera -> (camera: SurveillanceCamera, distance: CLLocationDistance)? in
             guard abs(camera.latitude - location.coordinate.latitude) <= latWindow,
-                  abs(camera.longitude - location.coordinate.longitude) <= lonWindow else { return nil }
+                  abs(camera.longitude - location.coordinate.longitude) <= lonWindow,
+                  filter.allows(camera) else { return nil }
             let cameraLocation = CLLocation(latitude: camera.latitude, longitude: camera.longitude)
             let distance = location.distance(from: cameraLocation)
             guard distance <= alertRadius else { return nil }

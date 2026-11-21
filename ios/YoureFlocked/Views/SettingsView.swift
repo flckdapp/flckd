@@ -8,6 +8,7 @@ struct SettingsView: View {
     @Environment(LocationManager.self) private var locationManager
     @Environment(CameraStore.self) private var cameraStore
     @Environment(NotificationManager.self) private var notificationManager
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(NavigationSessionController.self) private var navigationController
     @Environment(\.modelContext) private var modelContext
 
@@ -146,6 +147,18 @@ struct SettingsView: View {
         Section("Proximity Alerts") {
             Toggle("Enable Alerts", isOn: Bindable(notificationManager).alertsEnabled)
 
+            if notificationManager.mutedCount > 0 {
+                HStack {
+                    Text("Muted Cameras")
+                    Spacer()
+                    Text("\(notificationManager.mutedCount)")
+                        .foregroundStyle(.secondary)
+                }
+                Button("Unmute All", role: .destructive) {
+                    notificationManager.unmuteAll()
+                }
+            }
+
             Picker("Alert Mode", selection: $alertModeRaw) {
                 ForEach(AlertMode.allCases, id: \.rawValue) { mode in
                     Text(mode.displayName).tag(mode.rawValue)
@@ -185,6 +198,10 @@ struct SettingsView: View {
                     Task { await notificationManager.requestAuthorization() }
                 }
             }
+        }
+        .onAppear { notificationManager.refreshMutes() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { notificationManager.refreshMutes() }
         }
     }
 
@@ -366,9 +383,6 @@ struct SettingsView: View {
                 Toggle("Show Speed Cameras", isOn: $showSpeedCameras)
                 Toggle("Show Generic Cameras", isOn: $showGenericCameras)
             }
-        }
-        .onChange(of: showSpeedCameras) { _, newValue in
-            cameraStore.speedCamerasEnabled = newValue
         }
     }
 

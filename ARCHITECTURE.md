@@ -221,9 +221,9 @@ downloads only the tiles that intersect the cell being loaded.
 Overpass is the fallback. Before the speed-camera file has been downloaded,
 speed cameras come from an Overpass query for the cell, cached on disk per
 cell. If the DeFlock CDN is unavailable, one Overpass query for the cell
-supplies the other camera types. If "Show Speed Cameras" is off, speed
-cameras are dropped from the store, and Overpass is not queried at all
-while the CDN is up.
+supplies the other camera types. Camera display filters do not change these
+fetches or remove routing data;
+"Show Speed Cameras" now controls visibility and alerts only.
 
 The primary Overpass endpoint is
 `https://overpass.deflock.org/api/interpreter`, with `overpass-api.de` as
@@ -483,7 +483,29 @@ occlusion can still be wrong; genuinely undirected cameras may be missed. The
 predicate remains separate so it can later be reused for other alert surfaces.
 Banner, haptic, notification and Live Activity camera fields remain governed by
 the existing Alert mode in exactly the same way during and outside navigation;
-they do not use the speech predicate. Trip tally retains its existing behavior.
+they do not use the speech predicate. Trip counts use actual observability,
+not the banner radius.
+
+**Alert settings.** Camera Filters (ALPR only, speed, generic) decide what the
+user sees and hears: `CameraTypeFilter.allows(_:)` gates the map markers and,
+in `ProximityAlertEngine`, the nearby list, the exit-radius hysteresis list
+(so banner, haptics, notification and Live Activity), the observability
+exposure set used for speech/counts, and the non-navigation track tally. It never
+touches `CameraStore.cameras`, which route planning reads, so
+filters do not change what a route avoids. The route card's camera count and
+planner/driving-map markers follow the same filters: they are user-visible
+information, not routing input. Changing filters updates the displayed count
+without replanning; a short note makes clear that routing still avoids all
+camera types. The route card's unfiltered exposure list is retained locally
+so changing filters never requires a new route request. "Enable Alerts" and
+notification
+mutes ("Mute 1 Hour", "Mute This Camera") persist in UserDefaults
+(`NotificationMuteStore`); a mute silences notifications only. Settings'
+"Unmute All" clears them and the in-memory notification cooldown. Changes to
+type filters immediately re-evaluate the current fix rather than leaving an
+old banner visible until the next location update. Notification state and
+actions are main-actor confined; identifiers are never logged.
+
 ALPR manufacturer or
 brand tags containing "flock" select Flock recordings; other ALPRs and cameras,
 speed cameras and gunshot detectors each have their own clips. Unknown devices
@@ -893,7 +915,8 @@ places; see [AGENTS.md](AGENTS.md).
 ### Exposure counts and locked speech diagnostics
 
 The route card, camera speech and trip counts use the same
-CameraObservability.RouteExposure windows. Route choice does not: the planner
+CameraObservability.RouteExposure windows, after the user's camera-type filter.
+Route choice does not: the planner
 keeps scoring any camera within 35 m of a candidate, regardless of facing unless
 FOV avoidance is on, so avoidance stays conservative and planning cost is
 unchanged. Physical exclusion polygons keep their original full-circle behavior.

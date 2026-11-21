@@ -133,9 +133,10 @@ enum CameraObservability {
             })
         }
 
-        static func build(path: [CLLocationCoordinate2D], cameras: [SurveillanceCamera]) -> Self {
+        static func build(path: [CLLocationCoordinate2D], cameras: [SurveillanceCamera],
+                          filter: CameraTypeFilter = .all) -> Self {
             var result = Self()
-            for camera in cameras {
+            for camera in cameras where filter.allows(camera) {
                 if Task.isCancelled { return Self() }
                 let windows = CameraObservability.windows(camera: camera, path: path)
                 if !windows.isEmpty { result.windowsByCamera[camera.id] = windows }

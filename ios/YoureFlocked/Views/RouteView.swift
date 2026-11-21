@@ -47,6 +47,16 @@ struct RouteView: View {
     @State private var isSheetPresented = false
     
     @AppStorage(DistanceUnits.storageKey) private var useMetric: Bool = false
+    @AppStorage(CameraTypeFilter.alprOnlyKey) private var alprOnly = false
+    @AppStorage(CameraTypeFilter.speedKey) private var showSpeed = true
+    @AppStorage(CameraTypeFilter.genericKey) private var showGeneric = true
+    @State private var exposedRouteCameras: [SurveillanceCamera] = []
+
+    private var cameraFilter: CameraTypeFilter {
+        CameraTypeFilter(alprOnly: alprOnly, showSpeed: showSpeed, showGeneric: showGeneric)
+    }
+
+    private var displayedCameraCount: Int { exposedRouteCameras.filter(cameraFilter.allows).count }
     #if DEBUG
     @AppStorage("showRoutingSpikeOverlay") private var showRoutingSpikeOverlay: Bool = false
     @AppStorage(DebugDriveSimulationSettings.speedKey) private var simulatedSpeed = 35
@@ -63,7 +73,7 @@ struct RouteView: View {
             if !navigationController.isActive { planner }
 
             if navigationController.isActive || navigationController.tripSummary != nil {
-                NavigationView(cameras: routeCameras)
+                NavigationView(cameras: routeCameras.filter(cameraFilter.allows))
             }
         }
         .onChange(of: navigationController.isActive) { _, active in
@@ -79,7 +89,7 @@ struct RouteView: View {
         Map(position: $cameraPosition) {
             UserAnnotation()
 
-            ForEach(routeCameras) { camera in
+            ForEach(routeCameras.filter(cameraFilter.allows)) { camera in
                 Annotation(camera.displayName, coordinate: camera.coordinate) {
                     CameraMarkerView(camera: camera)
                 }
@@ -565,16 +575,16 @@ struct RouteView: View {
                         statItem(value: formatDistance(result.distanceMeters), label: "Distance", color: .secondary)
                         
                         HStack(spacing: 4) {
-                            Image(systemName: result.cameraCount == 0 ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
-                                .foregroundStyle(result.cameraCount == 0 ? Color(red: 0.0, green: 0.7, blue: 0.65) : .orange)
-                            statItem(value: "\(result.cameraCount)", label: "Cameras", color: result.cameraCount == 0 ? Color(red: 0.0, green: 0.7, blue: 0.65) : .orange)
+                            Image(systemName: displayedCameraCount == 0 ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
+                                .foregroundStyle(displayedCameraCount == 0 ? Color(red: 0.0, green: 0.7, blue: 0.65) : .orange)
+                            statItem(value: "\(displayedCameraCount)", label: "Cameras", color: displayedCameraCount == 0 ? Color(red: 0.0, green: 0.7, blue: 0.65) : .orange)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     // Avoidance summary ("Avoided all N cameras"), computed
                     // from the corridor set.
-                    Text(result.avoidanceInfo)
+                    Text(cameraFilter == .all ? result.avoidanceInfo : "Camera count follows your filters. Routing avoids all camera types.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -930,6 +940,7 @@ struct RouteView: View {
             }
 
             let exposure = camerasAlongCoordinates(result.route.coordinates, cameras: cameras)
+            exposedRouteCameras = exposure
 
             // "Avoided" is the corridor total minus the cameras that can see
             // this route, the same exposure count shown in the Cameras stat,

@@ -70,6 +70,7 @@ final class ProximityAlertEngine {
     @ObservationIgnored private var exposureCameras: [SurveillanceCamera] = []
     @ObservationIgnored private var routeCameraSeed: [SurveillanceCamera] = []
     @ObservationIgnored private var lastCountProgress = 0.0
+    @ObservationIgnored private var cameraFilter = CameraTypeFilter.fromDefaults()
     #if DEBUG
     @ObservationIgnored private var cameraDiagnosticStates: [Int64: String] = [:]
     #endif
@@ -79,7 +80,8 @@ final class ProximityAlertEngine {
     func waitForExposure() async { await exposureTask?.value }
     func beginNavigationTally() { navigationStats = TripStats() }
 
-    func setSpeechRoute(_ path: [CLLocationCoordinate2D]?, cameras: [SurveillanceCamera] = []) {
+    func setSpeechRoute(_ path: [CLLocationCoordinate2D]?, cameras: [SurveillanceCamera] = [],
+                        filter: CameraTypeFilter = .fromDefaults()) {
         #if DEBUG
         if let exposure = speechExposure {
             for (index, id) in exposure.orderedIDs.enumerated() where speechEntries[id] == nil {
@@ -96,6 +98,7 @@ final class ProximityAlertEngine {
         speechExposure = nil
         exposureCameras = []
         routeCameraSeed = cameras
+        cameraFilter = filter
         lastCountProgress = 0
         speechTrack = CameraSpeechTrack()
         speechPasses.removeAll()
@@ -116,7 +119,9 @@ final class ProximityAlertEngine {
     }
 
     private func refreshSpeechExposure(_ cameras: [SurveillanceCamera]) {
-        guard let path = speechRoute, cameras != exposureCameras else { return }
+        let cameras = cameras.filter(cameraFilter.allows).sorted { $0.id < $1.id }
+        guard let path = speechRoute,
+              cameras != exposureCameras || (speechExposure == nil && exposureTask == nil) else { return }
         exposureCameras = cameras
         speechExposure = nil
         VoicePromptPlayer.shared.cancel(.camera)
@@ -179,6 +184,7 @@ final class ProximityAlertEngine {
     private var tripWasActive: Bool = false
 
     func recordEncounter(camera: SurveillanceCamera) {
+        guard cameraFilter.allows(camera) else { return }
         if speechRoute != nil { Self.record(camera, in: &navigationStats) }
         Self.record(camera, in: &tripStats)
     }
@@ -269,18 +275,25 @@ final class ProximityAlertEngine {
         location: CLLocation,
         heading: CLHeading?,
         cameraStore: CameraStore,
-        notificationManager: NotificationManager,
+        notificationManager: any ProximityNotifying,
         liveActivityManager: LiveActivityManager?,
         alertRadius: CLLocationDistance,
         alertMode: AlertMode,
-        enableHaptics: Bool
+        enableHaptics: Bool,
+        filter: CameraTypeFilter = .fromDefaults()
     ) {
+        applyCameraFilter(filter)
         refreshCamerasIfNeeded(around: location.coordinate, cameraStore: cameraStore)
+        if let alert = activeAlert, !filter.allows(alert.camera) {
+            cancelExitGrace()
+            activeAlert = nil
+        }
 
         let nearby = cameraStore.checkProximity(
             location: location,
             alertRadius: alertRadius,
-            alertMode: alertMode
+            alertMode: alertMode,
+            filter: filter
         )
 
         let exitRadius = alertRadius * exitRadiusMultiplier
@@ -294,7 +307,8 @@ final class ProximityAlertEngine {
         }
 
         updateCameraSpeech(location: location, cameraStore: cameraStore, alertRadius: alertRadius,
-                           inFieldOfView: alertMode == .inFieldOfView, alertsEnabled: notificationManager.alertsEnabled)
+                           inFieldOfView: alertMode == .inFieldOfView, alertsEnabled: notificationManager.alertsEnabled,
+                           filter: filter)
 
         // Check cameras within exit radius for hysteresis.
         // Bounding-box prefilter first: a full CLLocation/haversine pass
@@ -304,7 +318,8 @@ final class ProximityAlertEngine {
         let exitLonWindow = exitLatWindow / max(0.2, cos(location.coordinate.latitude * .pi / 180))
         let withinExitRadius = cameraStore.cameras.compactMap { camera -> (camera: SurveillanceCamera, distance: CLLocationDistance)? in
             guard abs(camera.latitude - location.coordinate.latitude) <= exitLatWindow,
-                  abs(camera.longitude - location.coordinate.longitude) <= exitLonWindow else { return nil }
+                  abs(camera.longitude - location.coordinate.longitude) <= exitLonWindow,
+                  filter.allows(camera) else { return nil }
             let cameraLocation = CLLocation(latitude: camera.latitude, longitude: camera.longitude)
             let distance = location.distance(from: cameraLocation)
             guard distance <= exitRadius else { return nil }
@@ -433,16 +448,18 @@ final class ProximityAlertEngine {
     // MARK: - Keeping Cameras Current
 
     func updateCameraSpeech(location: CLLocation, cameraStore: CameraStore, alertRadius: Double,
-                                    inFieldOfView: Bool, alertsEnabled: Bool) {
+                            inFieldOfView: Bool, alertsEnabled: Bool, filter: CameraTypeFilter = .fromDefaults()) {
+        applyCameraFilter(filter)
         speechTrack.append(location)
         let context = voiceContext?() ?? VoicePlaybackContext()
         guard location.horizontalAccuracy >= 0, location.horizontalAccuracy <= CameraExposureGeometry.radiusMeters else {
             VoicePromptPlayer.shared.updateCameraEligibility(CameraSpeechEligibility())
             return
         }
-        let cameras = context.navigating
+        let allCameras = context.navigating
             ? Array(Dictionary((routeCameraSeed + cameraStore.cameras).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }).values).sorted { $0.id < $1.id }
             : cameraStore.cameras
+        let cameras = allCameras.filter(filter.allows)
         if context.navigating { refreshSpeechExposure(cameras) }
         else {
             for camera in cameras where speechTrack.permits(camera, at: location) { recordEncounter(camera: camera) }
@@ -475,7 +492,7 @@ final class ProximityAlertEngine {
         }
         speechEntries = speechEntries.filter { Date().timeIntervalSince($0.value) < cameraCooldownDuration }
         let candidates: [Candidate] = cameras.compactMap { camera in
-            guard let type = CameraPromptSelector.type(for: camera), alertsEnabled,
+            guard filter.allows(camera), let type = CameraPromptSelector.type(for: camera), alertsEnabled,
                   settings.allows(.camera(type), context: context) else { return nil }
             let distance = CameraExposureGeometry.distance(camera.coordinate, location.coordinate)
             guard distance <= alertRadius else { return nil }
@@ -515,7 +532,7 @@ final class ProximityAlertEngine {
             if key.hasPrefix("cam.cameras_ahead_") {
                 for candidate in unannounced { speechEntries[candidate.camera.id] = Date() }
             }
-            } else { speechPasses.insert(chosen.camera.id) }
+        } else { speechPasses.insert(chosen.camera.id) }
         let grouped = key.hasPrefix("cam.cameras_ahead_")
         let targets = grouped ? Set(unannounced.map { $0.camera.id }) : [chosen.camera.id]
         var utterance = VoiceUtterance(
@@ -531,6 +548,23 @@ final class ProximityAlertEngine {
         }
         #endif
         VoicePromptPlayer.shared.enqueue(utterance)
+    }
+
+    private func applyCameraFilter(_ filter: CameraTypeFilter) {
+        guard cameraFilter != filter else { return }
+        cameraFilter = filter
+        // Invalidate in-flight work too; a stale exposure must not re-admit
+        // hidden cameras after the Settings change returns.
+        exposureTask?.cancel()
+        exposureTask = nil
+        exposureGeneration = UUID()
+        speechExposure = nil
+        exposureCameras = []
+        lastCountProgress = speechProgress
+        speechEntries.removeAll()
+        speechPasses.removeAll()
+        VoicePromptPlayer.shared.cancel(.camera)
+        VoicePromptPlayer.shared.updateCameraEligibility(CameraSpeechEligibility())
     }
 
     /// Fetches cameras for where the user actually is, as they move.
