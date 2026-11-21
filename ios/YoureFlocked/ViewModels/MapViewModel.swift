@@ -40,30 +40,11 @@ final class MapViewModel {
 
     var isFollowingUser: Bool { followMode != .off }
 
-    // MARK: - Filter State
-
-    var showALPROnly: Bool = false
-    var showSpeedCameras: Bool = true
-    var showGenericCameras: Bool = true
-
-
-
     // MARK: - Computed
 
-    /// Cameras filtered by current filter settings
-    func filteredCameras(from allCameras: [SurveillanceCamera]) -> [SurveillanceCamera] {
-        allCameras.filter { camera in
-            switch camera.surveillanceType {
-            case .alpr:
-                return true // ALPRs are always shown.
-            case .speedCamera:
-                return showSpeedCameras
-            case .camera:
-                return showGenericCameras
-            default:
-                return !showALPROnly
-            }
-        }
+    /// Cameras the user's type filter lets through.
+    func filteredCameras(from allCameras: [SurveillanceCamera], filter: CameraTypeFilter) -> [SurveillanceCamera] {
+        allCameras.filter(filter.allows)
     }
 
     /// A rolled-up group of nearby cameras, shown as a numbered badge
@@ -94,8 +75,8 @@ final class MapViewModel {
 
     /// Cameras/clusters that should actually be rendered: filtered, culled
     /// to the visible region (with margin), and clustered past the threshold.
-    func annotationContent(from allCameras: [SurveillanceCamera]) -> MapAnnotationContent {
-        let filtered = filteredCameras(from: allCameras)
+    func annotationContent(from allCameras: [SurveillanceCamera], filter: CameraTypeFilter) -> MapAnnotationContent {
+        let filtered = filteredCameras(from: allCameras, filter: filter)
         guard let region = visibleRegion else {
             return MapAnnotationContent(cameras: Array(filtered.prefix(clusterThreshold)))
         }

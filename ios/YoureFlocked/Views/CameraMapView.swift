@@ -45,6 +45,9 @@ struct CameraMapView: View {
     @State private var showMapStylePicker: Bool = false
     @AppStorage("showSuspectedLocations") private var showSuspectedLocations: Bool = false
     @AppStorage("enableHaptics") private var enableHaptics: Bool = true
+    @AppStorage(CameraTypeFilter.alprOnlyKey) private var showALPROnly: Bool = false
+    @AppStorage(CameraTypeFilter.speedKey) private var showSpeedCameras: Bool = true
+    @AppStorage(CameraTypeFilter.genericKey) private var showGenericCameras: Bool = true
 
     var body: some View {
         ZStack {
@@ -158,7 +161,10 @@ struct CameraMapView: View {
 
             // Camera markers: individual cameras up to the cluster
             // threshold, numbered roll-up badges beyond it.
-            let content = viewModel.annotationContent(from: cameraStore.cameras)
+            let content = viewModel.annotationContent(
+                from: cameraStore.cameras,
+                filter: CameraTypeFilter(alprOnly: showALPROnly, showSpeed: showSpeedCameras, showGeneric: showGenericCameras)
+            )
             ForEach(content.cameras) { camera in
                 Annotation(camera.displayName, coordinate: camera.coordinate) {
                     CameraMarkerView(

@@ -3,17 +3,44 @@ import UIKit
 import UserNotifications
 import Observation
 
+/// What the proximity engine needs from the notification side. A seam so tests
+/// can observe sends without `UNUserNotificationCenter`.
+@MainActor
+protocol ProximityNotifying: AnyObject {
+    var alertsEnabled: Bool { get }
+    func sendProximityAlert(for camera: SurveillanceCamera, distance: Double)
+}
+
 @Observable
-final class NotificationManager: NSObject, @unchecked Sendable, UNUserNotificationCenterDelegate {
+@MainActor
+final class NotificationManager: NSObject, UNUserNotificationCenterDelegate, ProximityNotifying {
+
+    /// The key Settings' "Enable Alerts" switch persists to.
+    static let alertsEnabledKey = "alertsEnabled"
 
     var isAuthorized: Bool = false
-    var alertsEnabled: Bool = true
 
-    private var recentlyAlerted: Set<Int64> = []
+    /// Persisted. iOS relaunches the app in the background for significant
+    /// location changes, so an in-memory flag silently turned alerts back on
+    /// after the user had turned them off.
+    var alertsEnabled: Bool {
+        didSet { defaults.set(alertsEnabled, forKey: Self.alertsEnabledKey) }
+    }
+
+    /// Cameras currently muted from notifications. Drives Settings' Unmute row.
+    private(set) var mutedCount: Int = 0
+
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let mutes: NotificationMuteStore
+    private var recentlyAlerted: [Int64: Date] = [:]
     private let cooldownInterval: TimeInterval = 300
 
-    override init() {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        self.mutes = NotificationMuteStore(defaults: defaults)
+        self.alertsEnabled = defaults.object(forKey: Self.alertsEnabledKey) as? Bool ?? true
         super.init()
+        mutedCount = mutes.count()
         UNUserNotificationCenter.current().delegate = self
         registerCategories()
     }
@@ -68,18 +95,19 @@ final class NotificationManager: NSObject, @unchecked Sendable, UNUserNotificati
 
     // MARK: - Proximity Alerts
 
+    /// Whether a notification may go out for this camera now, recording the
+    /// five-minute cooldown when it may.
+    func admitProximityAlert(for camera: SurveillanceCamera, now: Date = Date()) -> Bool {
+        guard alertsEnabled, isAuthorized else { return false }
+        guard !mutes.isMuted(camera.osmID, now: now) else { return false }
+        recentlyAlerted = recentlyAlerted.filter { now.timeIntervalSince($0.value) < cooldownInterval }
+        guard recentlyAlerted[camera.osmID] == nil else { return false }
+        recentlyAlerted[camera.osmID] = now
+        return true
+    }
+
     func sendProximityAlert(for camera: SurveillanceCamera, distance: Double) {
-        guard alertsEnabled, isAuthorized else { return }
-        guard !recentlyAlerted.contains(camera.osmID) else { return }
-
-        recentlyAlerted.insert(camera.osmID)
-
-        let cameraID = camera.osmID
-        let cooldown = cooldownInterval
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(cooldown))
-            self?.recentlyAlerted.remove(cameraID)
-        }
+        guard admitProximityAlert(for: camera) else { return }
 
         let data = AlertData(
             osmID: camera.osmID,
@@ -93,8 +121,35 @@ final class NotificationManager: NSObject, @unchecked Sendable, UNUserNotificati
         )
 
         Task { @MainActor in
+            guard self.alertsEnabled, !self.mutes.isMuted(data.osmID) else { return }
             await Self.buildAndSend(data: data)
         }
+    }
+
+    // MARK: - Mutes
+
+    func unmuteAll() {
+        mutes.unmuteAll()
+        recentlyAlerted.removeAll()
+        mutedCount = 0
+    }
+
+    func refreshMutes() { mutedCount = mutes.count() }
+
+    /// `userInfo` values that went through a delivered notification come back
+    /// as `NSNumber`, so a plain `as? Int64` cast is not enough.
+    nonisolated static func cameraID(from userInfo: [AnyHashable: Any]) -> Int64? {
+        switch userInfo["cameraID"] {
+        case let id as Int64: return id
+        case let number as NSNumber: return number.int64Value
+        case let id as Int: return Int64(id)
+        default: return nil
+        }
+    }
+
+    private func applyMute(_ cameraID: Int64, permanently: Bool) {
+        if permanently { mutes.mutePermanently(cameraID) } else { mutes.muteForOneHour(cameraID) }
+        mutedCount = mutes.count()
     }
 
     // MARK: - Alert Construction
@@ -317,7 +372,7 @@ final class NotificationManager: NSObject, @unchecked Sendable, UNUserNotificati
     /// absent and the notification was thrown away, so nothing warned the
     /// driver at all. If the banner ever becomes conditional again, this has
     /// to become conditional with it.
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
@@ -325,17 +380,19 @@ final class NotificationManager: NSObject, @unchecked Sendable, UNUserNotificati
         completionHandler([])
     }
 
-    func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        didReceive response: UNNotificationResponse,
-        withCompletionHandler completionHandler: @escaping () -> Void
-    ) {
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let userInfo = response.notification.request.content.userInfo
+        let action = response.actionIdentifier
+        let cameraID = Self.cameraID(from: userInfo)
+        let latitude = userInfo["latitude"] as? Double
+        let longitude = userInfo["longitude"] as? Double
+        await handleAction(action, cameraID: cameraID, latitude: latitude, longitude: longitude)
+    }
 
-        switch response.actionIdentifier {
+    func handleAction(_ action: String, cameraID: Int64?, latitude: Double? = nil, longitude: Double? = nil) {
+        switch action {
         case "OPEN_MAP", UNNotificationDefaultActionIdentifier:
-            if let lat = userInfo["latitude"] as? Double,
-               let lon = userInfo["longitude"] as? Double {
+            if let lat = latitude, let lon = longitude {
                 NotificationCenter.default.post(
                     name: .showCameraOnMap,
                     object: nil,
@@ -343,27 +400,16 @@ final class NotificationManager: NSObject, @unchecked Sendable, UNUserNotificati
                 )
             }
         case "MUTE_1H":
-            if let cameraID = userInfo["cameraID"] as? Int64 {
-                recentlyAlerted.insert(cameraID)
-                Task { @MainActor [weak self] in
-                    try? await Task.sleep(for: .seconds(3600))
-                    self?.recentlyAlerted.remove(cameraID)
-                }
-            }
+            if let cameraID { applyMute(cameraID, permanently: false) }
         case "MUTE_CAMERA":
-            if let cameraID = userInfo["cameraID"] as? Int64 {
-                recentlyAlerted.insert(cameraID)
-            }
+            if let cameraID { applyMute(cameraID, permanently: true) }
         default:
             break
         }
 
-        completionHandler()
     }
 }
 
 extension Notification.Name {
     static let showCameraOnMap = Notification.Name("showCameraOnMap")
 }
-
-

@@ -1,6 +1,6 @@
 # Privacy Policy — FLCKD (You're Flocked)
 
-**Last updated:** 2026-11-17
+**Last updated:** 2026-11-20
 
 FLCKD warns you when you're near surveillance cameras. This document
 describes what the code actually does, including the parts that aren't
@@ -299,6 +299,12 @@ registries; it does not send mobile-app traffic to those registries.
 - Your settings (alert radius, filters, map preferences, voice guidance) in
   standard iOS preferences storage, including the selected voice and spoken
   camera alert preferences.
+- The cameras you muted from a notification. These are camera IDs, which
+  amount to places you drive past, so they stay on the device and are never
+  sent or logged by the app. They are saved in standard iOS preferences and
+  can be included in backups managed by iOS. A mute affects notifications
+  only, not banners, haptics, spoken alerts or trip counts. "Unmute All" in
+  Settings clears them.
 
 That's all. There's no location log, no visit history, no route history and
 no trip history: the arrival card's numbers live in memory until you dismiss
@@ -334,8 +340,9 @@ your phone. There's no push server.
   on the app doesn't ask Overpass for speed cameras at all. Until then the
   speed-camera query goes out as soon as the app has your position, for the
   whole-degree grid cell you are in, unless that cell was loaded in the last
-  day; panning the map to a new cell sends that cell. Switching off "Show
-  Speed Cameras" in Settings stops it entirely. ALPR data comes from
+  day; panning the map to a new cell sends that cell. Display filters hide
+  cameras and their alerts, but do not stop camera downloads: routing still
+  needs the full camera data. ALPR data comes from
   DeFlock's 20-degree tiles, which reveal an even coarser area.
 - Use a VPN to hide your IP address from the OpenStreetMap servers and from
   whichever tile server you use.

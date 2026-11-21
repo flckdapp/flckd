@@ -224,18 +224,24 @@ final class ProximityAlertEngine {
         location: CLLocation,
         heading: CLHeading?,
         cameraStore: CameraStore,
-        notificationManager: NotificationManager,
+        notificationManager: any ProximityNotifying,
         liveActivityManager: LiveActivityManager?,
         alertRadius: CLLocationDistance,
         alertMode: AlertMode,
-        enableHaptics: Bool
+        enableHaptics: Bool,
+        filter: CameraTypeFilter = .fromDefaults()
     ) {
         refreshCamerasIfNeeded(around: location.coordinate, cameraStore: cameraStore)
+        if let alert = activeAlert, !filter.allows(alert.camera) {
+            cancelExitGrace()
+            activeAlert = nil
+        }
 
         let nearby = cameraStore.checkProximity(
             location: location,
             alertRadius: alertRadius,
-            alertMode: alertMode
+            alertMode: alertMode,
+            filter: filter
         )
 
         let exitRadius = alertRadius * exitRadiusMultiplier
@@ -249,7 +255,8 @@ final class ProximityAlertEngine {
         }
 
         updateCameraSpeech(location: location, cameraStore: cameraStore, alertRadius: alertRadius,
-                           inFieldOfView: alertMode == .inFieldOfView, alertsEnabled: notificationManager.alertsEnabled)
+                           inFieldOfView: alertMode == .inFieldOfView, alertsEnabled: notificationManager.alertsEnabled,
+                           filter: filter)
 
         // Check cameras within exit radius for hysteresis.
         // Bounding-box prefilter first: a full CLLocation/haversine pass
@@ -259,7 +266,8 @@ final class ProximityAlertEngine {
         let exitLonWindow = exitLatWindow / max(0.2, cos(location.coordinate.latitude * .pi / 180))
         let withinExitRadius = cameraStore.cameras.compactMap { camera -> (camera: SurveillanceCamera, distance: CLLocationDistance)? in
             guard abs(camera.latitude - location.coordinate.latitude) <= exitLatWindow,
-                  abs(camera.longitude - location.coordinate.longitude) <= exitLonWindow else { return nil }
+                  abs(camera.longitude - location.coordinate.longitude) <= exitLonWindow,
+                  filter.allows(camera) else { return nil }
             let cameraLocation = CLLocation(latitude: camera.latitude, longitude: camera.longitude)
             let distance = location.distance(from: cameraLocation)
             guard distance <= exitRadius else { return nil }
@@ -389,7 +397,7 @@ final class ProximityAlertEngine {
     // MARK: - Keeping Cameras Current
 
     private func updateCameraSpeech(location: CLLocation, cameraStore: CameraStore, alertRadius: Double,
-                                    inFieldOfView: Bool, alertsEnabled: Bool) {
+                                    inFieldOfView: Bool, alertsEnabled: Bool, filter: CameraTypeFilter) {
         speechTrack.append(location)
         guard let context = voiceContext?() else { return }
         guard location.horizontalAccuracy >= 0, location.horizontalAccuracy <= CameraExposureGeometry.radiusMeters else {
@@ -406,7 +414,7 @@ final class ProximityAlertEngine {
         }
         speechEntries = speechEntries.filter { Date().timeIntervalSince($0.value) < cameraCooldownDuration }
         let candidates: [Candidate] = cameraStore.cameras.compactMap { camera in
-            guard let type = CameraPromptSelector.type(for: camera), alertsEnabled,
+            guard filter.allows(camera), let type = CameraPromptSelector.type(for: camera), alertsEnabled,
                   settings.allows(.camera(type), context: context) else { return nil }
             let distance = CameraExposureGeometry.distance(camera.coordinate, location.coordinate)
             guard distance <= alertRadius else { return nil }

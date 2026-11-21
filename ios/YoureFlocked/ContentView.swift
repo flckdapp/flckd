@@ -14,6 +14,9 @@ struct ContentView: View {
     @AppStorage("alertMode") private var alertModeRaw: String = AlertMode.nearCamera.rawValue
     @AppStorage("enableHaptics") private var enableHaptics: Bool = true
     @AppStorage(DistanceUnits.storageKey) private var useMetric = false
+    @AppStorage(CameraTypeFilter.alprOnlyKey) private var alprOnly = false
+    @AppStorage(CameraTypeFilter.speedKey) private var showSpeed = true
+    @AppStorage(CameraTypeFilter.genericKey) private var showGeneric = true
 
     #if DEBUG
     /// Held in `@State` rather than read through `RerouteProbe.shared` inline.
@@ -82,19 +85,10 @@ struct ContentView: View {
         // the app is for, so neither the detection nor the banner may depend
         // on which tab is showing, or on the map having been opened.
         .overlay(alignment: .top) { proximityBanner }
-        .onChange(of: locationManager.currentLocation) { _, newLocation in
-            guard let location = newLocation else { return }
-            proximityEngine.handleLocationUpdate(
-                location: location,
-                heading: locationManager.heading,
-                cameraStore: cameraStore,
-                notificationManager: notificationManager,
-                liveActivityManager: liveActivityManager,
-                alertRadius: locationManager.alertRadius,
-                alertMode: AlertMode(rawValue: alertModeRaw) ?? .nearCamera,
-                enableHaptics: enableHaptics
-            )
+        .onChange(of: locationManager.currentLocation) { _, _ in
+            refreshProximity()
         }
+        .onChange(of: [alprOnly, showSpeed, showGeneric]) { _, _ in refreshProximity() }
         .onChange(of: useMetric) { _, _ in
             VoicePromptPlayer.shared.cancel(.guidance)
             VoicePromptPlayer.shared.cancel(.camera)
@@ -114,6 +108,14 @@ struct ContentView: View {
             guard !Task.isCancelled else { return }
             offlineUpdater.dismissNotice()
         }
+    }
+
+    private func refreshProximity() {
+        guard let location = locationManager.currentLocation else { return }
+        proximityEngine.handleLocationUpdate(location: location, heading: locationManager.heading,
+            cameraStore: cameraStore, notificationManager: notificationManager, liveActivityManager: liveActivityManager,
+            alertRadius: locationManager.alertRadius, alertMode: AlertMode(rawValue: alertModeRaw) ?? .nearCamera,
+            enableHaptics: enableHaptics)
     }
 
     @ViewBuilder
