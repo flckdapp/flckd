@@ -61,23 +61,25 @@ final class DistanceSettingScaleTests: XCTestCase {
         }
     }
 
-    func testStandardFetchRadiusIsThreeQuartersThenHalfMilesTo12AndAHalf() {
+    func testStandardFetchRadiusIsWholeMilesFrom1To12() {
         let steps = make(.fetchRadius, .imperial).steps
-        XCTAssertEqual(steps.count, 25)
-        XCTAssertEqual(Array(steps.map(\.label).prefix(5)), ["\u{00BE} mi", "1 mi", "1\u{00BD} mi", "2 mi", "2\u{00BD} mi"])
-        XCTAssertEqual(Array(steps.map(\.label).suffix(2)), ["12 mi", "12\u{00BD} mi"])
-        XCTAssertEqual(steps[0].stored, 0.75 * kilometersPerMile, accuracy: 1e-9)
-        for (index, step) in steps.dropFirst().enumerated() {
-            XCTAssertEqual(step.stored, (1 + 0.5 * Double(index)) * kilometersPerMile, accuracy: 1e-9)
+        XCTAssertEqual(steps.map(\.label), (1...12).map { "\($0) mi" })
+        for (index, step) in steps.enumerated() {
+            XCTAssertEqual(step.stored, Double(1 + index) * kilometersPerMile, accuracy: 1e-9)
         }
     }
 
-    func testStandardOfflineRadiusIsEveryMileFrom3To31() {
+    func testStandardOfflineRadiusIs5To30MilesIn5MileSteps() {
         let steps = make(.offlineRadius, .imperial).steps
-        XCTAssertEqual(steps.map(\.label), (3...31).map { "\($0) mi" })
+        XCTAssertEqual(steps.map(\.label), ["5 mi", "10 mi", "15 mi", "20 mi", "25 mi", "30 mi"])
         for (index, step) in steps.enumerated() {
-            XCTAssertEqual(step.stored, Double(3 + index) * kilometersPerMile, accuracy: 1e-9)
+            XCTAssertEqual(step.stored, Double(5 * (1 + index)) * kilometersPerMile, accuracy: 1e-9)
         }
+    }
+
+    func testStandardScalesStayInsideTheMetricMaximum() {
+        XCTAssertLessThanOrEqual(make(.fetchRadius, .imperial).steps.last?.stored ?? .infinity, 20)
+        XCTAssertLessThanOrEqual(make(.offlineRadius, .imperial).steps.last?.stored ?? .infinity, 50)
     }
 
     func testStandardScalesCoverTheMetricRange() {
@@ -119,17 +121,18 @@ final class DistanceSettingScaleTests: XCTestCase {
         XCTAssertEqual(make(.fetchRadius, .imperial).step(nearest: 5).label, "3 mi")
     }
 
-    func testDefault20KilometreOfflineRadiusShowsAs12Miles() {
-        XCTAssertEqual(make(.offlineRadius, .imperial).step(nearest: 20).label, "12 mi")
+    func testDefault20KilometreOfflineRadiusShowsAs10Miles() {
+        // 20 km is 12.4 mi; 10 mi is the nearer of the 10 and 15 mi steps.
+        XCTAssertEqual(make(.offlineRadius, .imperial).step(nearest: 20).label, "10 mi")
     }
 
     func testMetricEndsShowAsTheStandardEnds() {
         XCTAssertEqual(make(.alertRadius, .imperial).step(nearest: 50).label, "150 ft")
         XCTAssertEqual(make(.alertRadius, .imperial).step(nearest: 500).label, "1,650 ft")
-        XCTAssertEqual(make(.fetchRadius, .imperial).step(nearest: 1).label, "\u{00BE} mi")
-        XCTAssertEqual(make(.fetchRadius, .imperial).step(nearest: 20).label, "12\u{00BD} mi")
-        XCTAssertEqual(make(.offlineRadius, .imperial).step(nearest: 5).label, "3 mi")
-        XCTAssertEqual(make(.offlineRadius, .imperial).step(nearest: 50).label, "31 mi")
+        XCTAssertEqual(make(.fetchRadius, .imperial).step(nearest: 1).label, "1 mi")
+        XCTAssertEqual(make(.fetchRadius, .imperial).step(nearest: 20).label, "12 mi")
+        XCTAssertEqual(make(.offlineRadius, .imperial).step(nearest: 5).label, "5 mi")
+        XCTAssertEqual(make(.offlineRadius, .imperial).step(nearest: 50).label, "30 mi")
     }
 
     func testEveryMetricStepShowsWithinHalfAStandardStep() {
@@ -167,12 +170,12 @@ final class DistanceSettingScaleTests: XCTestCase {
 
     func testMovingToAStandardStepStoresMilesInKilometres() throws {
         let fetch = make(.fetchRadius, .imperial)
-        let half = try XCTUnwrap(fetch.steps.firstIndex { $0.label == "2\u{00BD} mi" })
-        XCTAssertEqual(try XCTUnwrap(fetch.stored(movingTo: half, from: 5)), 2.5 * kilometersPerMile, accuracy: 1e-9)
+        let two = try XCTUnwrap(fetch.steps.firstIndex { $0.label == "2 mi" })
+        XCTAssertEqual(try XCTUnwrap(fetch.stored(movingTo: two, from: 5)), 2 * kilometersPerMile, accuracy: 1e-9)
 
         let offline = make(.offlineRadius, .imperial)
-        let ten = try XCTUnwrap(offline.steps.firstIndex { $0.label == "10 mi" })
-        XCTAssertEqual(try XCTUnwrap(offline.stored(movingTo: ten, from: 20)), 10 * kilometersPerMile, accuracy: 1e-9)
+        let fifteen = try XCTUnwrap(offline.steps.firstIndex { $0.label == "15 mi" })
+        XCTAssertEqual(try XCTUnwrap(offline.stored(movingTo: fifteen, from: 20)), 15 * kilometersPerMile, accuracy: 1e-9)
     }
 
     func testStayingOnTheShownStepDoesNotRewriteTheStoredValue() {
@@ -200,9 +203,9 @@ final class DistanceSettingScaleTests: XCTestCase {
     func testSpokenLabelsAvoidSymbolsAndAbbreviations() {
         XCTAssertEqual(make(.alertRadius, .imperial).step(nearest: 200).spokenLabel, "650 feet")
         XCTAssertEqual(make(.alertRadius, .metric).step(nearest: 200).spokenLabel, "200 meters")
-        XCTAssertEqual(make(.fetchRadius, .imperial).steps[0].spokenLabel, "0.75 miles")
-        XCTAssertEqual(make(.fetchRadius, .imperial).steps[1].spokenLabel, "1 mile")
-        XCTAssertEqual(make(.fetchRadius, .imperial).steps[2].spokenLabel, "1.5 miles")
+        XCTAssertEqual(make(.fetchRadius, .imperial).steps[0].spokenLabel, "1 mile")
+        XCTAssertEqual(make(.fetchRadius, .imperial).steps[1].spokenLabel, "2 miles")
+        XCTAssertEqual(make(.offlineRadius, .imperial).steps[0].spokenLabel, "5 miles")
         XCTAssertEqual(make(.fetchRadius, .metric).step(nearest: 5).spokenLabel, "5.0 kilometers")
     }
 }

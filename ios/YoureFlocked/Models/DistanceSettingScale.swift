@@ -15,7 +15,7 @@ struct DistanceSettingScale: Equatable, Sendable {
         /// What is stored when this step is chosen, in the setting's own
         /// metric unit (metres or kilometres).
         let stored: Double
-        /// Exactly what the slider shows, e.g. "650 ft" or "1½ mi".
+        /// Exactly what the slider shows, e.g. "650 ft" or "3 mi".
         let label: String
         /// The same value for VoiceOver, without symbols or abbreviations.
         let spokenLabel: String
@@ -69,15 +69,15 @@ enum DistanceSetting: CaseIterable, Sendable {
             // 1-20 km in 0.5 km steps.
             return DistanceSettingScale(steps: (2...40).map { .kilometers(Double($0) / 2) })
         case (.fetchRadius, .imperial):
-            // 3/4 mi, then every half mile from 1 to 12 1/2. It starts at 3/4
-            // rather than 1/2 so it cannot go below the metric minimum of 1 km.
-            return DistanceSettingScale(steps: [.quarterMiles(3)] + (2...25).map { .quarterMiles(2 * $0) })
+            // Whole miles, 1-12: stays inside the metric 1-20 km range (the
+            // 1 km floor leaves refetch headroom for the largest alert radius).
+            return DistanceSettingScale(steps: (1...12).map { .miles($0) })
         case (.offlineRadius, .metric):
             // 5-50 km in 5 km steps.
             return DistanceSettingScale(steps: (1...10).map { .kilometers(Double(5 * $0)) })
         case (.offlineRadius, .imperial):
-            // Every mile from 3 to 31.
-            return DistanceSettingScale(steps: (3...31).map { .quarterMiles(4 * $0) })
+            // 5-30 mi in 5 mi steps, inside the metric 5-50 km range.
+            return DistanceSettingScale(steps: (1...6).map { .miles(5 * $0) })
         }
     }
 }
@@ -105,16 +105,9 @@ private extension DistanceSettingScale.Step {
         return Self(stored: kilometers, label: "\(digits) km", spokenLabel: "\(digits) kilometers")
     }
 
-    /// Miles in quarters, stored as kilometres.
-    static func quarterMiles(_ quarters: Int) -> Self {
-        let whole = quarters / 4
-        let fraction = ["", "\u{00BC}", "\u{00BD}", "\u{00BE}"][quarters % 4]
-        let miles = Double(quarters) / 4
-        let spoken = quarters % 4 == 0 ? "\(whole)" : String(format: quarters % 2 == 0 ? "%.1f" : "%.2f", miles)
-        return Self(
-            stored: miles * kilometersPerMile,
-            label: "\(whole == 0 ? "" : "\(whole)")\(fraction) mi",
-            spokenLabel: "\(spoken) \(quarters == 4 ? "mile" : "miles")"
-        )
+    /// Whole miles, stored as kilometres.
+    static func miles(_ miles: Int) -> Self {
+        Self(stored: Double(miles) * kilometersPerMile, label: "\(miles) mi",
+             spokenLabel: "\(miles) \(miles == 1 ? "mile" : "miles")")
     }
 }

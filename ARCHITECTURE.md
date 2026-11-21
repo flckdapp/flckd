@@ -518,16 +518,17 @@ than over the stored number:
 | Setting | Metric | Standard |
 |---|---|---|
 | Alert Radius | 50-500 m in 25 m steps | 150-1,650 ft in 50 ft steps |
-| Fetch Radius | 1-20 km in 0.5 km steps | ¾ mi, then 1-12½ mi in ½ mi steps |
-| Offline Download Radius | 5-50 km in 5 km steps | 3-31 mi in 1 mi steps |
+| Fetch Radius | 1-20 km in 0.5 km steps | 1-12 mi in 1 mi steps |
+| Offline Download Radius | 5-50 km in 5 km steps | 5-30 mi in 5 mi steps |
 
 A Standard step is stored as its exact metric equivalent (feet × 0.3048,
 miles × 1.609344). A stored value that is not on the current scale, such as
 the 200 m default in Standard units, shows as the nearest step (650 ft) and is
 left alone until the slider moves to a different step, so the readout can
-differ from the value in use by up to half a step. Fetch Radius starts at
-¾ mi so Standard units cannot set it below the 1 km metric minimum, which
-is what leaves room for the largest alert radius between refetches. Live
+differ from the value in use by up to half a step (the 20 km offline default
+shows as 10 mi). Standard steps are whole miles and stay inside the metric
+range: Fetch Radius never drops below the 1 km minimum, which leaves room for
+the largest alert radius between refetches. Live
 distances (to a camera, to a turn, remaining) are formatted separately and do
 not use these scales.
 
