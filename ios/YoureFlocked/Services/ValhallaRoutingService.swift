@@ -698,6 +698,10 @@ actor ValhallaRoutingService {
     /// The IDs of the cameras within `radiusMeters` of the route polyline;
     /// `exposureCount` is this set's size. Same geometry and FOV rules.
     private func exposedCameraIDs(route: ValhallaRoute, cameras: [SurveillanceCamera], radiusMeters: Double, useFOV: Bool = false) -> Set<Int64> {
+        // Route choice stays conservative: any camera within the scoring radius
+        // counts, regardless of facing unless the user asked for FOV avoidance.
+        // What the driver is told (preview, spoken alerts, trip count) uses the
+        // stricter CameraObservability.RouteExposure instead.
         let shape = route.coordinates
         guard shape.count >= 2 else { return [] }
         let referenceLatitude = shape[shape.count / 2].latitude

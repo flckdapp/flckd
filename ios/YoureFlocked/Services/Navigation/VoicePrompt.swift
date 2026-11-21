@@ -12,39 +12,30 @@ struct VoiceUtterance: Equatable, Sendable {
     var createdAt: TimeInterval
     var cameraTargets = Set<Int64>()
     var cameraRequiresView = false
-    /// The Kokoro preset the user asked for. Whether its audio exists is
-    /// decided at playback, so a broken pack still counts as a request.
-    var kokoro: KokoroPreset? = nil
-    /// Previews of a Kokoro preset never fall back to another voice.
-    var kokoroOnly = false
-    /// The turn card's road name, set on approach prompts when Kokoro may say
-    /// names. Only ever used to look up audio already rendered in memory.
+    var liveVoice: NavigationVoice? = nil
     var roadName: String? = nil
-    /// The exit number on the turn card, for Kokoro approach prompts to exits.
     var exitNumber: String? = nil
-    /// A live-rendered first clip for a Kokoro preview; replaces the first clip.
-    var previewFirstClip: [Float]? = nil
+    /// Already-rendered whole utterance; never mixes with recorded clips.
+    var renderedPCM: [Float]? = nil
+    var speechVariant: SpeechVariant? = nil
+    #if DEBUG
+    var cameraOrdinals: [Int] = []
+    var cameraEvent: String? = nil
+    #endif
+    var isOpening = false
+    var guidanceContext: GuidanceContext? = nil
+    let playbackID = UUID()
 
     static func preview(voice: PromptVoice, now: TimeInterval, units: DistanceUnits = .imperial) -> Self {
         Self(clips: [units == .metric ? "200m.turn_right" : "500ft.turn_right", "lane_right", "cam.flock.ahead"], voice: voice,
              priority: .sample, kind: .preview, createdAt: now)
     }
 
-    static func kokoroPreview(preset: KokoroPreset, now: TimeInterval, units: DistanceUnits = .imperial,
-                              firstClip: [Float]? = nil) -> Self {
-        var utterance = preview(voice: .selected, now: now, units: units)
-        utterance.kokoro = preset
-        utterance.kokoroOnly = true
-        utterance.previewFirstClip = firstClip
-        return utterance
-    }
 
-    /// The sentence a live Kokoro preview renders: the preview's first prompt
-    /// with a generic street name.
-    static func kokoroPreviewSentence(units: DistanceUnits = .imperial) -> String? {
-        let key = preview(voice: .male, now: 0, units: units).clips[0]
-        return SpokenRoadName.sentence(firstKey: key, bannerText: "Main Street", knows: { _ in true })?.text
-    }
+}
+
+enum SpeechVariant: String, Codable, Sendable {
+    case full, numberOnly, nameFree
 }
 
 struct VoicePromptQueue {
@@ -59,7 +50,9 @@ struct VoicePromptQueue {
     mutating func next(now: TimeInterval) -> VoiceUtterance? {
         pending.removeAll { $0.priority == .camera && now - $0.createdAt > Self.cameraLifetime }
         guard !pending.isEmpty else { return nil }
-        let index = pending.firstIndex { $0.priority == .guidance } ?? pending.startIndex
+        let liveGuidanceWaiting = pending.contains { $0.priority == .guidance && $0.liveVoice?.live == true }
+        let index = (liveGuidanceWaiting ? pending.firstIndex { $0.priority == .camera } : nil)
+            ?? pending.firstIndex { $0.priority == .guidance } ?? pending.startIndex
         return pending.remove(at: index)
     }
 
@@ -68,6 +61,18 @@ struct VoicePromptQueue {
     }
 
     mutating func clear() { pending.removeAll() }
+
+    mutating func removeLiveGuidance() -> [VoiceUtterance] {
+        let removed = pending.filter { $0.liveVoice?.live == true && $0.priority == .guidance }
+        pending.removeAll { $0.liveVoice?.live == true && $0.priority == .guidance }
+        return removed
+    }
+
+    mutating func removeLive() -> [VoiceUtterance] {
+        let removed = pending.filter { $0.liveVoice?.live == true }
+        pending.removeAll { $0.liveVoice?.live == true }
+        return removed
+    }
 
     mutating func removeDisallowed(settings: VoiceSettings, context: VoicePlaybackContext) {
         pending.removeAll { !settings.allows($0, context: context) }

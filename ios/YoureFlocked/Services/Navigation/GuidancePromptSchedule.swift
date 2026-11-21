@@ -57,7 +57,7 @@ struct GuidancePromptSchedule {
     }
 
     /// The approach prompts a step of this length can produce, farthest first.
-    /// Shared with the Kokoro name planner so the two cannot drift.
+    /// Shared with the speech render-ahead planner so the two cannot drift.
     static func approachThresholds(length: Double, units: DistanceUnits) -> [(key: String, meters: Double)] {
         let countdown = units == .metric ? Self.metricCountdown : Self.countdown
         let shortApproach = units == .metric ? (key: "100m", meters: 100.0) : (key: "500ft", meters: 152.4)

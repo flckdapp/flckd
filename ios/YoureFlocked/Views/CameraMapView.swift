@@ -599,7 +599,7 @@ struct TripSummarySheet: View {
                 }
             }
 
-            Text("Camera\(stats.totalCount == 1 ? "" : "s") encountered during this trip")
+            Text("Camera\(stats.totalCount == 1 ? "" : "s") that could see you during this trip")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

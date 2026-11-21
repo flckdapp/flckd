@@ -68,13 +68,8 @@ ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", 
         "nineteen"]
 TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
 
-# Wording the Kokoro word list cannot say, keyed by clip key or by phrase.
-# Applied to the exported text only; ElevenLabs keeps rendering clips().
-kokoro_overrides = {}
-
-
 def number_words(n):
-    """Cardinal words for 0-9999, spaces only (the Kokoro word list has no hyphenated numbers)."""
+    """Cardinal words for 0-9999, spaces only."""
     if n < 20:
         return ONES[n]
     if n < 100:
@@ -88,10 +83,6 @@ def number_words(n):
 
 def spoken_text(key, text):
     """The clip's sentence with digits spelled out, for an engine that cannot read them."""
-    if key in kokoro_overrides:
-        return kokoro_overrides[key]
-    for phrase, replacement in kokoro_overrides.items():
-        text = text.replace(phrase, replacement)
     return re.sub(r"\d{1,3}(?:,\d{3})*|\d+",
                   lambda m: number_words(int(m.group(0).replace(",", ""))), text)
 
@@ -129,7 +120,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--plan", action="store_true")
     ap.add_argument("--export-text", type=pathlib.Path,
-                    help="write key -> sentence JSON, numbers spelled out, for the Kokoro voice; no network")
+                    help="write key -> sentence JSON, numbers spelled out, for live speech; no network")
     ap.add_argument("--voices", action="store_true")
     ap.add_argument("--voice")
     ap.add_argument("--model", default="eleven_multilingual_v2")

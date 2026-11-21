@@ -29,7 +29,7 @@ def main():
     ap.add_argument("voice")
     ap.add_argument("out_dir", type=pathlib.Path)
     ap.add_argument("--work-dir", type=pathlib.Path, default=WORK)
-    ap.add_argument("--ext", default="mp3", help="extension of the raw clips (mp3 from ElevenLabs, wav from Kokoro)")
+    ap.add_argument("--ext", default="mp3", help="extension of the raw clips (mp3 from ElevenLabs, or local wav)")
     ap.add_argument("--keys", help="comma-separated clip keys; leave other bundled files untouched")
     a = ap.parse_args()
     src = a.work_dir / "out" / a.voice

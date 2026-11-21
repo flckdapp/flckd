@@ -121,6 +121,17 @@ enum CameraObservability {
 
     struct RouteExposure: Sendable {
         var windowsByCamera: [Int64: [Window]] = [:]
+        var orderedIDs: [Int64] { windowsByCamera.keys.sorted {
+            let a = windowsByCamera[$0]?.first?.start ?? 0, b = windowsByCamera[$1]?.first?.start ?? 0
+            return a == b ? $0 < $1 : a < b
+        } }
+        var exposedIDs: Set<Int64> { Set(windowsByCamera.keys) }
+
+        func passedIDs(from previous: Double, to progress: Double) -> Set<Int64> {
+            Set(windowsByCamera.compactMap { id, windows in
+                windows.contains { $0.start <= progress && $0.end >= previous } ? id : nil
+            })
+        }
 
         static func build(path: [CLLocationCoordinate2D], cameras: [SurveillanceCamera]) -> Self {
             var result = Self()

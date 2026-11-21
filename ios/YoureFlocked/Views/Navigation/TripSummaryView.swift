@@ -20,12 +20,12 @@ struct TripSummaryView: View {
             header
             statsRow
             camerasSection
-            if let kokoro = summary.kokoro {
-                Text(Self.kokoroLine(kokoro))
+            if let speech = summary.speech {
+                Text(Self.speechLine(speech))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .accessibilityIdentifier("trip-summary-kokoro")
+                    .accessibilityIdentifier("trip-summary-speech")
             }
             doneButton
         }
@@ -40,10 +40,10 @@ struct TripSummaryView: View {
         .padding(.horizontal, 20)
     }
 
-    /// "Kokoro spoke N of M prompts, K with a street name." For testers to
+    /// "Phonon spoke N of M prompts, K with a street name." For testers to
     /// report; held in memory with the rest of the card.
-    static func kokoroLine(_ stats: KokoroStats) -> String {
-        "Kokoro spoke \(stats.spoken) of \(stats.requested) prompts, \(stats.named) with a street name."
+    static func speechLine(_ stats: SpeechStats) -> String {
+        "Phonon spoke \(stats.spoken) of \(stats.requested) prompts, \(stats.named) with a street name."
     }
 
     // MARK: - Sections
@@ -149,9 +149,9 @@ struct TripSummaryView: View {
 
     private var camerasHeadline: String {
         switch summary.camerasEncountered {
-        case 0: return "No cameras on this trip"
-        case 1: return "1 camera encountered"
-        default: return "\(summary.camerasEncountered) cameras encountered"
+        case 0: return "No cameras could see you"
+        case 1: return "1 camera could see you"
+        default: return "\(summary.camerasEncountered) cameras could see you"
         }
     }
 

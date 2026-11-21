@@ -105,7 +105,7 @@ struct ContentView: View {
             locationManager.requestAuthorizationIfNeeded()
         }
         .onChange(of: scenePhase, initial: true) { _, phase in
-            KokoroNameRenderer.shared.setActive(phase == .active)
+            PhononSpeechService.shared.setForeground(phase == .active)
             guard phase == .active else { return }
             Task { await offlineUpdater.checkIfDue(cameraStore: cameraStore) }
         }
@@ -115,6 +115,11 @@ struct ContentView: View {
             guard !Task.isCancelled else { return }
             offlineUpdater.dismissNotice()
         }
+        #if DEBUG
+        .sheet(isPresented: .constant(ProcessInfo.processInfo.arguments.contains("-phononEvaluation"))) {
+            NavigationStack { PhononEvaluationView() }
+        }
+        #endif
     }
 
     @ViewBuilder

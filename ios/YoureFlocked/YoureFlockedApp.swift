@@ -7,6 +7,19 @@ import UIKit
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
 
+    func applicationWillResignActive(_ application: UIApplication) {
+        SpeechLoadAuthorization.shared.transition(active: false)
+    }
+
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        SpeechLoadAuthorization.shared.transition(active: false)
+    }
+
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        // SwiftUI's scenePhase can precede UIKit's authoritative active state.
+        PhononSpeechService.shared.setForeground(true)
+    }
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -14,7 +27,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // A relaunch by significantLocationChanges after termination needs no
         // handling here: LocationManager re-registers via @State init and
         // locationManagerDidChangeAuthorization → startTracking().
-        DispatchQueue.global(qos: .utility).async { KokoroVoiceStore.standard?.removeStalePacks() }
+        // Pack removal may traverse a large old download. Never do that in
+        // didFinishLaunching on the main thread.
+        VoiceMigration.migratePreferences()
+        Task.detached(priority: .utility) {
+            do { try VoiceMigration.removeLegacyPack() } catch { NSLog("Legacy voice cleanup could not finish") }
+        }
         return true
     }
 
@@ -54,7 +72,14 @@ struct YoureFlockedApp: App {
     init() {
         let locationManager = LocationManager()
         let cameraStore = CameraStore()
+        #if DEBUG
+        // The test action owns this explicit flag. A test host must not create
+        // persistent OS activities that can relaunch it during the next install.
+        let liveActivityManager = LiveActivityManager(
+            activityRequestsEnabled: ProcessInfo.processInfo.environment["FLCKD_TEST_DISABLE_ACTIVITY_REQUESTS"] != "1")
+        #else
         let liveActivityManager = LiveActivityManager()
+        #endif
         let proximityEngine = ProximityAlertEngine()
 
         _locationManager = State(initialValue: locationManager)

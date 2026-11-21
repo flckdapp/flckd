@@ -50,8 +50,8 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         let speedCount: Int
         let otherCount: Int
         let rerouteCount: Int
-        /// Asked for, spoken and named prompts, when the trip used Kokoro.
-        var kokoro: KokoroStats? = nil
+        /// Asked for, spoken and named prompts, when the trip used live speech.
+        var speech: SpeechStats? = nil
     }
 
     private let locationManager: LocationManager
@@ -75,6 +75,7 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
     @ObservationIgnored private var voiceCosting = "auto"
     @ObservationIgnored private var announcedArrival = false
     @ObservationIgnored private var namesPlannedStep: Int?
+    @ObservationIgnored private var speechRouteID = UUID()
 
     private(set) var isActive = false
     private(set) var isStarting = false
@@ -95,6 +96,9 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
     /// real fixes, so step advance and deviation can be exercised on
     /// camera-avoiding geometry without driving. Debug builds only.
     var simulateDrive = false
+    /// Local synthetic integration tests bypass the native route re-issue,
+    /// never guidance, scheduling, simulation or playback.
+    var debugNavigationResponse: Data?
     @ObservationIgnored private var simulatedProvider: DebugDriveLocationProvider?
     #endif
 
@@ -141,7 +145,13 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         voiceCosting = options.costing
         announcedArrival = false
         do {
-            let response = try await routingService.navigationResponse(for: plan, useMetric: options.useMetric)
+            let response: Data
+            #if DEBUG
+            if let debugNavigationResponse { response = debugNavigationResponse }
+            else { response = try await routingService.navigationResponse(for: plan, useMetric: options.useMetric) }
+            #else
+            response = try await routingService.navigationResponse(for: plan, useMetric: options.useMetric)
+            #endif
             guard let route = FlckdRouteProvider.select(try FlckdRouteProvider.routes(fromOSRM: response), for: plan) else {
                 throw NavigationError.noRouteInResponse
             }
@@ -190,18 +200,24 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
             LocalValhallaEngine.shared.keepAliveInBackground = true
             plannedDistanceMeters = route.distance
             startedAt = Date()
-            statsAtStart = proximityEngine.tripStats
+            proximityEngine.beginNavigationTally()
+            statsAtStart = ProximityAlertEngine.TripStats()
             self.destination = destination
             currentRoute = route
             proximityEngine.setSpeechRoute(route.geometry.map(\.clLocationCoordinate2D),
-                                           cameras: cameraStore.cameras)
+                                           cameras: Array(Dictionary((routeCameras + cameraStore.cameras).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }).values))
             isActive = true
             isStarting = false
             VoicePromptPlayer.shared.updateContext(voiceContext)
-            VoicePromptPlayer.shared.resetKokoroStats()
-            KokoroNameRenderer.shared.beginTrip()
+            VoicePromptPlayer.shared.resetSpeechStats()
+            speechRouteID = UUID()
+            let opening = VoiceUtterance(clips: ["depart"], voice: .selected,
+                createdAt: ProcessInfo.processInfo.systemUptime, liveVoice: NavigationVoice.selected(), isOpening: true,
+                guidanceContext: GuidanceContext(route: speechRouteID, step: 0))
+            VoicePromptPlayer.shared.updateGuidanceContext(GuidanceContext(route: speechRouteID, step: 0))
+            PhononSpeechService.shared.beginTrip(opening: opening)
             planNames(route: route, from: 0)
-            speak(["depart"])
+            VoicePromptPlayer.shared.enqueue(opening)
             loadSignals(for: route)
             Self.log.info("guidance started: \(Int(route.distance))m, \(route.steps.count) steps")
         } catch {
@@ -227,7 +243,7 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         signalGeneration = UUID()
         routeSignals = RouteSignals()
         promptSchedule.reset()
-        KokoroNameRenderer.shared.endTrip()
+        PhononSpeechService.shared.endTrip()
         namesPlannedStep = nil
         if !preserveArrivalPrompt { VoicePromptPlayer.shared.cancel(.guidance) }
         core?.stopNavigation()
@@ -334,25 +350,29 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
             clips: clips, fallbackText: fallback, voice: .selected,
             kind: kind,
             createdAt: ProcessInfo.processInfo.systemUptime,
-            kokoro: KokoroSelection.requested(),
+            liveVoice: NavigationVoice.selected(),
             roadName: roadName,
-            exitNumber: exitNumber
+            exitNumber: exitNumber,
+            guidanceContext: kind == .directions ? GuidanceContext(route: speechRouteID, step: namesPlannedStep ?? 0) : nil
         ))
     }
 
-    /// Hands the name renderer the next steps, so street names for their
-    /// approach prompts can be rendered ahead. Nothing happens unless the
-    /// Kokoro voice, its engine and "Say street names" are all on.
+    /// Replaces the current/next-two-step speech window on every accepted route.
     private func planNames(route: Route, from completed: Int) {
         namesPlannedStep = completed
-        guard KokoroSupport.namesEnabled(), let preset = KokoroSelection.requested() else { return }
-        // Three steps to plan, plus the next one for its roundabout exit number:
-        // no more of the route's road names than that are handed over.
-        let steps = KokoroNamePlanner.steps(Array(route.steps.dropFirst(completed).prefix(4)))
-        KokoroNameRenderer.shared.plan(steps: steps, units: .selected(), preset: preset)
+        VoicePromptPlayer.shared.updateGuidanceContext(GuidanceContext(route: speechRouteID, step: completed))
+        let voice = NavigationVoice.selected()
+        guard voice.live else { return }
+        let settings = VoiceSettings.fromDefaults()
+        let steps = SpeechAheadPlanner.steps(Array(route.steps.dropFirst(completed).prefix(4)))
+        PhononSpeechService.shared.plan(SpeechAheadPlanner.utterances(steps: steps, units: .selected(), voice: voice,
+            lanesEnabled: settings.allows(.lane, context: voiceContext), lightsEnabled: settings.allows(.trafficLight, context: voiceContext)))
     }
 
     private func speakInstruction(from state: NavigationState) {
+        // Do not create a two-second direction while the opening still owns
+        // the audio queue. The next progress update evaluates its real distance.
+        guard !VoicePromptPlayer.shared.openingPending else { return }
         guard case let .navigating(_, user, _, steps, _, progress, _, deviation, visual, spoken, _) = state.tripState,
               case .noDeviation = deviation, let step = steps.first, let route = currentRoute else { return }
         // Once arrival has been said, nothing more is: the route's last step is
@@ -362,7 +382,7 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         let completed = max(0, route.steps.count - steps.count)
         // The current banner can appear later than the first progress update;
         // the step's stored banner still describes the same upcoming maneuver.
-        let banner = visual ?? step.visualInstructions.first
+        let banner = step.visualInstructions.first ?? visual
         let speed = user.speed?.value ?? (step.duration > 0 ? step.distance / step.duration : 13.4)
         let units = DistanceUnits.selected()
         guard let prompt = promptSchedule.update(
@@ -402,7 +422,7 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         // the way in, say it in the selected voice rather than Apple's.
         if clips.isEmpty, steps.count == 1, !approach { clips = ["arrive"] }
         if clips.first?.hasPrefix("arrive") == true { announcedArrival = true }
-        let names = approach && KokoroSupport.namesEnabled()
+        let names = NavigationVoice.selected().live
         speak(clips, fallback: spoken?.text ?? banner?.primaryContent.text ?? next?.instruction ?? step.instruction,
               roadName: names ? banner?.primaryContent.text : nil,
               exitNumber: names ? banner?.primaryContent.exitNumbers.first : nil)
@@ -428,20 +448,13 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         VoicePromptPlayer.shared.enqueue(.preview(voice: voice, now: ProcessInfo.processInfo.systemUptime, units: .selected()))
     }
 
-    func playKokoroSample(_ preset: KokoroPreset, firstClip: [Float]? = nil) {
-        guard !isActive, !isStarting,
-              VoiceSettings.fromDefaults().allows(.preview, context: voiceContext) else { return }
-        VoicePromptPlayer.shared.enqueue(.kokoroPreview(preset: preset, now: ProcessInfo.processInfo.systemUptime,
-                                                        units: .selected(), firstClip: firstClip))
-    }
-
     /// Builds the summary, then stops immediately: a reroute that completes
     /// after arrival would otherwise restart guidance on a finished trip
     /// (Ferrostar issue #951).
     private func finish() {
         guard isActive else { return }
         let now = Date()
-        let stats = proximityEngine.tripStats
+        let stats = proximityEngine.navigationStats
         let before = statsAtStart ?? ProximityAlertEngine.TripStats()
         let remaining = state?.currentProgress?.distanceRemaining ?? 0
 
@@ -453,7 +466,7 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
             speedCount: max(0, stats.speedCount - before.speedCount),
             otherCount: max(0, stats.otherCount - before.otherCount),
             rerouteCount: rerouteCount,
-            kokoro: { let counts = VoicePromptPlayer.shared.kokoroStats(); return counts.requested > 0 ? counts : nil }()
+            speech: { let counts = VoicePromptPlayer.shared.speechStats(); return counts.requested > 0 ? counts : nil }()
         )
         Self.log.info("guidance complete after \(self.rerouteCount) reroutes")
         if !announcedArrival { speak(["arrive"]) }
@@ -484,6 +497,8 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
         for camera in routeCameras where bounds.contains(camera.coordinate) {
             byID[camera.id] = camera
         }
+        let merged = Dictionary((routeCameras + Array(byID.values)).map { ($0.id, $0) }, uniquingKeysWith: { _, newer in newer })
+        routeCameras = Array(merged.values)
         return Array(byID.values)
     }
 
@@ -565,8 +580,9 @@ final class NavigationSessionController: NSObject, @preconcurrency FerrostarCore
             plannedDistanceMeters = max(0, plannedDistanceMeters - remaining) + route.distance
             currentRoute = route
             proximityEngine.setSpeechRoute(route.geometry.map(\.clLocationCoordinate2D),
-                                           cameras: cameraStore.cameras)
+                                           cameras: Array(Dictionary((routeCameras + cameraStore.cameras).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }).values))
             promptSchedule.reset()
+            speechRouteID = UUID()
             planNames(route: route, from: 0)
             rerouteCount += 1
             speak(["new_route"], kind: .rerouting)

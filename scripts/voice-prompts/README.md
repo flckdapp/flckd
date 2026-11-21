@@ -47,14 +47,11 @@ and "meters". Lane and traffic-light phrases are shared by both unit systems.
 Each voice folder contains 435 recordings in total.
 
 `--export-text <path>` writes every clip's sentence as JSON (key to sentence)
-with numbers spelled out ("In five hundred feet"), for the optional Kokoro
-voice, whose word list cannot read digits. It makes no network request. The
+with numbers spelled out ("In five hundred feet"), for the bundled Phonon
+voice, using the same number wording as the recordings. It makes no network request. The
 app bundles the result as `ios/YoureFlocked/Resources/PromptText.json`; re-run
 it whenever `phrases.json` changes:
 
 ```sh
 python3 -I scripts/voice-prompts/generate.py --export-text ios/YoureFlocked/Resources/PromptText.json
 ```
-
-`kokoro_overrides` in `generate.py` replaces wording the Kokoro word list
-cannot say, by clip key or by phrase. It changes only the exported text.

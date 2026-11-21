@@ -19,11 +19,11 @@ Please open an issue.
   advertising.
 - Routing happens on your device. Your start point and destination are never
   sent anywhere. There is no routing server.
-- Turn-by-turn directions happen on your device too. Spoken prompts come
-  from recorded audio bundled in the app, with on-device text-to-speech as
-  a fallback. An optional third voice, Kokoro, plays generic prompts from
-  audio files you download once; they too play on the device. A reroute is the same on-device planner run again. Nothing
-  about a trip is sent or kept.
+- Turn-by-turn directions happen on your device too. Easton and Harper are
+  generated live by the bundled Phonon model; Eric and Jessica are bundled
+  recordings. A live voice that is not ready is skipped, never replaced by
+  a recording. No speech download or
+  network synthesis occurs. A reroute runs the same on-device planner.
 - No location history is written to disk, and no position ever leaves the
   device. Speed and red-light cameras come from one national file that is
   downloaded with your routing region and is the same for everyone. Other
@@ -74,25 +74,28 @@ than about the call graph, the app gives Ferrostar a request loader that
 always throws (`NoNetworkRequestLoader`): if guidance ever acquired a network
 path, it would fail loudly instead of quietly contacting a server.
 
-The optional Kokoro voice says street names with
-[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) 2.0.1 (Apache-2.0), a
-speech engine, running on
-[ONNX Runtime](https://onnxruntime.ai) (MIT), both compiled into the app.
-They turn text into audio on the phone and make no network calls in this
-app: the speech model they read is a file you downloaded (see the table
-below), and neither library imports any networking function. Once the
-project has built, this prints `0`:
+Live speech uses [xn-ptts](https://github.com/gradium-ai/xn-ptts) 0.7.1
+(MIT OR Apache-2.0) and the Apache-2.0 Phonon 31m English weights, tokenizer
+and Easton/Harper voice embeddings. Swift Package Manager fetches the
+checksum-pinned PhononCore static library at build time. The development-only
+`scripts/voice-model/fetch_phonon.py` downloads and verifies a pinned Core ML
+archive, keeps those two voices, and prepares the model bundled in every app
+build. Neither tool receives user data. No model download happens on a phone.
 
-```bash
-nm -u ios/_dd/SourcePackages/artifacts/sherpa-onnx/SherpaOnnxIOS/sherpa-onnx.xcframework/ios-arm64/SherpaOnnxC.framework/SherpaOnnxC \
-      ios/_dd/SourcePackages/artifacts/onnxruntime-libs/OnnxruntimeIOS/onnxruntime.xcframework/ios-arm64/onnxruntime.framework/onnxruntime \
-  | grep -cE '_(socket|connect|getaddrinfo)$|CFNetwork'
-```
+The runtime Swift package contains an optional model downloader, which this
+app never calls. Its Apple C/Rust synthesis path reads local files and makes
+no network calls. The tokenizer can trace its model file path, not input text;
+no input-text logging was found in the reviewed Swift/C/Core ML synthesis path.
+Upstream errors are not logged or displayed verbatim. Compiled models live in
+Application Support, excluded from backup. Rendered prompts and road names
+remain in bounded memory and are cleared at trip end. The previous downloaded
+speech engine's pack and obsolete preferences are removed locally on launch.
+The large pack deletion runs off the main thread. Speech installation and C
+model loading also run on a dedicated worker, after current foreground and
+cancellation checks; obsolete queued foreground work is rejected. Automatic
+warm-up runs only for a selected live voice with the master Voice switch on.
 
-ONNX Runtime's own privacy notice describes telemetry only for Microsoft's
-official Windows builds; this is a build from source for iOS, which has none.
-
-Those four libraries are the third-party code in the binary. Swift Package
+Those three libraries are the third-party runtimes in the binary. Swift Package
 Manager also resolves three packages that Ferrostar's map-view products
 depend on, `maplibre/swiftui-dsl`, `maplibre-gl-native-distribution` and
 `swift-syntax`, because a package's dependencies resolve as a set. The app
@@ -111,10 +114,8 @@ The app bundles recorded generic voice prompts generated during development
 with ElevenLabs (Eric and Jessica). Only generic phrases were sent to that
 service, never user, location or route data. The development tools live in
 `scripts/voice-prompts/`; they do not run in the app. `scripts/voice-model/`
-is another development tool: it downloads the public Kokoro speech model and
-the sherpa-onnx Python package to the developer's Mac, renders the same
-generic phrases there, sends nothing about any user, and does not run in the
-app.
+prepares the public speech model on the developer's Mac, sends no user data,
+and does not run in the app.
 
 Starting navigation hands the route you previewed to Ferrostar, on the
 phone. It reads your position from the same location manager the proximity
@@ -128,23 +129,20 @@ with the cameras it knows about for that corridor. Camera data for the
 corridor comes through the same tile and grid-cell requests described below,
 never through a request built around your position.
 
-**Spoken directions and camera alerts.** The app plays pre-recorded audio
-files bundled with it, on your device. Nothing is synthesized over the network;
-the only speech made at runtime is made on the phone. Two voices, Eric and Jessica, are available in Settings.
-An optional third voice, Kokoro (experimental), plays the same generic
-prompts from audio files downloaded once from the tile server (see the
-table below) and stored on the phone. They play on the device like the
-bundled recordings; if one is missing, the recorded voice says that prompt.
-On phones with enough memory the same download includes Kokoro's speech
-model, which says street names and exit numbers ("turn left onto Main Street",
-"take exit twelve B"). The name is the one on the turn
-card. During a trip, while the app is on screen, the model turns the next few
-names into speech on the phone, a few seconds ahead. That audio is held in
-memory only for the next few steps, is never written to disk and is never
-sent anywhere, and the model is unloaded when the trip ends. A name with any
-word the model's word list doesn't know is not spoken at all; the prompt plays
-without it.
-When a direction has no matching recording, Apple's `AVSpeechSynthesizer`
+**Spoken directions and camera alerts.** Easton and Harper synthesize prompts,
+street names and exit numbers on the phone using the model bundled in the app.
+The name comes from the turn card and is processed locally. The app renders the
+current and next few steps ahead, including while navigating in the background
+when the engine/OS permits it. It never loads or compiles a model in the
+background. If rendering fails, misses its bounded deadline, exceeds the spoken
+length limit, or the phone reaches critical thermal state, that live prompt is
+skipped silently. Easton and Harper never switch to Eric or Jessica during a
+trip. Serious thermal state still permits rendering. Repeated background misses
+open a breaker with a sixty-second single-probe retry; foreground activation
+resets it. Choosing Eric or Jessica directly uses the same recorded prompts as
+before. No input text or generated audio leaves the
+phone; names and PCM are held in memory only and discarded with the trip.
+With Eric or Jessica selected, when a direction has no matching recording, Apple's `AVSpeechSynthesizer`
 speaks Ferrostar's instruction text on the device using an installed voice.
 That text is never sent anywhere. The master Voice switch silences all automatic
 speech. Separate switches control directions, traffic lights,
@@ -156,9 +154,8 @@ Each voice has an explicit preview button that works with Voice off; previews
 are disabled during navigation and starting a new preview replaces the old one. The
 audio session is active only while a prompt is playing, including when the
 screen is locked. Decoded generic recordings are cached in memory. Route
-text is never written to disk; with Kokoro's street names on, the next few
-road names are held in memory, as text and as audio, only until those steps
-pass or the trip ends.
+text and rendered audio are never written to disk. The speech cache holds only
+the upcoming window and generic prompts, and clears at trip end.
 
 Distances default to imperial. Selecting metric switches both displayed and
 spoken distances using another set of recordings already bundled in the app.
@@ -182,11 +179,32 @@ The activity is requested without a push token, so the app updates it
 itself rather than through Apple's push service, and it ends with the trip.
 
 **The arrival card.** When you arrive, the app shows how long the trip took,
-how far it was, how many cameras you passed and how many reroutes happened.
-With the Kokoro voice it also says how many prompts Kokoro spoke, of how many,
+how far it was, how many cameras could see you and how many reroutes happened.
+With a live voice it also says how many prompts Phonon spoke, of how many,
 and how many carried a street name.
 Those numbers are held in memory while the card is on screen and discarded
 when you dismiss it. Nothing is written down.
+
+**Development measurements.** Debug builds can include speech timing rows in
+the existing routing metrics export: wall time, foreground/background, success,
+error type name only, deadline hit/miss and skips by foreground/background and reason. No input
+text, road names or audio are included. Text-free prompt timelines include kind,
+application state, request/render times, wait, audio duration, cache hit, breaker
+state, a fixed full/number-only/name-free variant label and played/skipped
+reason, linked by random local IDs (not text hashes). Shorter live variants are
+rendered and cached only in memory, with the same route-window cleanup.
+Speech rows append to the same local session JSONL as routing measurements so an
+app kill does not lose them; bounded in-memory rows are recovered on launch.
+They are mirrored to the device's unified log for manual recovery with log
+collect. There is no upload. Fixed labels, random IDs, counts and durations are
+public in that DEBUG log; request/render clock values retain default privacy.
+Camera diagnostics use only route-local ordinals, stage/reason and aggregate
+exposed/nearby-not-exposed counts, never OSM IDs or coordinates. Speech render
+rows also include character/word counts and predicted duration, never text.
+The DEBUG HUD shows played/skipped totals, last skip reason and exposed/spoken
+camera counts. This measurement
+code is absent from Release and TestFlight; the existing binary sentinel check
+enforces that.
 
 ---
 
@@ -197,7 +215,7 @@ when you dismiss it. Nothing is written down.
 | **DeFlock CDN**<br>`cdn.deflock.me` | The public camera index, then the 20-degree ALPR data tile or tiles that intersect the grid cell being loaded. A tile name reveals a coarse area, not an exact position. | While the app is open: when a cell is loaded and its tile is missing or out of date |
 | **OpenStreetMap Overpass**<br>`overpass.deflock.org`, then `overpass-api.de` if that fails | A fallback only. One whole-degree grid cell, as four integers: for speed cameras until you have downloaded a routing region, and for every camera type while the DeFlock CDN is unavailable. The cell is fixed to the global degree grid, not to you: every phone in the same cell sends the same bytes. The query is sent in the request body, not the URL. | Only in those two cases, the first time you are in a cell, view one on the map, or plan a route through one; then not again for that cell for a day. Never if you have a region and DeFlock is up |
 | **Apple (MapKit)** | Map tiles for the area you're viewing. In the route search field, the text you type plus the map region. | While the map, the route search or the navigation screen is open |
-| **Tile server**<br>default `tiles.flckd.app` (a Cloudflare R2 bucket), configurable | The catalog, which region pack you're downloading, and the national speed-camera file, which is the same for everyone. If you choose to try it, the optional Kokoro voice files, also the same for everyone. Nothing about your position. | When you open Offline Routing in Settings, and while a region download is running. Once you have downloaded a region, also once a day when the app opens, to check for updates; with "Update Automatically" on (the default), newer regions download on Wi-Fi and a newer speed-camera file on any network. The Kokoro voice files only when you tap a download button on the Kokoro page; they are never checked for updates |
+| **Tile server**<br>default `tiles.flckd.app` (a Cloudflare R2 bucket), configurable | The catalog, which region pack you're downloading, and the national speed-camera file, which is the same for everyone. Nothing about your position. | When you open Offline Routing in Settings, and while a region download is running. Once you have downloaded a region, also once a day when the app opens, to check for updates; with "Update Automatically" on (the default), newer regions download on Wi-Fi and a newer speed-camera file on any network. |
 | **ALPRWatch**<br>`alprwatch.org` | Nothing about you. A static file download. | Only if you switch on "Show Suspected Locations", which is off by default |
 
 Route planning itself makes no network request: the engine runs on the
@@ -272,10 +290,7 @@ you asked for. That's a coarse hint about an area you're interested in, and
 it's a real disclosure. The speed-camera file is the same national file for
 everyone, so fetching it adds nothing. The daily update check fetches the
 catalog, which is also the same for everyone, but its timing tells the
-server roughly which days you opened the app. Downloading the optional
-Kokoro voice tells the server that you chose to try that voice, and nothing
-else: every phone fetches the same files, and the app checks each one
-against a hash built into the app. No request includes your
+server roughly which days you opened the app. No request includes your
 position, your route, your destination, or anything you type.
 
 **Who sees it.** Cloudflare, because it terminates the connection and
@@ -338,8 +353,8 @@ registries; it does not send mobile-app traffic to those registries.
 - Region map packs, the routing data you downloaded. These describe roads,
   not you.
 - The speed-camera file downloaded with them. It describes cameras, not you.
-- The Kokoro voice files, if you downloaded them: the same generic prompts
-  and speech model for everyone. They describe a voice, not you.
+- The bundled Phonon model and its compiled copy: the same speech engine for
+  everyone, excluded from backup. They describe a voice, not you.
 - Cached camera records (SwiftData). These describe cameras, not you.
 - Your settings (alert radius, filters, map preferences, voice guidance) in
   standard iOS preferences storage, including the selected voice and spoken
@@ -410,7 +425,6 @@ The relevant code is small:
 ios/YoureFlocked/Services/OverpassService.swift          fallback camera lookups
 ios/YoureFlocked/Services/DeFlockCDNService.swift        bulk ALPR camera data
 ios/YoureFlocked/Services/TilePackService.swift          region pack and speed-camera file downloads
-ios/YoureFlocked/Services/VoiceModelService.swift        optional Kokoro voice download
 ios/YoureFlocked/Services/ValhallaRoutingService.swift   route planning
 ios/YoureFlocked/Services/LocalValhallaEngine.swift      the on-device engine
 ios/YoureFlocked/Services/Navigation/                    turn-by-turn guidance over that engine
@@ -430,7 +444,7 @@ Runtime service URLs in the results are covered by the table above or by
 network requests.
 
 Any build output under `ios/` holds the checked-out packages and will swamp
-that list — this built tree (with `_dd` and `_build`) answers with 2,013 lines instead of the 33 tracked
+that list — this built tree (with `_dd_phonon`) answers with 1,853 lines instead of the 31 tracked
 source lines, two of which are a test's made-up server address. Those counts depend on resolved package sources. Skip
 it with `--exclude-dir`, naming whichever derived-data directory you have
 (`_dd` is what the commands below use, `_build` and `DerivedData` are the

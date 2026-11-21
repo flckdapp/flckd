@@ -1,6 +1,6 @@
 import Foundation
 
-/// Turns the turn card's road name into words the Kokoro engine can say, or
+/// Turns the turn card's road name into words the speech engine can say, or
 /// nothing. A name that cannot be said in full is never said in part (plan D5):
 /// the prompt plays without it. Pure functions; the shared fixture
 /// `YoureFlockedTests/Navigation/Fixtures/spoken-road-names.json` pins every rule
@@ -159,7 +159,7 @@ enum SpokenRoadName {
 
     /// The approach prompt with the road name, or nil if any of it cannot be said.
     /// `name` is the spoken name, the render cache's key.
-    static func sentence(firstKey: String, bannerText: String, knows: (String) -> Bool,
+    static func sentence(firstKey: String, bannerText: String, knows: (String) -> Bool = { _ in true },
                          prompt: (String) -> String? = PromptText.sentence(for:)) -> (text: String, name: String)? {
         sentences(firstKey: firstKey, bannerText: bannerText, exitNumber: nil, knows: knows, prompt: prompt).first
     }
@@ -195,7 +195,7 @@ enum SpokenRoadName {
     /// Every speakable approach sentence for this prompt, best first, each with
     /// its cache label. An exit with a number gets the number, with the road
     /// name when that can be said too, and on its own otherwise.
-    static func sentences(firstKey: String, bannerText: String, exitNumber: String?, knows: (String) -> Bool,
+    static func sentences(firstKey: String, bannerText: String, exitNumber: String?, knows: (String) -> Bool = { _ in true },
                           prompt: (String) -> String? = PromptText.sentence(for:)) -> [(text: String, name: String)] {
         let parts = firstKey.split(separator: ".", maxSplits: 1).map(String.init)
         guard parts.count == 2, approachDistances.contains(parts[0]),

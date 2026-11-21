@@ -39,9 +39,10 @@ struct SettingsView: View {
     @AppStorage("keepScreenAwake") private var keepScreenAwake: Bool = true
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw: String = AppAppearance.system.rawValue
     @AppStorage(NavigationSessionController.voiceGuidanceKey) private var voiceGuidance: Bool = true
-    @AppStorage(PromptVoice.storageKey) private var promptVoice: String = PromptVoice.male.rawValue
-    @AppStorage(VoiceEngine.storageKey) private var voiceEngine: String = VoiceEngine.recorded.rawValue
-    @AppStorage(KokoroPreset.storageKey) private var kokoroPreset: String = KokoroPreset.defaultID
+    @AppStorage(NavigationVoice.storageKey) private var promptVoice = NavigationVoice.defaultVoice.rawValue
+    @State private var previewError: String?
+    @State private var previewTask: Task<Void, Never>?
+    @State private var previewing: String?
     @AppStorage(VoiceSettings.masterKey) private var voiceEnabled = true
     @AppStorage(VoiceSettings.trafficLightsKey) private var trafficLights = true
     @AppStorage(VoiceSettings.reroutingKey) private var reroutingAnnouncements = true
@@ -69,6 +70,11 @@ struct SettingsView: View {
                        reroutingAnnouncements, cameraAlerts, camerasOutsideNavigation]) { _, _ in
             VoicePromptPlayer.shared.settingsDidChange()
         }
+        .onChange(of: promptVoice) { _, _ in
+            VoicePromptPlayer.shared.settingsDidChange()
+            PhononSpeechService.shared.warmUp()
+        }
+        .onChange(of: voiceEnabled) { _, _ in PhononSpeechService.shared.warmUp() }
     }
 
     // MARK: - Units
@@ -204,7 +210,7 @@ struct SettingsView: View {
             }
             #if DEBUG
             Toggle("Routing Latency HUD", isOn: $showRoutingSpikeOverlay)
-            NavigationLink("Kokoro Bench") { KokoroBenchView() }
+            NavigationLink("Phonon Bench") { PhononEvaluationView() }
             #endif
         } footer: {
             Text("Download road data so routes are computed on this device and your destination never leaves it.")
@@ -235,38 +241,34 @@ struct SettingsView: View {
     }
 
     private var selectedVoiceName: String {
-        voiceEngine == VoiceEngine.kokoro.rawValue ? "Kokoro" : (PromptVoice(rawValue: promptVoice) ?? .male).name
+        (NavigationVoice(rawValue: promptVoice) ?? .defaultVoice).name
     }
 
     private var tripRunning: Bool { navigationController.isActive || navigationController.isStarting }
 
-    private var kokoroDetail: String {
-        guard let store = KokoroVoiceStore.standard else { return "" }
-        if voiceEngine == VoiceEngine.kokoro.rawValue {
-            return KokoroPreset.named(kokoroPreset)?.name ?? ""
-        }
-        return store.anyClipsInstalled ? "" : "Not downloaded"
-    }
-
     private var voiceSettingsView: some View {
         Form {
-            voicePickerSection
+            voicePickerSection(live: true)
+            voicePickerSection(live: false)
             spokenPromptsSection
             cameraVoiceSection
+        }
+        .onDisappear {
+            previewTask?.cancel(); previewTask = nil; previewing = nil
+            VoicePromptPlayer.shared.cancel(.sample)
         }
         .navigationTitle("Voice & Spoken Prompts")
         .navigationBarTitleDisplayMode(.inline)
     }
 
     @ViewBuilder
-    private var voicePickerSection: some View {
+    private func voicePickerSection(live: Bool) -> some View {
         Section {
-            ForEach(PromptVoice.allCases, id: \.rawValue) { voice in
+            ForEach(NavigationVoice.allCases.filter { $0.live == live }, id: \.rawValue) { voice in
                 HStack {
-                    let selected = voiceEngine == VoiceEngine.recorded.rawValue && promptVoice == voice.rawValue
+                    let selected = promptVoice == voice.rawValue
                     Button {
                         promptVoice = voice.rawValue
-                        voiceEngine = VoiceEngine.recorded.rawValue
                     } label: {
                         HStack {
                             Text(voice.name)
@@ -283,7 +285,7 @@ struct SettingsView: View {
                     .accessibilityAddTraits(selected ? .isSelected : [])
                     .disabled(tripRunning)
                     Button {
-                        navigationController.playVoiceSample(voice)
+                        preview(voice)
                     } label: {
                         Image(systemName: "play.circle")
                             .font(.title2)
@@ -291,28 +293,37 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.borderless)
                     .accessibilityLabel("Preview \(voice.name)")
-                    .disabled(tripRunning)
+                    .disabled(tripRunning || previewing != nil)
                 }
             }
-            NavigationLink {
-                KokoroVoiceView()
-            } label: {
-                HStack {
-                    Text("Kokoro (experimental)")
-                    Spacer()
-                    Text(kokoroDetail).foregroundStyle(.secondary)
-                    if voiceEngine == VoiceEngine.kokoro.rawValue {
-                        Image(systemName: "checkmark")
-                    }
-                }
-            }
-            .accessibilityAddTraits(voiceEngine == VoiceEngine.kokoro.rawValue ? .isSelected : [])
+            if live, let previewError { Text(previewError).font(.caption).foregroundStyle(.red) }
         } header: {
-            Text("Voice")
+            Text(live ? "Live" : "Recorded")
         } footer: {
-            Text(voiceEnabled
-                ? "Previews play the voice you tap. They are unavailable during navigation."
-                : "Voice is off in Settings, so nothing is spoken automatically. Previews still play.")
+            Text(live ? "Generated on this phone, including street names and exit numbers."
+                      : "Pre-recorded fixed prompts, without street names.")
+        }
+    }
+
+    private func preview(_ voice: NavigationVoice) {
+        guard !tripRunning else { return }
+        previewTask?.cancel()
+        VoicePromptPlayer.shared.cancel(.sample)
+        previewError = nil
+        previewing = voice.rawValue
+        previewTask = Task {
+            defer { previewing = nil }
+            if !voice.live { navigationController.playVoiceSample(voice.recording ?? .male); return }
+            do {
+                let pcm = try await PhononSpeechService.shared.preview(voice)
+                try Task.checkCancellation()
+                guard !tripRunning else { return }
+                var utterance = VoiceUtterance.preview(voice: voice.recording ?? .male, now: ProcessInfo.processInfo.systemUptime)
+                utterance.renderedPCM = pcm
+                VoicePromptPlayer.shared.enqueue(utterance)
+            } catch {
+                if !Task.isCancelled { previewError = "This voice could not render. Try its preview again." }
+            }
         }
     }
 
@@ -638,25 +649,8 @@ struct SettingsView: View {
                     url: URL(string: "https://github.com/stadiamaps/ferrostar")!
                 )
 
-                licenceTextRow(
-                    "sherpa-onnx",
-                    licence: "Apache-2.0",
-                    detail: "The speech engine for the optional Kokoro voice. Says street names on this device.",
-                    resource: "sherpa-onnx"
-                )
-
-                licenceTextRow(
-                    "ONNX Runtime",
-                    licence: "MIT",
-                    detail: "Runs the Kokoro speech model for sherpa-onnx.",
-                    resource: "onnxruntime"
-                )
-
-                NavigationLink {
-                    bundledComponentsView
-                } label: {
-                    Text("Components built into sherpa-onnx")
-                }
+                licenceTextRow("xn-ptts", licence: "MIT OR Apache-2.0",
+                               detail: "On-device speech runtime. No server is used.", resource: "xn-ptts")
             } footer: {
                 Text("None of these libraries talks to a server in this app.")
             }
@@ -667,57 +661,11 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                NavigationLink {
-                    LicenceTextView(title: "Kokoro-82M", resource: "kokoro-82m")
-                } label: {
-                    VStack(alignment: .leading, spacing: 5) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text("Kokoro-82M")
-                            Spacer()
-                            Text("Apache-2.0")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                        Text("The optional Kokoro voice: the speech model, its voices and its word list. Downloaded only if you choose it.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                licenceTextRow("Phonon 31m", licence: "Apache-2.0",
+                               detail: "Bundled speech model and Easton and Harper voices.", resource: "phonon-31m")
             }
         }
         .navigationTitle("Open-source Licences")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private static let sherpaComponents: [(name: String, licence: String, resource: String)] = [
-        ("OpenFst", "Apache-2.0", "openfst"),
-        ("kaldi-native-fbank", "Apache-2.0", "kaldi-native-fbank"),
-        ("KISS FFT", "BSD-3-Clause", "kissfft"),
-        ("kaldi-decoder", "Apache-2.0", "kaldi-decoder"),
-        ("simple-sentencepiece", "Apache-2.0", "simple-sentencepiece"),
-        ("utf8proc", "MIT", "utf8proc"),
-        ("JSON for Modern C++", "MIT", "nlohmann-json"),
-        ("hclust-cpp (fastcluster)", "BSD-2-Clause", "hclust-cpp"),
-        ("Eigen", "MPL-2.0", "eigen"),
-    ]
-
-    private var bundledComponentsView: some View {
-        Form {
-            ForEach(Self.sherpaComponents, id: \.resource) { component in
-                NavigationLink {
-                    LicenceTextView(title: component.name, resource: component.resource)
-                } label: {
-                    HStack {
-                        Text(component.name)
-                        Spacer()
-                        Text(component.licence)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .navigationTitle("sherpa-onnx Components")
         .navigationBarTitleDisplayMode(.inline)
     }
 
