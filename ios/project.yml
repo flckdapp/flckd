@@ -2,7 +2,7 @@ name: YoureFlocked
 options:
   bundleIdPrefix: io.vws.app.flckd
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "26.0"
   xcodeVersion: "16.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true

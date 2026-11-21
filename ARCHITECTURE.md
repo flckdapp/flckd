@@ -21,8 +21,15 @@ OpenStreetMap. The app does five things:
 - gives turn-by-turn directions along that route, and replans around cameras
   if you leave it
 
-iOS ships first (SwiftUI, MapKit, CoreLocation, SwiftData, iOS 17+, Swift 6).
+iOS ships first (SwiftUI, MapKit, CoreLocation, SwiftData, iOS 26+, Swift 6).
 Android is planned but not started.
+
+iOS 26 runs on the iPhone 11 and SE (2nd generation) and later, so the
+smallest supported phone has 3 GB of memory. The App Store can't filter by
+memory or model, so the app installs on all of them and gates features
+instead: Kokoro street names need at least 5 GB (the 12 Pro and 13 Pro
+models and every iPhone 14 and later), and phones below that get every other
+feature.
 
 ### Names and identifiers
 

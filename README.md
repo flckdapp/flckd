@@ -25,7 +25,7 @@ Inspired by [DeFlock](https://deflock.me).
 
 | Platform | Stack | Status |
 |---|---|---|
-| iOS | SwiftUI, MapKit, CoreLocation, SwiftData (iOS 17+) | Active |
+| iOS | SwiftUI, MapKit, CoreLocation, SwiftData (iOS 26+) | Active |
 | Android | Kotlin, Jetpack Compose, Room | Planned |
 
 ## Privacy

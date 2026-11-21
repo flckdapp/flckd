@@ -468,6 +468,7 @@ struct MapSnapshotButton: View {
     let action: () -> Void
     
     @State private var snapshotImage: UIImage?
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         Button(action: action) {
@@ -518,7 +519,7 @@ struct MapSnapshotButton: View {
         let options = MKMapSnapshotter.Options()
         options.region = region
         options.size = CGSize(width: 80, height: 80)
-        options.scale = UIScreen.main.scale
+        options.scale = displayScale
         
         switch style {
         case .standard: options.mapType = .standard

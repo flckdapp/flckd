@@ -92,8 +92,8 @@ struct RouteView: View {
                     .stroke(Color(red: 0.0, green: 0.7, blue: 0.65), lineWidth: 7)
             }
 
-            if let place = selectedPlace, let coord = place.placemark.location?.coordinate {
-                Marker(place.name ?? "Destination", coordinate: coord)
+            if let place = selectedPlace {
+                Marker(place.name ?? "Destination", coordinate: place.location.coordinate)
                     .tint(Color(red: 0.0, green: 0.7, blue: 0.65))
             }
         }
@@ -144,7 +144,7 @@ struct RouteView: View {
                 if showRoutingSpikeOverlay {
                     HStack {
                         RoutingDebugOverlay(
-                            destination: selectedPlace?.placemark.location?.coordinate
+                            destination: selectedPlace?.location.coordinate
                         )
                         Spacer()
                     }
@@ -741,8 +741,8 @@ struct RouteView: View {
 
     private func startNavigation() {
         guard let plan = routePlan,
-              let place = selectedPlace,
-              let coordinate = place.placemark.location?.coordinate else { return }
+              let place = selectedPlace else { return }
+        let coordinate = place.location.coordinate
 
         startAttempted = true
         let destination = NavigationSessionController.Destination(
@@ -780,14 +780,12 @@ struct RouteView: View {
                 let response = try await search.start()
                 if let item = response.mapItems.first {
                     selectedPlace = item
-                    if let coord = item.placemark.location?.coordinate {
-                        RecentsStore.add(
-                            name: item.name ?? completion.title,
-                            subtitle: completion.subtitle,
-                            coordinate: coord
-                        )
-                        recents = RecentsStore.load()
-                    }
+                    RecentsStore.add(
+                        name: item.name ?? completion.title,
+                        subtitle: completion.subtitle,
+                        coordinate: item.location.coordinate
+                    )
+                    recents = RecentsStore.load()
                     await routeToPlace(item)
                 } else {
                     routeError = "Could not locate place."
@@ -806,7 +804,10 @@ struct RouteView: View {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
 
         let coordinate = CLLocationCoordinate2D(latitude: recent.latitude, longitude: recent.longitude)
-        let item = MKMapItem(placemark: MKPlacemark(coordinate: coordinate))
+        let item = MKMapItem(
+            location: CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude),
+            address: nil
+        )
         item.name = recent.name
         selectedPlace = item
 
@@ -843,7 +844,8 @@ struct RouteView: View {
             isCalculating = false
             return
         }
-        guard let destCoord = place.placemark.location?.coordinate else {
+        let destCoord = place.location.coordinate
+        guard CLLocationCoordinate2DIsValid(destCoord) else {
             routeError = "Couldn't determine location for this place."
             isCalculating = false
             return

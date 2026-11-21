@@ -11,11 +11,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        if launchOptions?[.location] != nil {
-            // Relaunched by significantLocationChanges after termination.
-            // LocationManager will re-register via @State init and
-            // locationManagerDidChangeAuthorization → startTracking().
-        }
+        // A relaunch by significantLocationChanges after termination needs no
+        // handling here: LocationManager re-registers via @State init and
+        // locationManagerDidChangeAuthorization → startTracking().
         DispatchQueue.global(qos: .utility).async { KokoroVoiceStore.standard?.removeStalePacks() }
         return true
     }
