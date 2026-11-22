@@ -549,10 +549,18 @@ struct SettingsView: View {
 
     // MARK: - About
 
+    /// "0.1.0 (4)", read from the bundle so it always matches project.yml.
+    private var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(version) (\(build))"
+    }
+
     @ViewBuilder
     private var aboutSection: some View {
         Section {
-            LabeledContent("Version", value: "1.0.0")
+            LabeledContent("Version", value: appVersion)
 
             Link(destination: URL(string: "https://deflock.me")!) {
                 Label("DeFlock Project", systemImage: "globe")
