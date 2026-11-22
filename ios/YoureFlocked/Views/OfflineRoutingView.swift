@@ -221,14 +221,24 @@ struct OfflineRoutingView: View {
         .disabled(downloadingID != nil || offlineUpdater.isUpdating)
     }
 
+    /// Until there is at least 1% to show, show a spinner rather than a bar
+    /// stuck at 0%: the request, free-space check and first bytes take a while.
     @ViewBuilder
     private var downloadProgressLabel: some View {
-        ProgressView(value: downloadProgress)
-            .frame(width: 80)
-        Text("\(Int(downloadProgress * 100))%")
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.secondary)
-            .frame(width: 38, alignment: .trailing)
+        if downloadProgress < 0.01 {
+            ProgressView()
+                .controlSize(.small)
+            Text("Starting…")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            ProgressView(value: downloadProgress)
+                .frame(width: 80)
+            Text("\(Int(downloadProgress * 100))%")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 38, alignment: .trailing)
+        }
     }
 
     private var outdatedPacks: [TilePack] {
