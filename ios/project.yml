@@ -55,8 +55,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.vws.app.flckd
         CODE_SIGN_IDENTITY: "Apple Development"
-        MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: 4
         GENERATE_INFOPLIST_FILE: NO
     entitlements:
       path: YoureFlocked/Resources/YoureFlocked.entitlements
@@ -101,8 +101,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.vws.app.flckd.widgets
         CODE_SIGN_IDENTITY: "Apple Development"
-        MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: 4
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: YoureFlockedWidgets/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
