@@ -20,6 +20,9 @@ final class PhononSpeechService {
     private var shorterVariants: [SpeechKey: SpeechKey] = [:]
     private var variantLabels: [SpeechKey: SpeechVariant] = [:]
     private var overlong = Set<SpeechKey>()
+    /// Settings previews are samples, not navigation prompts: the five-second
+    /// limit that keeps a camera alert from waiting does not apply to them.
+    private var previewKeys = Set<SpeechKey>()
     private var predictedOmissions = Set<SpeechKey>()
     private var cameraKeys = Set<SpeechKey>()
     private var cameraCache = SpeechCache()
@@ -292,7 +295,7 @@ final class PhononSpeechService {
                         continue
                     }
                     if allowed.contains(key) {
-                        if Double(result.samples.count) / VoiceResampler.outputRate > VoiceRenderPolicy.utteranceLimit {
+                        if !previewKeys.contains(key), Double(result.samples.count) / VoiceResampler.outputRate > VoiceRenderPolicy.utteranceLimit {
                             // Keep only the duration verdict, not unusable PCM
                             // that could crowd the shorter variant out of cache.
                             overlong.insert(key)
@@ -467,15 +470,17 @@ final class PhononSpeechService {
         guard let key = key(for: utterance) else { throw PhononSynthesizer.Failure.invalidText }
         defer {
             allowed.remove(key)
+            previewKeys.remove(key)
             jobs.removeAll { $0 == key }
             cache.retain(allowed)
             failed.remove(key)
         }
+        previewKeys.insert(key); overlong.remove(key)
         allowed.insert(key); failed.remove(key); request(key, urgent: true)
         let start = ProcessInfo.processInfo.systemUptime
         while ProcessInfo.processInfo.systemUptime - start < 30, !Task.isCancelled {
             if let pcm = cache.audio[key] { return pcm }
-            if failed.contains(key) { break }
+            if failed.contains(key) || (loadFailed && warming == nil && !loaded) { break }
             try await Task.sleep(for: .milliseconds(20))
         }
         throw PhononSynthesizer.Failure.emptyAudio
