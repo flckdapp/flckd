@@ -211,12 +211,20 @@ struct SettingsView: View {
                     Button {
                         preview(voice)
                     } label: {
-                        Image(systemName: "play.circle")
-                            .font(.title2)
-                            .frame(minWidth: 44, minHeight: 44)
+                        // A live voice may need to load its model (a few seconds
+                        // the first time) and render before any sound plays.
+                        if voice.live && previewing == voice.rawValue {
+                            ProgressView()
+                                .frame(minWidth: 44, minHeight: 44)
+                        } else {
+                            Image(systemName: "play.circle")
+                                .font(.title2)
+                                .frame(minWidth: 44, minHeight: 44)
+                        }
                     }
                     .buttonStyle(.borderless)
-                    .accessibilityLabel("Preview \(voice.name)")
+                    .accessibilityLabel(voice.live && previewing == voice.rawValue
+                                        ? "Loading \(voice.name)" : "Preview \(voice.name)")
                     .disabled(tripRunning || previewing != nil)
                 }
             }
